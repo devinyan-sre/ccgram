@@ -233,31 +233,33 @@ Open your Telegram group, create a new topic, send a message — a directory bro
 
 ## Configuration Reference
 
-| Variable / Flag                | Default           | Description                                                                |
-| ------------------------------ | ----------------- | -------------------------------------------------------------------------- |
-| `TELEGRAM_BOT_TOKEN`           | _(required)_      | Bot token from @BotFather (env only)                                       |
-| `ALLOWED_USERS`                | _(required)_      | Comma-separated Telegram user IDs                                          |
-| `CCGRAM_DIR`                   | `~/.ccgram`       | Config and state directory                                                 |
-| `CCGRAM_PROVIDER`              | `claude`          | Default provider (`claude`, `codex`, `gemini`, `pi`, `shell`)              |
-| `CCGRAM_<NAME>_COMMAND`        | _(from provider)_ | Override launch command per provider                                       |
-| `CCGRAM_GROUP_ID`              | _(all groups)_    | Restrict to one Telegram group                                             |
-| `CCGRAM_STATUS_MODE`           | `system`          | Topic emoji color scheme: `system` (green=working) or `user` (green=ready) |
-| `CCGRAM_HIDE_TOOL_CALLS`       | `false`           | Global default for hiding `tool_use`/`tool_result` messages                |
-| `CCGRAM_LLM_PROVIDER`          | _(disabled)_      | LLM for shell command generation + completion summaries                    |
-| `CCGRAM_LLM_API_KEY`           | _(empty)_         | LLM API key (env only)                                                     |
-| `CCGRAM_WHISPER_PROVIDER`      | _(disabled)_      | Whisper provider for voice transcription (`openai`, `groq`)                |
-| `CCGRAM_TTS_PROVIDER`          | _(disabled)_      | TTS backend for voice replies (`edge`). Requires `pip install ccgram[tts]` |
-| `CCGRAM_TTS_VOICE`             | `en-US-EmmaMultilingualNeural` | Voice name for the selected TTS provider                      |
-| `CCGRAM_LIVE_VIEW_INTERVAL`    | `5`               | Live view refresh interval in seconds                                      |
-| `CCGRAM_LIVE_VIEW_TIMEOUT`     | `300`             | Live view auto-stop timeout in seconds                                     |
-| `CCGRAM_SEND_SEARCH_DEPTH`     | `5`               | Max directory depth for `/send` file search                                |
-| `CCGRAM_SEND_MAX_RESULTS`      | `50`              | Max file results returned by `/send` search                                |
-| `AUTOCLOSE_DONE_MINUTES`       | `30`              | Auto-close completed topics after N minutes                                |
-| `AUTOCLOSE_DEAD_MINUTES`       | `10`              | Auto-close dead sessions after N minutes                                   |
-| `CCGRAM_PANE_LIFECYCLE_NOTIFY` | `false`           | Default for per-window pane create/close notifications                     |
-| `CCGRAM_MINIAPP_BASE_URL`      | _(disabled)_      | Externally reachable HTTPS URL for the Mini App dashboard                  |
-| `CCGRAM_MINIAPP_HOST`          | `127.0.0.1`       | Local aiohttp bind host for the Mini App server                            |
-| `CCGRAM_MINIAPP_PORT`          | `8765`            | Local aiohttp bind port for the Mini App server                            |
+| Variable / Flag                | Default                        | Description                                                                                                 |
+| ------------------------------ | ------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `TELEGRAM_BOT_TOKEN`           | _(required)_                   | Bot token from @BotFather (env only)                                                                        |
+| `ALLOWED_USERS`                | _(required)_                   | Comma-separated Telegram user IDs                                                                           |
+| `CCGRAM_DIR`                   | `~/.ccgram`                    | Config and state directory                                                                                  |
+| `CCGRAM_PROVIDER`              | `claude`                       | Default provider (`claude`, `codex`, `gemini`, `pi`, `shell`)                                               |
+| `CCGRAM_<NAME>_COMMAND`        | _(from provider)_              | Override launch command per provider                                                                        |
+| `CCGRAM_GROUP_ID`              | _(all groups)_                 | Restrict to one Telegram group                                                                              |
+| `CCGRAM_STATUS_MODE`           | `system`                       | Topic emoji color scheme: `system` (green=working) or `user` (green=ready)                                  |
+| `CCGRAM_HIDE_TOOL_CALLS`       | `true`                         | Global default for hiding `tool_use`/`tool_result` messages                                                 |
+| `CCGRAM_LLM_PROVIDER`          | _(disabled)_                   | LLM for shell command generation + completion summaries                                                     |
+| `CCGRAM_LLM_API_KEY`           | _(empty)_                      | LLM API key (env only)                                                                                      |
+| `CCGRAM_WHISPER_PROVIDER`      | _(disabled)_                   | Whisper provider for voice transcription (`openai`, `groq`)                                                 |
+| `CCGRAM_TTS_PROVIDER`          | _(disabled)_                   | TTS backend for voice replies: `edge` (free, no key) or `openai`. `edge` requires `pip install ccgram[tts]` |
+| `CCGRAM_TTS_VOICE`             | `en-US-EmmaMultilingualNeural` | Voice name. For `edge`: any edge-tts voice. For `openai`: `alloy`, `nova`, `shimmer`, etc.                  |
+| `CCGRAM_TTS_MODEL`             | `gpt-4o-mini-tts`              | OpenAI TTS model. Only used when `CCGRAM_TTS_PROVIDER=openai`                                               |
+| `CCGRAM_TTS_API_KEY`           | _(empty)_                      | API key for OpenAI TTS. Falls back to `OPENAI_API_KEY` if unset                                             |
+| `CCGRAM_LIVE_VIEW_INTERVAL`    | `5`                            | Live view refresh interval in seconds                                                                       |
+| `CCGRAM_LIVE_VIEW_TIMEOUT`     | `300`                          | Live view auto-stop timeout in seconds                                                                      |
+| `CCGRAM_SEND_SEARCH_DEPTH`     | `5`                            | Max directory depth for `/send` file search                                                                 |
+| `CCGRAM_SEND_MAX_RESULTS`      | `50`                           | Max file results returned by `/send` search                                                                 |
+| `AUTOCLOSE_DONE_MINUTES`       | `30`                           | Auto-close completed topics after N minutes                                                                 |
+| `AUTOCLOSE_DEAD_MINUTES`       | `10`                           | Auto-close dead sessions after N minutes                                                                    |
+| `CCGRAM_PANE_LIFECYCLE_NOTIFY` | `false`                        | Default for per-window pane create/close notifications                                                      |
+| `CCGRAM_MINIAPP_BASE_URL`      | _(disabled)_                   | Externally reachable HTTPS URL for the Mini App dashboard                                                   |
+| `CCGRAM_MINIAPP_HOST`          | `127.0.0.1`                    | Local aiohttp bind host for the Mini App server                                                             |
+| `CCGRAM_MINIAPP_PORT`          | `8765`                         | Local aiohttp bind port for the Mini App server                                                             |
 
 Full reference: **[docs/guides.md](docs/guides.md#configuration)**
 
@@ -276,11 +278,13 @@ The Mini App is **disabled by default**. When `CCGRAM_MINIAPP_BASE_URL` is unset
 ### Enable
 
 1. Set the three Mini App env vars:
+
    ```ini
    CCGRAM_MINIAPP_BASE_URL=https://ccgram.example.com
    CCGRAM_MINIAPP_HOST=127.0.0.1
    CCGRAM_MINIAPP_PORT=8765
    ```
+
 2. Terminate TLS in front of the local aiohttp server (cloudflared, caddy, or nginx). The server listens on plain HTTP at `MINIAPP_HOST:MINIAPP_PORT`; the public domain in `MINIAPP_BASE_URL` must serve it over HTTPS — Telegram WebApps refuse plain HTTP.
 3. In [@BotFather](https://t.me/BotFather):
    - `/setdomain` — register your domain
