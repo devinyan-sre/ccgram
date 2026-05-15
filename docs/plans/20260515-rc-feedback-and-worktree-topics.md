@@ -90,7 +90,8 @@ A new step in the new-topic flow. Inserted between directory-confirm and provide
 
 ### Feature 1 — RC probe
 
-**`arm_rc_probe(window_id: str) -> None`** in `handlers/status/rc_probe.py`:
+**`arm_rc_probe(window_id: str, client: TelegramClient) -> None`** in `handlers/status/rc_probe.py`:
+- ⚠️ Signature deviation from original plan: takes an explicit `client: TelegramClient`. There is no global bot accessor in the codebase, and F5 mandates explicit `TelegramClient` threading. Both Task 2 entry points already have a bot (`query.get_bot()` / `context.bot`) to wrap in `PTBTelegramClient`. The probe still "owns" its send path via `safe_send`.
 - Reads existing `rc_probe_state` from `WindowState`. If `armed`, returns early (double-tap guard).
 - Sets `rc_probe_state = "armed"`, `rc_armed_at = monotonic()`.
 - Schedules `_classify_loop(window_id)` via `asyncio.create_task`.
@@ -194,14 +195,14 @@ Set on window creation in `topic_orchestration.py` when the flow took the worktr
 - Modify: `src/ccgram/window_state_store.py`
 - Create: `tests/ccgram/handlers/status/test_rc_probe.py`
 
-- [ ] add `rc_probe_state: Literal["armed", "classified"] | None = None` and `rc_armed_at: float | None = None` to `WindowState` dataclass
-- [ ] update `WindowState` serialization to drop these on round-trip (or persist — pick one consistently); ensure existing state.json files load without error (backward-compat for missing fields)
-- [ ] create `rc_probe.py` with: `RCOutcome` enum/union, `classify_rc_output(text: str) -> RCOutcome` pure function, `arm_rc_probe(window_id: str) -> None`, `_classify_loop(window_id: str)` coroutine, `_send_outcome_reply` helper
-- [ ] capability gate: `arm_rc_probe` returns immediately if `get_provider_for_window(window_id).capabilities.name != "claude"`
-- [ ] write unit tests for `classify_rc_output` with fixture pane captures: success with URL, success URL near prompt, unavailable phrases, error phrases, pending (nothing matches)
-- [ ] write unit tests for `arm_rc_probe` double-tap guard (second call while `armed` is no-op)
-- [ ] write integration-style test for `_classify_loop`: stubbed `capture_pane` returns success on second poll → asserts one `safe_send` call with URL; FakeTelegramClient asserts no `telegram.Bot` import
-- [ ] run `make check` — must pass before Task 2
+- [x] add `rc_probe_state: Literal["armed", "classified"] | None = None` and `rc_armed_at: float | None = None` to `WindowState` dataclass
+- [x] update `WindowState` serialization to drop these on round-trip (or persist — pick one consistently); ensure existing state.json files load without error (backward-compat for missing fields) — chose transient: NOT added to to_dict/from_dict; dataclass defaults give backward-compat on load
+- [x] create `rc_probe.py` with: `RCOutcome` enum/union, `classify_rc_output(text: str) -> RCOutcome` pure function, `arm_rc_probe(window_id, client) -> None`, `_classify_loop(window_id, client)` coroutine, `_send_outcome_reply` helper (`_format_reply` split out for testability)
+- [x] capability gate: `arm_rc_probe` returns immediately if `get_provider_for_window(window_id).capabilities.name != "claude"`
+- [x] write unit tests for `classify_rc_output` with fixture pane captures: success with URL, success URL near prompt, unavailable phrases, error phrases, pending (nothing matches)
+- [x] write unit tests for `arm_rc_probe` double-tap guard (second call while `armed` is no-op) + capability gate (codex → no-op)
+- [x] write integration-style test for `_classify_loop`: stubbed `capture_pane` returns success on second poll → asserts one `safe_send` call with URL; plus timeout-resets-state test and a source-scan test asserting no `telegram.Bot` import
+- [x] run `make check` — fmt/lint/typecheck/deptry clean; 4787 unit pass (incl. new layering allowlist entry for `status/rc_probe.py`); 267 integration pass. ⚠️ `test_doctor_cmd.py::test_reports_missing_hooks_for_codex_provider` fails on clean branch HEAD too (pre-existing, environmental, unrelated to Task 1) — tracked separately
 
 ### Task 2: Wire RC probe into both trigger paths
 

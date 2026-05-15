@@ -127,6 +127,11 @@ class WindowState:
         panes: Per-pane runtime state, keyed by tmux pane id (e.g. ``%5``).
         pane_lifecycle_notify: Per-window override for pane created/closed
             notifications. ``None`` means "use the global config default".
+        rc_probe_state: Remote Control outcome-probe lifecycle —
+            ``"armed"`` while a probe is running, ``"classified"`` once
+            it has posted a verdict. In-memory only (NOT serialized) —
+            transient and safe to drop on restart.
+        rc_armed_at: ``time.monotonic()`` at probe arm. In-memory only.
     """
 
     session_id: str = ""
@@ -142,6 +147,10 @@ class WindowState:
     origin: str = DEFAULT_WINDOW_ORIGIN
     panes: dict[str, PaneInfo] = field(default_factory=dict)
     pane_lifecycle_notify: bool | None = None
+    # Transient RC-probe lifecycle — in-memory only, intentionally not in
+    # to_dict/from_dict (drops on restart).
+    rc_probe_state: Literal["armed", "classified"] | None = None
+    rc_armed_at: float | None = None
 
     def to_dict(self) -> dict[str, Any]:  # noqa: C901
         d: dict[str, Any] = {
