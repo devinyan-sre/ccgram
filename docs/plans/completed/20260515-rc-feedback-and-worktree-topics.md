@@ -293,11 +293,11 @@ Set on window creation in `topic_orchestration.py` when the flow took the worktr
 - Modify: `.claude/rules/topic-architecture.md`
 - Move: this plan to `docs/plans/completed/`
 
-- [ ] update `CLAUDE.md`: brief note under "Provider Configuration" (Claude RC feedback) and a new "Git Worktree Integration" subsection under topic flow
-- [ ] update `.claude/rules/architecture.md`: add `handlers/status/rc_probe.py` and `handlers/topics/worktree.py` to module inventory
-- [ ] update `.claude/rules/topic-architecture.md`: insert "Worktree picker (optional, inserted when directory is an eligible git repo)" between directory-confirm and provider-pick in the new-topic flow narrative
-- [ ] move this plan to `docs/plans/completed/`
-- [ ] final `make check`
+- [x] update `CLAUDE.md`: added "RC feedback" capability-matrix row + "### Remote Control Feedback" subsection under Provider Configuration, and a new "## Git Worktree Integration" section before "## Testing"
+- [x] update `.claude/rules/architecture.md`: added `rc_probe.py` to the `handlers/status/` table and `worktree.py` to the `handlers/topics/` table (plus directory_browser/directory_callbacks descriptions updated for the worktree responsibilities)
+- [x] update `.claude/rules/topic-architecture.md`: inserted the optional worktree picker step between directory-select and provider-select in the new-topic flow narrative
+- [x] move this plan to `docs/plans/completed/`
+- [x] final `make check` — fmt/lint-lazy/lint/typecheck clean; 4846 unit pass; 274 integration pass. ⚠️ only pre-existing `test_doctor_cmd.py::test_reports_missing_hooks_for_codex_provider` fails (environmental — codex hooks installed on this machine; doc-only task touches no code)
 
 ## Post-Completion
 
