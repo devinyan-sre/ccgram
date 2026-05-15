@@ -184,3 +184,12 @@ class TestCreateWorktree:
         (target / "stray.txt").write_text("x")
         with pytest.raises(WorktreeError):
             create_worktree(git_repo, "ccg/occupied", target)
+
+    def test_parent_dir_mkdir_failure_raises_worktree_error(
+        self, git_repo: Path
+    ) -> None:
+        target = worktree_path_for(git_repo, "blocked")
+        target.parent.parent.mkdir(parents=True, exist_ok=True)
+        target.parent.write_text("not a directory")
+        with pytest.raises(WorktreeError):
+            create_worktree(git_repo, "ccg/blocked", target)

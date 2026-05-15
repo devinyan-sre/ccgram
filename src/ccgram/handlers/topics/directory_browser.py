@@ -45,9 +45,11 @@ from ..callback_data import (
 from ..user_state import (
     AWAITING_WORKTREE_BRANCH_NAME,
     PENDING_WORKTREE_BRANCH,
+    PENDING_WORKTREE_CREATING,
     PENDING_WORKTREE_DIRTY,
     PENDING_WORKTREE_PATH,
     PENDING_WORKTREE_REPO,
+    PENDING_WORKTREE_SUBDIR,
 )
 
 # Max favorites shown in directory browser
@@ -111,6 +113,8 @@ def clear_worktree_state(user_data: dict | None) -> None:
             PENDING_WORKTREE_BRANCH,
             PENDING_WORKTREE_PATH,
             PENDING_WORKTREE_DIRTY,
+            PENDING_WORKTREE_SUBDIR,
+            PENDING_WORKTREE_CREATING,
             AWAITING_WORKTREE_BRANCH_NAME,
         ):
             user_data.pop(key, None)

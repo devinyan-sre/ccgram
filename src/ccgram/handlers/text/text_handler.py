@@ -33,6 +33,7 @@ from ..topics.directory_browser import (
     build_worktree_confirm,
     clear_browse_state,
     clear_window_picker_state,
+    clear_worktree_state,
 )
 from ..topics.worktree import (
     slug_for_path,
@@ -178,8 +179,13 @@ async def _check_ui_guards(
                 "Please use the window picker above, or tap Cancel.",
             )
             return True
-        # Stale picker state from a different thread — clear it
+        # Stale picker state from a different thread — clear it.
+        # clear_worktree_state too: a half-finished worktree flow in the
+        # other thread leaves PENDING_WORKTREE_* (incl. the CREATING
+        # re-entrancy flag) set; without this the next worktree confirm
+        # in this thread is rejected as "Creating worktree…" forever.
         clear_window_picker_state(user_data)
+        clear_worktree_state(user_data)
         user_data.pop(PENDING_THREAD_ID, None)
         user_data.pop(PENDING_THREAD_TEXT, None)
 
@@ -192,8 +198,13 @@ async def _check_ui_guards(
                 "Please use the directory browser above, or tap Cancel.",
             )
             return True
-        # Stale browsing state from a different thread — clear it
+        # Stale browsing state from a different thread — clear it.
+        # The worktree picker runs inside STATE_BROWSING_DIRECTORY, so a
+        # superseded flow leaves PENDING_WORKTREE_* (incl. the CREATING
+        # re-entrancy flag) behind; clear it or the next worktree confirm
+        # in this thread stays stuck on "Creating worktree…".
         clear_browse_state(user_data)
+        clear_worktree_state(user_data)
         user_data.pop(PENDING_THREAD_ID, None)
         user_data.pop(PENDING_THREAD_TEXT, None)
 
@@ -225,7 +236,8 @@ async def _handle_worktree_name_reply(
         return True
 
     name = text.strip()
-    if not validate_branch_name(name):
+    # Offloaded: validate_branch_name shells out to `git check-ref-format`.
+    if not await asyncio.to_thread(validate_branch_name, name):
         await safe_reply(message, "❌ Invalid branch name; try again or tap Cancel.")
         return True
 

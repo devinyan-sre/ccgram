@@ -224,6 +224,13 @@ class TestDoctorMain:
         monkeypatch.setenv("ALLOWED_USERS", "123")
         monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
 
+        # Isolate from the dev machine's real ~/.codex (codex hooks may be
+        # installed there) so the "not installed" path is exercised.
+        monkeypatch.setattr(
+            "ccgram.hook._codex_hooks_file",
+            lambda: tmp_path / ".codex" / "hooks.json",
+        )
+
         monkeypatch.setattr(
             "ccgram.doctor_cmd.shutil.which",
             lambda _cmd: f"/usr/bin/{_cmd}",

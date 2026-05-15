@@ -7,6 +7,7 @@ from telegram import InlineKeyboardMarkup
 
 from ccgram.handlers.callback_data import (
     CB_DIR_CANCEL,
+    CB_DIR_STAR,
     CB_WT_CONFIRM,
     CB_WT_EDIT_NAME,
     CB_WT_NEW,
@@ -15,6 +16,8 @@ from ccgram.handlers.callback_data import (
 from ccgram.handlers.topics.directory_browser import BROWSE_PATH_KEY
 from ccgram.handlers.topics.directory_callbacks import (
     _handle_confirm,
+    _handle_star,
+    _handle_up,
     _handle_worktree_callback,
     _handle_wt_confirm,
     _handle_wt_edit_name,
@@ -114,6 +117,57 @@ class TestConfirmWorktreeGating:
         assert "Select Provider" in text
         assert PENDING_WORKTREE_REPO not in user_data
 
+    @patch(
+        "ccgram.handlers.topics.directory_callbacks.safe_edit", new_callable=AsyncMock
+    )
+    @patch("ccgram.handlers.topics.directory_callbacks.thread_router")
+    async def test_confirm_after_new_command_reset_fails_closed(
+        self, mock_tr: MagicMock, mock_edit: AsyncMock, git_repo: Path
+    ) -> None:
+        from ccgram.handlers.topics.new_command import new_command
+
+        mock_tr.get_window_for_thread.return_value = None
+        user_data = {BROWSE_PATH_KEY: str(git_repo), PENDING_THREAD_ID: 42}
+        context = _make_context(user_data)
+
+        nc_update = MagicMock()
+        nc_update.effective_user = MagicMock(id=100)
+        nc_update.message = AsyncMock()
+        with patch(
+            "ccgram.handlers.topics.new_command.config.is_user_allowed",
+            return_value=True,
+        ):
+            await new_command(nc_update, context)
+
+        query = _make_query()
+        await _handle_confirm(query, 100, _make_update(42), context)
+
+        query.answer.assert_called_once_with(
+            "Stale browser (flow reset)", show_alert=True
+        )
+        mock_edit.assert_not_called()
+        assert PENDING_WORKTREE_REPO not in user_data
+
+    @patch(
+        "ccgram.handlers.topics.directory_callbacks.safe_edit", new_callable=AsyncMock
+    )
+    @patch("ccgram.handlers.topics.directory_callbacks.thread_router")
+    async def test_confirm_with_repopulated_path_but_no_pending_thread(
+        self, mock_tr: MagicMock, mock_edit: AsyncMock, git_repo: Path
+    ) -> None:
+        mock_tr.get_window_for_thread.return_value = None
+        user_data = {BROWSE_PATH_KEY: str(git_repo)}
+        context = _make_context(user_data)
+
+        query = _make_query()
+        await _handle_confirm(query, 100, _make_update(42), context)
+
+        query.answer.assert_called_once_with(
+            "Stale browser (flow reset)", show_alert=True
+        )
+        mock_edit.assert_not_called()
+        assert PENDING_WORKTREE_REPO not in user_data
+
 
 class TestHandleWtUseCurrent:
     @patch(
@@ -135,6 +189,54 @@ class TestHandleWtUseCurrent:
         assert "Select Provider" in text
         assert PENDING_WORKTREE_REPO not in user_data
         assert PENDING_WORKTREE_DIRTY not in user_data
+
+    @patch(
+        "ccgram.handlers.topics.directory_callbacks.safe_edit", new_callable=AsyncMock
+    )
+    async def test_state_lost_fails_closed(self, mock_edit: AsyncMock) -> None:
+        context = _make_context({})
+        await _handle_wt_use_current(_make_query(), context)
+        assert "state lost" in mock_edit.call_args[0][1].lower()
+        assert "Select Provider" not in mock_edit.call_args[0][1]
+
+    @patch(
+        "ccgram.handlers.topics.directory_callbacks.safe_edit", new_callable=AsyncMock
+    )
+    async def test_browse_path_gone_fails_closed(self, mock_edit: AsyncMock) -> None:
+        context = _make_context({PENDING_WORKTREE_REPO: "/tmp/proj"})
+        await _handle_wt_use_current(_make_query(), context)
+        assert "state lost" in mock_edit.call_args[0][1].lower()
+
+    @patch(
+        "ccgram.handlers.topics.directory_callbacks.safe_edit", new_callable=AsyncMock
+    )
+    async def test_stale_button_after_new_command_reset_fails_closed(
+        self, mock_edit: AsyncMock
+    ) -> None:
+        from ccgram.handlers.topics.new_command import new_command
+
+        user_data = {
+            BROWSE_PATH_KEY: "/tmp/proj",
+            PENDING_WORKTREE_REPO: "/tmp/proj",
+            PENDING_THREAD_ID: 42,
+        }
+        context = _make_context(user_data)
+
+        nc_update = MagicMock()
+        nc_update.effective_user = MagicMock(id=100)
+        nc_update.message = AsyncMock()
+        with patch(
+            "ccgram.handlers.topics.new_command.config.is_user_allowed",
+            return_value=True,
+        ):
+            await new_command(nc_update, context)
+
+        await _handle_worktree_callback(
+            _make_query(), CB_WT_USE_CURRENT, _make_update(42), context
+        )
+
+        assert "state lost" in mock_edit.call_args[0][1].lower()
+        assert "Select Provider" not in mock_edit.call_args[0][1]
 
 
 class TestHandleWtNew:
@@ -223,10 +325,52 @@ class TestHandleWtEditName:
         "ccgram.handlers.topics.directory_callbacks.safe_edit", new_callable=AsyncMock
     )
     async def test_sets_awaiting_flag(self, mock_edit: AsyncMock) -> None:
-        context = _make_context({})
+        context = _make_context({PENDING_WORKTREE_REPO: "/tmp/proj"})
         await _handle_wt_edit_name(_make_query(), context)
         assert context.user_data[AWAITING_WORKTREE_BRANCH_NAME] is True
         assert "branch name" in mock_edit.call_args[0][1].lower()
+
+    @patch(
+        "ccgram.handlers.topics.directory_callbacks.safe_edit", new_callable=AsyncMock
+    )
+    async def test_missing_repo_state_does_not_arm_flag(
+        self, mock_edit: AsyncMock
+    ) -> None:
+        context = _make_context({})
+        await _handle_wt_edit_name(_make_query(), context)
+        assert AWAITING_WORKTREE_BRANCH_NAME not in context.user_data
+        assert "state lost" in mock_edit.call_args[0][1].lower()
+
+    @patch(
+        "ccgram.handlers.topics.directory_callbacks.safe_edit", new_callable=AsyncMock
+    )
+    async def test_stale_edit_name_after_new_command_reset_fails_closed(
+        self, mock_edit: AsyncMock
+    ) -> None:
+        from ccgram.handlers.topics.new_command import new_command
+
+        user_data = {
+            BROWSE_PATH_KEY: "/tmp/proj",
+            PENDING_WORKTREE_REPO: "/tmp/proj",
+            PENDING_THREAD_ID: 42,
+        }
+        context = _make_context(user_data)
+
+        nc_update = MagicMock()
+        nc_update.effective_user = MagicMock(id=100)
+        nc_update.message = AsyncMock()
+        with patch(
+            "ccgram.handlers.topics.new_command.config.is_user_allowed",
+            return_value=True,
+        ):
+            await new_command(nc_update, context)
+
+        await _handle_worktree_callback(
+            _make_query(), CB_WT_EDIT_NAME, _make_update(42), context
+        )
+
+        assert AWAITING_WORKTREE_BRANCH_NAME not in user_data
+        assert "state lost" in mock_edit.call_args[0][1].lower()
 
 
 class TestWorktreeDispatchStaleGuard:
@@ -272,3 +416,80 @@ class TestWorktreeDispatchStaleGuard:
         ):
             await _handle_worktree_callback(_make_query(), data, update, context)
             mock.assert_awaited_once()
+
+
+class TestNavigationStaleGuard:
+    @patch(
+        "ccgram.handlers.topics.directory_callbacks.safe_edit", new_callable=AsyncMock
+    )
+    async def test_stale_up_after_new_command_reset_fails_closed(
+        self, mock_edit: AsyncMock
+    ) -> None:
+        from ccgram.handlers.topics.new_command import new_command
+
+        user_data = {BROWSE_PATH_KEY: "/some/old/path", PENDING_THREAD_ID: 42}
+        context = _make_context(user_data)
+        nc_update = MagicMock()
+        nc_update.effective_user = MagicMock(id=100)
+        nc_update.message = AsyncMock()
+        with patch(
+            "ccgram.handlers.topics.new_command.config.is_user_allowed",
+            return_value=True,
+        ):
+            await new_command(nc_update, context)
+
+        query = _make_query()
+        await _handle_up(query, 100, _make_update(42), context)
+
+        query.answer.assert_called_once_with(
+            "Stale browser (flow reset)", show_alert=True
+        )
+        mock_edit.assert_not_called()
+        assert BROWSE_PATH_KEY not in user_data
+
+    @patch(
+        "ccgram.handlers.topics.directory_callbacks.safe_edit", new_callable=AsyncMock
+    )
+    @patch("ccgram.handlers.topics.directory_callbacks.user_preferences")
+    async def test_stale_star_after_new_command_reset_does_not_toggle(
+        self, mock_prefs: MagicMock, mock_edit: AsyncMock
+    ) -> None:
+        from ccgram.handlers.topics.new_command import new_command
+
+        user_data = {BROWSE_PATH_KEY: "/some/old/path", PENDING_THREAD_ID: 42}
+        context = _make_context(user_data)
+        nc_update = MagicMock()
+        nc_update.effective_user = MagicMock(id=100)
+        nc_update.message = AsyncMock()
+        with patch(
+            "ccgram.handlers.topics.new_command.config.is_user_allowed",
+            return_value=True,
+        ):
+            await new_command(nc_update, context)
+
+        query = _make_query()
+        await _handle_star(query, 100, f"{CB_DIR_STAR}0", _make_update(42), context)
+
+        query.answer.assert_called_once_with(
+            "Stale browser (flow reset)", show_alert=True
+        )
+        mock_prefs.toggle_user_star.assert_not_called()
+        mock_edit.assert_not_called()
+        assert BROWSE_PATH_KEY not in user_data
+
+    async def test_cross_topic_up_is_rejected(self) -> None:
+        context = _make_context({PENDING_THREAD_ID: 99})
+        query = _make_query()
+        await _handle_up(query, 100, _make_update(42), context)
+        query.answer.assert_called_once_with(
+            "Stale browser (flow reset)", show_alert=True
+        )
+
+    async def test_stale_up_with_no_pending_thread_fails_closed(self) -> None:
+        context = _make_context({BROWSE_PATH_KEY: "/some/old/path"})
+        query = _make_query()
+        await _handle_up(query, 100, _make_update(42), context)
+        query.answer.assert_called_once_with(
+            "Stale browser (flow reset)", show_alert=True
+        )
+        assert context.user_data.get(BROWSE_PATH_KEY) == "/some/old/path"

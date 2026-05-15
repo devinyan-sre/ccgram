@@ -221,7 +221,12 @@ def create_worktree(repo_path: Path, branch: str, worktree_path: Path) -> None:
     Raises ``WorktreeError`` with git's stderr on any failure (branch
     already exists, target path occupied, git/OS error).
     """
-    worktree_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        worktree_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise WorktreeError(
+            f"could not create worktree parent directory: {exc}"
+        ) from exc
     try:
         res = subprocess.run(
             [
