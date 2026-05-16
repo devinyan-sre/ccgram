@@ -282,6 +282,50 @@ class TestPaneLifecycleNotify:
         assert store.get_pane_lifecycle_notify("@1", default=True) is True
 
 
+class TestWindowStateWorktree:
+    def test_defaults_are_none(self) -> None:
+        ws = WindowState()
+        assert ws.worktree_path is None
+        assert ws.worktree_branch is None
+
+    def test_to_dict_omits_when_none(self) -> None:
+        ws = WindowState(cwd="/p")
+        d = ws.to_dict()
+        assert "worktree_path" not in d
+        assert "worktree_branch" not in d
+
+    def test_to_dict_includes_when_set(self) -> None:
+        ws = WindowState(
+            cwd="/p",
+            worktree_path="/p.worktrees/ccg-feature",
+            worktree_branch="ccg/feature",
+        )
+        d = ws.to_dict()
+        assert d["worktree_path"] == "/p.worktrees/ccg-feature"
+        assert d["worktree_branch"] == "ccg/feature"
+
+    def test_from_dict_round_trip(self) -> None:
+        original = WindowState(
+            cwd="/p",
+            worktree_path="/p.worktrees/ccg-x",
+            worktree_branch="ccg/x",
+        )
+        loaded = WindowState.from_dict(original.to_dict())
+        assert loaded.worktree_path == "/p.worktrees/ccg-x"
+        assert loaded.worktree_branch == "ccg/x"
+
+    def test_from_dict_missing_fields_default_to_none(self) -> None:
+        ws = WindowState.from_dict({"session_id": "s", "cwd": "/p"})
+        assert ws.worktree_path is None
+        assert ws.worktree_branch is None
+
+    def test_set_window_worktree_persists(self, mgr: SessionManager) -> None:
+        mgr.set_window_worktree("@3", "/repo.worktrees/ccg-y", "ccg/y")
+        state = window_store.window_states["@3"]
+        assert state.worktree_path == "/repo.worktrees/ccg-y"
+        assert state.worktree_branch == "ccg/y"
+
+
 class TestNotificationMode:
     def test_default_is_all(self, store: WindowStateStore) -> None:
         assert store.get_notification_mode("@1") == "all"

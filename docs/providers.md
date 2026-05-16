@@ -14,7 +14,7 @@ CCGram supports multiple agent CLI backends. Each Telegram topic can use a diffe
 
 ## Choosing a Provider
 
-**From Telegram**: When you create a new topic and select a directory, a provider picker appears with Claude (default), Codex, Gemini, Pi, and Shell options. After provider selection, CCGram asks for session mode:
+**From Telegram**: When you create a new topic and select a directory, then — if the directory is an eligible git repo — choose whether to use the current branch or create a new worktree on a new branch (non-git directories skip this step), a provider picker appears with Claude (default), Codex, Gemini, Pi, and Shell options. After provider selection, CCGram asks for session mode:
 
 - `✅ Standard` (normal approvals)
 - `🚀 YOLO` (provider-specific permissive mode)
@@ -71,7 +71,7 @@ Each provider exposes its own slash commands to the Telegram menu. Examples:
 
 Claude Code has the richest integration — hook events (SessionStart, Notification, Stop, StopFailure, SessionEnd, SubagentStart, SubagentStop, TeammateIdle, TaskCompleted) provide instant session tracking, interactive UI detection, done/idle detection, API error alerting, session lifecycle cleanup, subagent activity monitoring, and agent team notifications.
 
-The bot also detects Remote Control mode (📡 topic badge + one-tap activation button) and uses a pyte VT100 screen buffer as fallback for terminal status parsing. Multi-pane windows (e.g. from agent teams) are automatically scanned for blocked panes and surfaced as inline keyboard alerts.
+The bot also detects Remote Control mode (📡 topic badge + one-tap activation button). Claude's `/remote-control` reports no outcome, so ccgram captures the pane ~1.5 s after RC is triggered (re-scanning every 1.5 s up to 10 s), classifies the result — success with sharing URL, success without URL, unavailable, or failed — and posts a single status reply in the topic. This is Claude-only; other providers keep their existing "not supported" reply. The bot uses a pyte VT100 screen buffer as fallback for terminal status parsing. Multi-pane windows (e.g. from agent teams) are automatically scanned for blocked panes and surfaced as inline keyboard alerts.
 
 ### Hooks
 
