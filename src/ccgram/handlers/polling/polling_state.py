@@ -18,6 +18,7 @@ module instead when stateful behaviour is not required.
 
 from __future__ import annotations
 
+import re
 import time
 import zlib
 from collections.abc import Iterable
@@ -50,6 +51,29 @@ if TYPE_CHECKING:
     from ...tmux_manager import PaneInfo as TmuxPaneInfo
 
 logger = structlog.get_logger()
+
+# cc-thingz hook-runner writes structlog ConsoleRenderer lines straight
+# into the agent pane (e.g. ``2026-05-15 14:12:27 [debug    ] ...``).
+# These leak into capture_pane and skew status / interactive-UI parsing
+# (issue #87). Drop them before feeding pyte. Upstream fix is cc-thingz
+# not writing to the pane; this is the defensive ccgram-side mitigation.
+_HOOK_RUNNER_LOG_RE = re.compile(
+    r"^(?:\x1b\[[0-9;]*m)*"
+    r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} "
+    r"\[\s*(?:debug|info|warning|error|critical)\s*\]"
+)
+
+
+def _strip_hook_runner_noise(pane_text: str) -> str:
+    """Drop cc-thingz hook-runner log lines from a raw pane capture."""
+    if "] " not in pane_text:
+        return pane_text
+    lines = pane_text.split("\n")
+    kept = [ln for ln in lines if not _HOOK_RUNNER_LOG_RE.match(ln)]
+    if len(kept) == len(lines):
+        return pane_text
+    return "\n".join(kept)
+
 
 # ── TerminalScreenBuffer ───────────────────────────────────────────────
 
@@ -176,6 +200,8 @@ class TerminalScreenBuffer:
             or rows <= 0
         ):
             columns, rows = 200, 50
+
+        pane_text = _strip_hook_runner_noise(pane_text)
 
         ws = self._poll_state.get_state(window_id)
         content_hash = hash((pane_text, columns, rows))
