@@ -131,7 +131,7 @@ def verify_hooks_installed() -> None:
 
     try:
         settings = json.loads(settings_file.read_text())
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         logger.warning("Claude Code hooks not installed. Run: ccgram hook --install")
         return
 
