@@ -160,7 +160,7 @@ Timing: 1 minute.
 <!--
 The concrete implementation pattern.
 
-A Telegram Forum topic maps to one tmux window. The stable identity is the tmux window id. The topic is just a mobile handle for the live terminal context.
+A Telegram Group topic maps to one tmux window. The stable identity is the tmux window id. The topic is just a mobile handle for the live terminal context.
 
 Timing: 1 minute.
 -->
