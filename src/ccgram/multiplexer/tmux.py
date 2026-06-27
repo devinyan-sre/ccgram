@@ -35,6 +35,7 @@ from libtmux.exc import LibTmuxException
 
 from ..config import config
 from .base import (
+    AgentStatus,
     CaptureResult,
     ForegroundInfo,
     MultiplexerCapabilities,
@@ -703,6 +704,29 @@ class TmuxManager:
 
         return await asyncio.to_thread(_sync_list_panes)
 
+    async def split_window(self, window_id: str) -> str | None:
+        """Split a window's active pane via libtmux; return the new pane id.
+
+        Returns None when the window is gone or the split fails.
+        """
+
+        def _sync_split() -> str | None:
+            session = self.get_session()
+            if not session:
+                return None
+            try:
+                window = session.windows.get(window_id=window_id, default=None)
+                if not window:
+                    return None
+                pane = window.split()
+                return pane.pane_id or None
+            except _TmuxError as exc:
+                logger.debug("Failed to split window %s: %s", window_id, exc)
+                self._reset_server()
+                return None
+
+        return await asyncio.to_thread(_sync_split)
+
     async def capture_pane_by_id(
         self,
         pane_id: str,
@@ -1008,6 +1032,16 @@ class TmuxManager:
     async def set_title(self, window_id: str, provider_name: str) -> None:
         """Set the pane title for re-detection (alias of ``stamp_pane_title``)."""
         await self.stamp_pane_title(window_id, provider_name)
+
+    async def agent_status(
+        self,
+        window_id: str,  # noqa: ARG002 — protocol signature
+    ) -> AgentStatus | None:
+        """tmux has no native agent status (``native_agent_status`` is False).
+
+        Returns None so callers fall back to terminal scraping.
+        """
+        return None
 
     async def foreground(self, window_id: str) -> ForegroundInfo | None:
         """Return foreground process info for the active pane via ``ps -t``.

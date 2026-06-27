@@ -101,6 +101,21 @@ class WorkspaceRef:
     cwd: str  # Root directory of the workspace
 
 
+@dataclass(frozen=True)
+class AgentStatus:
+    """Native agent run-state reported by the multiplexer.
+
+    Only backends with ``capabilities.native_agent_status`` populate this
+    (herdr); others return ``None`` from ``agent_status()`` so callers fall
+    back to terminal scraping. ``state`` is the backend's raw label — herdr
+    reports ``working`` / ``idle`` / ``done`` / ``blocked`` / ``unknown``.
+    """
+
+    state: str
+    agent: str = ""  # Agent name (e.g. "claude", "codex"); "" when none
+    custom_status: str = ""  # Optional short activity label (herdr custom_status)
+
+
 # ── Capabilities ───────────────────────────────────────────────────────
 
 
@@ -294,6 +309,26 @@ class Multiplexer(Protocol):
 
         Uses ``pane_tty`` + ``ps -t`` on tmux; ``pane process-info`` on herdr.
         Returns None when the window is gone or no foreground process exists.
+        """
+        ...
+
+    async def agent_status(self, window_id: str) -> "AgentStatus | None":
+        """Return the active pane's native agent run-state, or None.
+
+        Only meaningful when ``capabilities.native_agent_status`` is True
+        (herdr reads ``pane.agent_status``). tmux has no native agent status
+        and returns None, so callers fall back to terminal scraping.
+        """
+        ...
+
+    async def split_window(self, window_id: str) -> str | None:
+        """Split the window's active pane; return the new pane id, or None.
+
+        Adds a sibling pane to the window/tab (the multi-pane "agent team"
+        shape): herdr ``pane split``, tmux ``window.split()``. The returned id
+        is a real pane id (``%N`` for tmux, ``wN:pK`` for herdr) and is
+        discoverable via ``list_panes`` / the ``/panes`` command. None on
+        failure (window gone, backend error).
         """
         ...
 

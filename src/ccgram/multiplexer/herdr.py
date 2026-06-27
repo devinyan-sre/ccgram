@@ -39,6 +39,7 @@ from pathlib import Path
 import structlog
 
 from .base import (
+    AgentStatus,
     CaptureResult,
     ForegroundInfo,
     MultiplexerCapabilities,
@@ -829,6 +830,49 @@ class HerdrManager:
         if pane_id is None:
             return None
         return await self._foreground_for_pane(pane_id)
+
+    async def agent_status(self, window_id: str) -> AgentStatus | None:
+        """Native agent run-state for the active pane in a tab.
+
+        *window_id* is a tab id. Reads ``pane.agent_status`` (herdr reports
+        ``working`` / ``idle`` / ``done`` / ``blocked`` / ``unknown``). Returns
+        None when the tab is gone, has no pane, or carries no status string.
+        """
+        pane_id = await self._active_pane(window_id)
+        if pane_id is None:
+            return None
+        pane = await self._pane_get(pane_id)
+        if pane is None:
+            return None
+        state = (pane.get("agent_status") or "").strip()
+        if not state:
+            return None
+        return AgentStatus(
+            state=state,
+            agent=(pane.get("agent") or "").strip(),
+            custom_status=(pane.get("custom_status") or "").strip(),
+        )
+
+    async def split_window(self, window_id: str) -> str | None:
+        """Split the active pane of a tab via ``pane split``; return new pane id.
+
+        *window_id* is a tab id. Splits ``--direction down --no-focus`` (keeps
+        the user's focus put) and parses the new pane id from
+        ``result.pane.pane_id``. None when the tab is gone or the split failed.
+        """
+        pane_id = await self._active_pane(window_id)
+        if pane_id is None:
+            return None
+        result = await self._call_json(
+            ["pane", "split", pane_id, "--direction", "down", "--no-focus"]
+        )
+        if not result:
+            return None
+        pane = result.get("pane")
+        if not isinstance(pane, dict):
+            return None
+        new_id = pane.get("pane_id")
+        return new_id if isinstance(new_id, str) and new_id else None
 
     # ── Transitional surface (legacy aliases) ──────────────────────────
     # Mirror the historical ``tmux_manager`` names callers still use, so the
