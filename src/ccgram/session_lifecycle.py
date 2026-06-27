@@ -32,6 +32,15 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 
+def _same_transcript_path(
+    old_details: dict[str, Any],
+    new_details: dict[str, Any],
+) -> bool:
+    old_path = old_details.get("transcript_path", "")
+    new_path = new_details.get("transcript_path", "")
+    return bool(old_path and new_path and old_path == new_path)
+
+
 @dataclass
 class ReconcileResult:
     """Result of a session_map reconciliation pass."""
@@ -79,6 +88,14 @@ class SessionLifecycle:
         for window_id, old_details in self._last_session_map.items():
             new_details = current_map.get(window_id)
             if new_details and new_details["session_id"] != old_details["session_id"]:
+                if _same_transcript_path(old_details, new_details):
+                    logger.debug(
+                        "Window '%s' session metadata refreshed for same transcript: %s -> %s",
+                        window_id,
+                        old_details["session_id"],
+                        new_details["session_id"],
+                    )
+                    continue
                 logger.info(
                     "Window '%s' session changed: %s -> %s",
                     window_id,

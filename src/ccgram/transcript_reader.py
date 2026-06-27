@@ -101,6 +101,48 @@ class TranscriptReader:
         self._pending_tools.pop(session_id, None)
         log_throttle_reset(f"partial-jsonl:{session_id}")
 
+    def _adopt_tracking_for_file(
+        self, session_id: str, file_path: Path
+    ) -> TrackedSession | None:
+        """Move offset state when the same transcript appears under a refreshed id."""
+        try:
+            target = file_path.resolve()
+        except _PathResolveError:
+            target = file_path
+
+        for old_session_id, old_session in list(self._state.tracked_sessions.items()):
+            if old_session_id == session_id:
+                continue
+            try:
+                existing = Path(old_session.file_path).resolve()
+            except _PathResolveError:
+                existing = Path(old_session.file_path)
+            if existing != target:
+                continue
+
+            tracked = TrackedSession(
+                session_id=session_id,
+                file_path=str(file_path),
+                last_byte_offset=old_session.last_byte_offset,
+            )
+            self._state.remove_session(old_session_id)
+            self._state.update_session(tracked)
+            if old_session_id in self._file_mtimes:
+                self._file_mtimes[session_id] = self._file_mtimes.pop(old_session_id)
+            if old_session_id in self._pending_tools:
+                self._pending_tools[session_id] = self._pending_tools.pop(
+                    old_session_id
+                )
+            log_throttle_reset(f"partial-jsonl:{old_session_id}")
+            logger.debug(
+                "Adopted transcript offset for refreshed session: %s -> %s (%s)",
+                old_session_id,
+                session_id,
+                str(file_path),
+            )
+            return tracked
+        return None
+
     async def _process_session_file(
         self,
         session_id: str,
@@ -112,6 +154,9 @@ class TranscriptReader:
         """Process a single session file for new messages."""
         tracked = self._state.get_session(session_id)
         provider = _resolve_provider_for_file(window_id, file_path)
+
+        if tracked is None:
+            tracked = self._adopt_tracking_for_file(session_id, file_path)
 
         if tracked is None:
             try:
