@@ -148,7 +148,7 @@ class TestDetectProviderFromRuntime:
 
     def test_detects_gemini_from_wrapper_and_title_marker(self) -> None:
         assert (
-            detect_provider_from_runtime("bun", pane_title="◇ Ready (ccbot)")
+            detect_provider_from_runtime("bun", pane_title="◇ Ready (ccgram)")
             == "gemini"
         )
 
@@ -310,7 +310,7 @@ class TestHandleNewWindowAutoDetection:
         mock_window = MagicMock()
         mock_window.pane_current_command = "bun"
         mock_tmux.find_window_by_id = AsyncMock(return_value=mock_window)
-        mock_tmux.get_pane_title = AsyncMock(return_value="◇  Ready (ccbot)")
+        mock_tmux.get_pane_title = AsyncMock(return_value="◇  Ready (ccgram)")
 
         event = NewWindowEvent(
             window_id="@8", session_id="uuid-4", window_name="proj", cwd="/tmp"

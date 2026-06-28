@@ -1882,7 +1882,7 @@ class TestMaybeDiscoverTranscript:
                     cwd="/Users/alexei/Workspace/ccgram",
                 )
             )
-            mock_tmux.get_pane_title = AsyncMock(return_value="◇  Ready (ccbot)")
+            mock_tmux.get_pane_title = AsyncMock(return_value="◇  Ready (ccgram)")
             mock_config.return_value = "ccgram:"
             await discover_and_register_transcript("@7")
 

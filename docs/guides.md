@@ -22,6 +22,50 @@ ccgram --version              # Show version
 ccgram -v                     # Run with debug logging
 ```
 
+## Getting Started
+
+### BotFather Setup
+
+You need a Telegram bot token to run CCGram. Create one via [@BotFather](https://t.me/BotFather).
+
+1. **Open [@BotFather](https://t.me/BotFather)** on Telegram and send `/start`
+2. **Create a new bot:** Send `/newbot` and follow the prompts
+   - Name: anything (e.g., "MyCodeBot")
+   - Username: must be unique and end with `bot` (e.g., "my_code_bot")
+   - You'll receive a **Bot Token** — save this for `TELEGRAM_BOT_TOKEN`
+3. **Configure bot settings:** Send `/mybots` → select your bot → **Bot Settings**
+   - Enable **Allow Groups**: On
+   - Enable **Group Privacy**: Off _(required so the bot sees all messages in topics)_
+   - Enable **Topics**: On
+4. **Add bot to your Telegram group:**
+   - Create or open a Telegram group with Topics enabled
+   - Invite the bot to the group
+   - **Promote the bot to Administrator** with these permissions:
+     - Create Topics
+     - Pin Messages
+     - Read Messages / View The Chat
+5. **Get your user ID:** Open [@userinfobot](https://t.me/userinfobot) → it shows your numeric user ID. Save this for `ALLOWED_USERS`
+6. **Get your group ID:** Open [@RawDataBot](https://t.me/RawDataBot) in the group → under **Peer ID**, note the number (remove leading `-100`, or keep it — both formats work)
+   - Save this for `CCGRAM_GROUP_ID` (prefix with `-100` if needed)
+7. **Create `~/.ccgram/.env`:**
+
+   ```ini
+   TELEGRAM_BOT_TOKEN=your_bot_token_here
+   ALLOWED_USERS=your_user_id_here
+   CCGRAM_GROUP_ID=your_group_id_here
+   ```
+
+8. **Test:** Run `ccgram` and create a new topic in your Telegram group. Send a message and the directory browser should appear.
+
+### Validation
+
+Run `ccgram doctor` at any time to validate your setup:
+
+```bash
+ccgram doctor         # Check configuration, hooks, multiplexer, agent CLIs
+ccgram doctor --fix   # Auto-fix common issues (install hooks, kill orphans, etc.)
+```
+
 ## Local Dev in tmux
 
 Recommended local development model:

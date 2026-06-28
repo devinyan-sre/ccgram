@@ -1273,7 +1273,7 @@ class TestGeminiPaneTitleStatus:
     def test_working_title_without_emoji_returns_working_status(self) -> None:
         gemini = GeminiProvider()
         status = gemini.parse_terminal_status(
-            "some output", pane_title="Working… (ccbot)"
+            "some output", pane_title="Working… (ccgram)"
         )
         assert status is not None
         assert status.is_interactive is False
@@ -1305,7 +1305,7 @@ class TestGeminiPaneTitleStatus:
     def test_action_required_title_without_emoji_still_interactive(self) -> None:
         gemini = GeminiProvider()
         status = gemini.parse_terminal_status(
-            "some output", pane_title="Action Required (ccbot)"
+            "some output", pane_title="Action Required (ccgram)"
         )
         assert status is not None
         assert status.is_interactive is True
