@@ -266,11 +266,17 @@ async def test_session_change_cleanup(state_dir, session_map_with_transcript) ->
     monitor._last_session_map = old_map
 
     new_sid = "11111111-2222-3333-4444-555555555555"
+    new_transcript = (
+        state_dir / "transcript_new.jsonl"
+    )  # real session change → different file
+    _write_jsonl(
+        new_transcript, _make_task_create_entry("2", "New task", session_id=new_sid)
+    )
     new_map = {
         "@0": {
             "session_id": new_sid,
             "cwd": "/tmp/test",
-            "transcript_path": str(transcript),
+            "transcript_path": str(new_transcript),
         }
     }
     (state_dir / "session_map.json").write_text(
