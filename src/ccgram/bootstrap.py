@@ -163,8 +163,22 @@ async def ensure_multiplexer_session() -> None:
     pinned protocol version matches (raising on mismatch). Runs once at startup
     via the seam so a misconfigured backend fails loudly here rather than later
     as silent ``None`` returns in the polling loop.
+
+    An unreachable backend is fatal but not a bug: log one actionable line and
+    exit cleanly. ``SystemExit`` (unlike a plain exception) is caught by PTB's
+    ``run_polling`` and triggers a graceful shutdown, so the user sees the error
+    instead of a traceback.
     """
-    await multiplexer.ensure_session()
+    try:
+        await multiplexer.ensure_session()
+    except Exception as exc:
+        logger.error(
+            "Multiplexer '%s' is not available: %s. "
+            "Make sure it is installed and running, then start ccgram again.",
+            config.multiplexer_name,
+            exc,
+        )
+        raise SystemExit(1) from exc
 
 
 def wire_runtime_callbacks() -> None:

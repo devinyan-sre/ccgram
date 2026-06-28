@@ -203,6 +203,42 @@ def setup_logging(log_level: str) -> None:
         logging.getLogger(name).setLevel(logging.WARNING)
 
 
+def _ensure_tmux_session(auto_detected: bool) -> None:
+    """Create/validate the tmux session before the bot starts.
+
+    tmux-specific: other backends (herdr) ensure their session through the seam
+    in ``bootstrap_application``. An unavailable tmux (e.g. not installed) is
+    fatal but not a bug — log one actionable line and exit cleanly instead of
+    dumping a traceback.
+    """
+    # Lazy: main runs `ccgram` startup; defer imports until the run subcommand executes
+    from .config import config
+
+    # Lazy: main runs `ccgram` startup; defer imports until the run subcommand executes
+    from .multiplexer.tmux import tmux_manager
+
+    logger = structlog.get_logger()
+
+    # In auto-detect mode, the session must already exist.
+    if auto_detected:
+        session = tmux_manager.get_session()
+        if not session:
+            logger.error("Tmux session '%s' not found", config.tmux_session_name)
+            sys.exit(1)
+        logger.info("Using auto-detected tmux session '%s'", session.session_name)
+        return
+
+    try:
+        session = tmux_manager.get_or_create_session()
+    except Exception as exc:  # noqa: BLE001 — any tmux failure is fatal at startup
+        logger.error(
+            "tmux is not available: %s. Install and start tmux, then run ccgram again.",
+            exc,
+        )
+        sys.exit(1)
+    logger.info("Tmux session '%s' ready", session.session_name)
+
+
 def run_bot() -> None:
     """Start the bot. Called by the ``run`` Click command after env is set."""
     log_level = (os.environ.get("CCGRAM_LOG_LEVEL") or "INFO").upper()
@@ -262,19 +298,7 @@ def run_bot() -> None:
     # ensure their session through the seam in `bootstrap_application` via
     # `multiplexer.ensure_session()`, so don't touch tmux here.
     if config.multiplexer_name == "tmux":
-        # Lazy: main runs `ccgram` startup; defer imports until the relevant subcommand executes
-        from .multiplexer.tmux import tmux_manager
-
-        # In auto-detect mode, session must already exist
-        if auto_detected:
-            session = tmux_manager.get_session()
-            if not session:
-                logger.error("Tmux session '%s' not found", config.tmux_session_name)
-                sys.exit(1)
-            logger.info("Using auto-detected tmux session '%s'", session.session_name)
-        else:
-            session = tmux_manager.get_or_create_session()
-            logger.info("Tmux session '%s' ready", session.session_name)
+        _ensure_tmux_session(auto_detected)
 
     # Lazy: main runs `ccgram` startup; defer imports until the relevant subcommand executes
     from . import __version__

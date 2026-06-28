@@ -54,15 +54,20 @@ class TestEnsureMultiplexerSession:
 
         backend.ensure_session.assert_awaited_once_with()
 
-    async def test_propagates_backend_failure(self):
+    async def test_exits_cleanly_when_backend_unavailable(self):
         from ccgram.multiplexer import install_multiplexer
 
         backend = MagicMock()
         backend.ensure_session = AsyncMock(side_effect=RuntimeError("socket down"))
         install_multiplexer(backend)
 
-        with pytest.raises(RuntimeError, match="socket down"):
+        # An unreachable backend exits via SystemExit (caught by PTB's
+        # run_polling → graceful shutdown, no traceback), not a raw exception.
+        with pytest.raises(SystemExit) as exc_info:
             await bootstrap.ensure_multiplexer_session()
+
+        assert exc_info.value.code == 1
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
 
 
 class TestWireRuntimeCallbacks:
