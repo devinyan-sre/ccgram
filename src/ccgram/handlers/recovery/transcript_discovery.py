@@ -19,10 +19,10 @@ from ...providers import (
     detect_provider_from_pane,
     detect_provider_from_runtime,
     detect_provider_from_transcript_path,
+    get_cached_foreground_pgid,
     get_provider_for_window,
     should_probe_pane_title_for_provider_detection,
 )
-from ...providers.process_detection import get_cached_foreground_pgid
 from ...session import session_manager
 from ...session_map import session_map_prefix, session_map_sync
 from ...telegram_client import TelegramClient

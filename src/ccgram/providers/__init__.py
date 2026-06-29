@@ -20,7 +20,7 @@ from ccgram.providers.base import (
     SessionStartEvent,
     StatusUpdate,
 )
-from ccgram.providers.process_detection import JS_RUNTIMES
+from ccgram.providers.process_detection import JS_RUNTIMES, get_cached_foreground_pgid
 from ccgram.providers.registry import ProviderRegistry, UnknownProviderError, registry
 
 logger = structlog.get_logger()
@@ -336,6 +336,7 @@ __all__ = [
     "detect_provider_from_pane",
     "detect_provider_from_transcript_path",
     "detect_provider_from_runtime",
+    "get_cached_foreground_pgid",
     "get_provider",
     "get_provider_for_window",
     "has_yolo_mode",
