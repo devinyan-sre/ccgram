@@ -11,6 +11,7 @@ Fixtures are trimmed from live herdr 0.7.0 output.
 from __future__ import annotations
 
 import json
+import subprocess
 from collections.abc import Sequence
 
 import pytest
@@ -349,6 +350,48 @@ def test_constructor_does_no_io() -> None:
     fake = FakeHerdr()
     HerdrManager(socket_path="/tmp/herdr.sock", runner=fake)
     assert fake.calls == []
+
+
+async def test_subprocess_run_uses_host_spawn_path(monkeypatch) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_run(argv, **kwargs):
+        seen["argv"] = argv
+        seen["kwargs"] = kwargs
+        return subprocess.CompletedProcess(argv, 0, "ok", "")
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr("ccgram.multiplexer.herdr.subprocess.run", fake_run)
+    monkeypatch.setattr("ccgram.multiplexer.herdr.asyncio.to_thread", fake_to_thread)
+
+    rc, out, err = await HerdrManager(socket_path="/tmp/herdr.sock")._subprocess_run(
+        ["status"]
+    )
+
+    assert (rc, out, err) == (0, "ok", "")
+    assert seen["argv"] == ["herdr", "status"]
+    kwargs = seen["kwargs"]
+    assert isinstance(kwargs, dict)
+    assert kwargs["capture_output"] is True
+    assert kwargs["text"] is True
+    assert kwargs["check"] is False
+    assert kwargs["timeout"] == 8.0
+    env = kwargs["env"]
+    assert isinstance(env, dict)
+    assert env["HERDR_SOCKET_PATH"] == "/tmp/herdr.sock"
+
+
+async def test_subprocess_run_maps_timeout(monkeypatch) -> None:
+    async def fake_to_thread(func, *args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=["herdr", "status"], timeout=5.0)
+
+    monkeypatch.setattr("ccgram.multiplexer.herdr.asyncio.to_thread", fake_to_thread)
+
+    rc, out, err = await HerdrManager()._subprocess_run(["status"])
+
+    assert (rc, out, err) == (124, "", "herdr call timed out")
 
 
 # ── find_window_by_id: tab identity (window_id = tab_id) ───────────────

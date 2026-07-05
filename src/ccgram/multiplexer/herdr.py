@@ -29,10 +29,10 @@ macOS), ``native_agent_status`` and ``supports_event_stream`` are True,
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import os
 import re
+import subprocess
 from collections.abc import (
     AsyncGenerator,
     AsyncIterator,
@@ -182,30 +182,25 @@ class HerdrManager:
         env = dict(os.environ)
         if self._socket_path:
             env["HERDR_SOCKET_PATH"] = self._socket_path
-        proc: asyncio.subprocess.Process | None = None
         try:
-            proc = await asyncio.create_subprocess_exec(
-                self._binary,
-                *args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            # macOS/Python 3.14 can emit ``MallocStackLogging`` warnings when
+            # ``create_subprocess_exec`` forks from this long-lived async
+            # process. Offload ``subprocess.run`` so CPython can take its safer
+            # spawn path without blocking the event loop.
+            completed = await asyncio.to_thread(
+                subprocess.run,
+                [self._binary, *args],
+                capture_output=True,
+                text=True,
                 env=env,
+                timeout=_CALL_TIMEOUT_SECONDS,
+                check=False,
             )
-            async with asyncio.timeout(_CALL_TIMEOUT_SECONDS):
-                stdout, stderr = await proc.communicate()
-        except TimeoutError:
-            if proc:
-                with contextlib.suppress(ProcessLookupError):
-                    proc.kill()
-                    await proc.wait()
+        except subprocess.TimeoutExpired:
             return (_RC_TIMEOUT, "", "herdr call timed out")
         except OSError as exc:
             return (_RC_NO_BINARY, "", str(exc))
-        return (
-            proc.returncode or 0,
-            stdout.decode("utf-8", errors="replace"),
-            stderr.decode("utf-8", errors="replace"),
-        )
+        return (completed.returncode, completed.stdout, completed.stderr)
 
     async def _call_json(self, args: Sequence[str]) -> dict | None:
         """Run ``herdr <args>`` and return the JSON ``result`` dict, or None.
