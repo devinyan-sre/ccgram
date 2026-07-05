@@ -17,8 +17,8 @@
 #   mirror and advisory gate: keep `no-import-cycles` as warn because the repo
 #   intentionally uses lazy imports that runtime tests accept.
 # - The config below is intended for full scans and delta scans. Keep it aligned
-#   with the current package map before running `archfit check --full` or
-#   `archfit check --base <ref>`.
+#   with the current package map before running `archfit analyze --full` or
+#   `archfit analyze --base <ref>`.
 #
 # Solo-developer / distance note (Balanced Coupling):
 #   Distance is socio-technical — different-TEAM ownership RAISES it. A single
@@ -29,41 +29,40 @@
 #   Because you personally absorb every cascade, honest `volatility` is the right
 #   primary signal — it tells you which couplings will actually bite.
 version: 1
-python_package: ccgram
+languages:
+  python:
+    package: ccgram
+  go:
+    enabled: false
+  typescript:
+    enabled: false
 # Minimum severity for BC coupling advisories: low|medium|high|critical
-bc_advisory_min_severity: medium
-# Inferred-volatility cascade (Balanced Coupling, book Ch9; archfit >=0.8). A
-# stable module that is functional/intrusive-coupled to a `core` module inherits
-# high volatility — it gets dragged into change whenever the core does. This is
-# exactly ccgram's shape: modules wired to the live-session core (session_state,
-# handlers, window_state) co-evolve with it. Enabling this surfaces that inherited
-# volatility instead of under-rating quiet modules wired to a churning core.
-volatility_cascade_enabled: true
+coupling:
+  min_severity: medium
+  # Inferred-volatility cascade (Balanced Coupling, book Ch9; archfit >=0.8). A
+  # stable module that is functional/intrusive-coupled to a `core` module inherits
+  # high volatility — it gets dragged into change whenever the core does. This is
+  # exactly ccgram's shape: modules wired to the live-session core (session_state,
+  # handlers, window_state) co-evolve with it. Enabling this surfaces that inherited
+  # volatility instead of under-rating quiet modules wired to a churning core.
+  volatility_cascade: true
 # Skip non-Python assets from extraction (incl. the jscpd clone scan). Without
 # this, font-license text + miniapp JS dominate clone findings as false cohesion
 # risk. .gitnexus/.codegraph index dirs are auto-ignored by archfit.
-exclusions:
+exclude:
   - '**/fonts/**'
   - '**/miniapp/static/**'
   - '**/pkg/mod/**' # stray Go module cache at repo root (untracked cruft; safe to `rm -rf pkg/`)
-tools:
+analyzers:
   scip:
-    enabled: "on"
-  go:
-    enabled: "off"
-  python:
-    enabled: "on"
-  typescript:
-    enabled: "off"
+    enabled: true
   syntax:
-    enabled: "on"
-  complexity:
-    enabled: "on" # lizard — powers complexity hotspots (e.g. parse_entries CCN 72)
+    enabled: true
   clones:
-    enabled: "on" # jscpd — powers duplication signal (kept honest by exclusions)
-  llm:
-    provider: anthropic
-    model: claude-opus-4-8
+    enabled: true # jscpd — powers duplication signal (kept honest by exclusions)
+ai:
+  provider: anthropic
+  model: claude-opus-4-8
 layers:
   - core
   - adapter
