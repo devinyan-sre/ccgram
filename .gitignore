@@ -79,6 +79,8 @@ docs/posts/
 progress*.txt
 
 # Contributor tool dirs
+.pi/
+.pi-subagents/
 .serena
 .works
 .codegraph/
