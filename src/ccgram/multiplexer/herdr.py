@@ -32,6 +32,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import subprocess
 from collections.abc import (
     AsyncGenerator,
@@ -165,7 +166,11 @@ class HerdrManager:
                 the live unix-socket reader (``open_socket_stream``).
         """
         self._socket_path = socket_path or os.environ.get("HERDR_SOCKET_PATH", "")
-        self._binary = binary
+        # Resolve to an absolute path: CPython only takes the fork-free
+        # ``posix_spawn`` fast path when the executable has a dirname (see
+        # subprocess.Popen._execute_child). Bare names force fork_exec, which
+        # triggers macOS ``MallocStackLogging`` spam from long-lived parents.
+        self._binary = shutil.which(binary) or binary
         self._run: HerdrRunner = runner or self._subprocess_run
         self._open_stream: HerdrStreamOpener = stream_opener or self._default_stream
 
@@ -183,10 +188,13 @@ class HerdrManager:
         if self._socket_path:
             env["HERDR_SOCKET_PATH"] = self._socket_path
         try:
-            # macOS/Python 3.14 can emit ``MallocStackLogging`` warnings when
-            # ``create_subprocess_exec`` forks from this long-lived async
-            # process. Offload ``subprocess.run`` so CPython can take its safer
-            # spawn path without blocking the event loop.
+            # Force CPython's fork-free ``posix_spawn`` path: it requires an
+            # absolute executable (resolved in ``__init__``) and, on macOS
+            # builds without ``posix_spawn_file_actions_addclosefrom_np``,
+            # ``close_fds=False``. Forking from this long-lived async process
+            # makes every child print macOS ``MallocStackLogging`` warnings.
+            # fd inheritance is acceptable: herdr is a trusted, short-lived
+            # CLI that only talks to its socket.
             completed = await asyncio.to_thread(
                 subprocess.run,
                 [self._binary, *args],
@@ -195,6 +203,7 @@ class HerdrManager:
                 env=env,
                 timeout=_CALL_TIMEOUT_SECONDS,
                 check=False,
+                close_fds=False,
             )
         except subprocess.TimeoutExpired:
             return (_RC_TIMEOUT, "", "herdr call timed out")

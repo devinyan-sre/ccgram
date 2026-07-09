@@ -365,18 +365,24 @@ async def test_subprocess_run_uses_host_spawn_path(monkeypatch) -> None:
 
     monkeypatch.setattr("ccgram.multiplexer.herdr.subprocess.run", fake_run)
     monkeypatch.setattr("ccgram.multiplexer.herdr.asyncio.to_thread", fake_to_thread)
+    monkeypatch.setattr(
+        "ccgram.multiplexer.herdr.shutil.which", lambda _: "/opt/bin/herdr"
+    )
 
     rc, out, err = await HerdrManager(socket_path="/tmp/herdr.sock")._subprocess_run(
         ["status"]
     )
 
     assert (rc, out, err) == (0, "ok", "")
-    assert seen["argv"] == ["herdr", "status"]
+    # Absolute path + close_fds=False keep CPython on the fork-free
+    # posix_spawn path (no MallocStackLogging spam from forked children).
+    assert seen["argv"] == ["/opt/bin/herdr", "status"]
     kwargs = seen["kwargs"]
     assert isinstance(kwargs, dict)
     assert kwargs["capture_output"] is True
     assert kwargs["text"] is True
     assert kwargs["check"] is False
+    assert kwargs["close_fds"] is False
     assert kwargs["timeout"] == 8.0
     env = kwargs["env"]
     assert isinstance(env, dict)
