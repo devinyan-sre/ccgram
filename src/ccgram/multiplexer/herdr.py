@@ -66,6 +66,7 @@ from .topic_mapping import format_agent_topic_prefix
 
 __all__ = [
     "HERDR_PROTOCOL_VERSION",
+    "HERDR_SUPPORTED_PROTOCOLS",
     "HerdrError",
     "HerdrManager",
     "HerdrProtocolError",
@@ -73,10 +74,11 @@ __all__ = [
 
 logger = structlog.get_logger()
 
-# Pinned herdr socket protocol version (``herdr status`` → ``server.protocol``).
-# herdr v0.7.0 speaks protocol 14. Bump deliberately after re-running the
-# contract test against a newer herdr (design risk "herdr maturity").
-HERDR_PROTOCOL_VERSION = 14
+# Supported herdr socket protocols (``herdr status`` → ``server.protocol``).
+# 14–16 are accepted without warnings. Other versions are attempted with a
+# warning so ccgram remains usable across herdr upgrades and downgrades.
+HERDR_SUPPORTED_PROTOCOLS = frozenset({14, 15, 16})
+HERDR_PROTOCOL_VERSION = max(HERDR_SUPPORTED_PROTOCOLS)
 
 # Static capability declaration for the herdr backend (design Task 7).
 _HERDR_CAPABILITIES = MultiplexerCapabilities(
@@ -125,7 +127,7 @@ class HerdrError(RuntimeError):
 
 
 class HerdrProtocolError(HerdrError):
-    """The running herdr server speaks an unsupported protocol version."""
+    """Reserved for callers that require a strict herdr protocol policy."""
 
 
 def _pane_index(pane_id: str) -> int:
@@ -351,11 +353,14 @@ class HerdrManager:
     # ── Multiplexer Protocol surface ───────────────────────────────────
 
     async def ensure_session(self) -> None:
-        """Verify the herdr server is reachable and speaks a pinned protocol.
+        """Verify the herdr server is reachable; warn for unverified protocols.
+
+        ``HERDR_SUPPORTED_PROTOCOLS`` are accepted without a warning. Other
+        protocol versions are best-effort: ccgram logs a warning and
+        continues so CLI-backed operations can still work after a herdr change.
 
         Raises:
-            HerdrProtocolError: server protocol ≠ ``HERDR_PROTOCOL_VERSION``.
-            HerdrError: socket unreachable / ``herdr status`` failed.
+            HerdrError: socket unreachable, malformed status, or stopped server.
         """
         rc, out, err = await self._run(["status", "--json"])
         if rc != 0:
@@ -366,14 +371,23 @@ class HerdrManager:
             raise HerdrError("herdr status returned non-JSON") from exc
         if not isinstance(status, dict):
             raise HerdrError("herdr status returned non-object JSON")
-        server = status.get("server") or {}
+        server = status.get("server")
+        if not isinstance(server, dict):
+            raise HerdrError("herdr status returned invalid server object")
         if not server.get("running"):
             raise HerdrError("herdr server is not running")
         proto = server.get("protocol")
-        if proto != HERDR_PROTOCOL_VERSION:
-            raise HerdrProtocolError(
-                f"herdr protocol {proto!r} unsupported "
-                f"(ccgram pins {HERDR_PROTOCOL_VERSION})"
+        cli_server_compatible = server.get("compatible")
+        is_supported_protocol = isinstance(proto, int) and not isinstance(proto, bool)
+        is_supported_protocol = (
+            is_supported_protocol and proto in HERDR_SUPPORTED_PROTOCOLS
+        )
+        if not is_supported_protocol or cli_server_compatible is False:
+            logger.warning(
+                "herdr protocol is unverified; continuing",
+                server_protocol=proto,
+                supported_protocols=sorted(HERDR_SUPPORTED_PROTOCOLS),
+                cli_server_compatible=cli_server_compatible,
             )
 
     @staticmethod

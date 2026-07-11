@@ -334,20 +334,20 @@ class TestCheckHerdr:
         )
         status, msg = _check_herdr()
         assert status == "pass"
-        assert "protocol OK" in msg
+        assert "server reachable" in msg
 
-    def test_protocol_mismatch_fails(self, monkeypatch) -> None:
+    def test_server_error_fails(self, monkeypatch) -> None:
         monkeypatch.setattr(
             "ccgram.doctor_cmd.shutil.which", lambda _cmd: "/usr/bin/herdr"
         )
-        boom = RuntimeError("herdr protocol 99 unsupported (ccgram pins 14)")
+        boom = RuntimeError("herdr status failed: connection refused")
         monkeypatch.setattr(
             "ccgram.multiplexer.get_multiplexer",
             lambda _name: _FakeHerdrBackend(fail=boom),
         )
         status, msg = _check_herdr()
         assert status == "fail"
-        assert "protocol 99 unsupported" in msg
+        assert "connection refused" in msg
 
 
 class TestCheckHerdrHookCoexistence:

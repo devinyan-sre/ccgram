@@ -68,12 +68,11 @@ def _check_multiplexer() -> tuple[str, str]:
 
 
 def _check_herdr() -> tuple[str, str]:
-    """Check the herdr binary, socket reachability, and pinned protocol.
+    """Check the herdr binary and socket reachability.
 
-    Drives the backend's ``ensure_session`` so the pinned protocol version
-    lives in one place (the herdr adapter); doctor never duplicates it nor
-    reaches past the seam. A mismatched protocol or unreachable socket fails
-    with the backend's own message.
+    Drives the backend's ``ensure_session`` so protocol handling stays in the
+    adapter. Unverified protocol versions warn there but remain best-effort;
+    unreachable sockets and invalid status responses still fail here.
     """
     if not shutil.which(_HERDR_BACKEND):
         return _FAIL, "herdr not found in PATH"
@@ -87,7 +86,7 @@ def _check_herdr() -> tuple[str, str]:
     except Exception as exc:  # noqa: BLE001 — surface any backend failure verbatim
         return _FAIL, f"herdr server unreachable: {exc}"
     where = f" ({socket})" if socket else " (default socket)"
-    return _PASS, f"herdr server reachable, protocol OK{where}"
+    return _PASS, f"herdr server reachable{where}"
 
 
 def _all_hook_commands(settings: dict) -> list[str]:

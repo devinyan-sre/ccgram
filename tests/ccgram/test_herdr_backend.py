@@ -26,10 +26,11 @@ from ccgram.multiplexer.base import (
 )
 from ccgram.multiplexer.herdr import (
     HERDR_PROTOCOL_VERSION,
+    HERDR_SUPPORTED_PROTOCOLS,
     HerdrError,
     HerdrManager,
-    HerdrProtocolError,
 )
+import ccgram.multiplexer.herdr as herdr_module
 from ccgram.multiplexer.herdr_events import SUBSCRIBED, translate_event
 
 # ── Captured JSON fixtures (live herdr 0.7.0) ──────────────────────────
@@ -271,14 +272,16 @@ ERROR_NOT_FOUND = json.dumps(
 )
 
 
-def _status_json(protocol: int = HERDR_PROTOCOL_VERSION, running: bool = True) -> str:
+def _status_json(
+    protocol: object = HERDR_PROTOCOL_VERSION, running: bool = True
+) -> str:
     return json.dumps(
         {
-            "client": {"version": "0.7.0", "protocol": protocol},
+            "client": {"version": "0.7.3", "protocol": protocol},
             "server": {
                 "status": "running" if running else "stopped",
                 "running": running,
-                "version": "0.7.0",
+                "version": "0.7.3",
                 "protocol": protocol,
                 "compatible": True,
             },
@@ -1458,8 +1461,9 @@ async def test_foreground_missing_process_returns_none() -> None:
     assert await _manager(fake).foreground("w2:t1") is None
 
 
-async def test_ensure_session_accepts_pinned_protocol() -> None:
-    fake = FakeHerdr().on("status", out=_status_json())
+@pytest.mark.parametrize("protocol", sorted(HERDR_SUPPORTED_PROTOCOLS))
+async def test_ensure_session_accepts_supported_protocol(protocol: int) -> None:
+    fake = FakeHerdr().on("status", out=_status_json(protocol=protocol))
     await _manager(fake).ensure_session()  # no raise
     assert fake.sent("status") is not None
 
@@ -1476,10 +1480,57 @@ async def test_ensure_session_raises_on_non_object_json_status() -> None:
         await _manager(fake).ensure_session()
 
 
-async def test_ensure_session_refuses_protocol_mismatch() -> None:
-    fake = FakeHerdr().on("status", out=_status_json(protocol=99))
-    with pytest.raises(HerdrProtocolError, match="99"):
-        await _manager(fake).ensure_session()
+@pytest.mark.parametrize("protocol", [13, 17, "17", None, []])
+async def test_ensure_session_warns_and_continues_for_unverified_protocol(
+    protocol: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    warnings: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setattr(
+        herdr_module.logger,
+        "warning",
+        lambda *args, **kwargs: warnings.append((args, kwargs)),
+    )
+
+    fake = FakeHerdr().on("status", out=_status_json(protocol=protocol))
+    await _manager(fake).ensure_session()
+
+    assert warnings == [
+        (
+            ("herdr protocol is unverified; continuing",),
+            {
+                "server_protocol": protocol,
+                "supported_protocols": sorted(HERDR_SUPPORTED_PROTOCOLS),
+                "cli_server_compatible": True,
+            },
+        )
+    ]
+
+
+async def test_ensure_session_warns_and_continues_when_cli_is_incompatible(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    warnings: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setattr(
+        herdr_module.logger,
+        "warning",
+        lambda *args, **kwargs: warnings.append((args, kwargs)),
+    )
+    status = json.loads(_status_json())
+    status["server"]["compatible"] = False
+
+    fake = FakeHerdr().on("status", out=json.dumps(status))
+    await _manager(fake).ensure_session()
+
+    assert warnings == [
+        (
+            ("herdr protocol is unverified; continuing",),
+            {
+                "server_protocol": HERDR_PROTOCOL_VERSION,
+                "supported_protocols": sorted(HERDR_SUPPORTED_PROTOCOLS),
+                "cli_server_compatible": False,
+            },
+        )
+    ]
 
 
 async def test_ensure_session_raises_when_socket_down() -> None:

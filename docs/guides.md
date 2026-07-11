@@ -297,7 +297,7 @@ CCGRAM_MULTIPLEXER=herdr
 
 ### Protocol version pinning
 
-ccgram pins the herdr socket protocol version it was built against (herdr v0.7.0 speaks protocol 14). On the first call it reads `herdr status` and **refuses to run on a mismatch** rather than risk misparsing a changed JSON shape. If you upgrade herdr and see a protocol error, the ccgram build needs to be updated to match the new protocol.
+ccgram accepts herdr socket protocols 14, 15, and 16 without warnings. On the first call it reads `herdr status`; an older, newer, missing, or otherwise unknown protocol emits a warning and ccgram continues in best-effort mode, so CLI-backed operations can still work after a herdr upgrade or downgrade. A stopped server, failed status command, or malformed status response still prevents startup. Run the live herdr contract suite before relying on an untested protocol.
 
 ### Differences from tmux
 
