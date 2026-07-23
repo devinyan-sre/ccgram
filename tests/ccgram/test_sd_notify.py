@@ -3,6 +3,7 @@
 import asyncio
 import os
 import socket
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,7 @@ def _clean_watchdog(monkeypatch):
 
 
 @pytest.fixture
-def notify_socket(tmp_path: Path, monkeypatch) -> socket.socket:
+def notify_socket(tmp_path: Path, monkeypatch) -> Iterator[socket.socket]:
     """A bound unix datagram socket exported as $NOTIFY_SOCKET."""
     path = tmp_path / "notify.sock"
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
