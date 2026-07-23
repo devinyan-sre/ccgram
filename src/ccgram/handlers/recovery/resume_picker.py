@@ -32,6 +32,7 @@ from telegram import (
 
 from ... import window_query
 from ...config import config
+from ...i18n import t
 from ...providers import get_provider_for_window
 from ...utils import read_session_metadata_from_jsonl
 from ..callback_data import (
@@ -93,10 +94,10 @@ def _build_resume_picker_keyboard(
     rows.append(
         [
             InlineKeyboardButton(
-                "⬅ Back",
+                t("⬅ Back"),
                 callback_data=f"{CB_RECOVERY_BACK}{window_id}"[:64],
             ),
-            InlineKeyboardButton("✖ Cancel", callback_data=CB_RECOVERY_CANCEL),
+            InlineKeyboardButton(t("✖ Cancel"), callback_data=CB_RECOVERY_CANCEL),
         ]
     )
     return InlineKeyboardMarkup(rows)
@@ -114,17 +115,17 @@ def _build_empty_resume_keyboard(window_id: str) -> InlineKeyboardMarkup:
         [
             [
                 InlineKeyboardButton(
-                    "\U0001f5c2 Browse other projects",
+                    t("\U0001f5c2 Browse other projects"),
                     callback_data=f"{CB_RECOVERY_BROWSE}{window_id}"[:64],
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    "\U0001f195 Start fresh",
+                    t("\U0001f195 Start fresh"),
                     callback_data=f"{CB_RECOVERY_FRESH}{window_id}"[:64],
                 ),
             ],
-            [InlineKeyboardButton("✖ Cancel", callback_data=CB_RECOVERY_CANCEL)],
+            [InlineKeyboardButton(t("✖ Cancel"), callback_data=CB_RECOVERY_CANCEL)],
         ]
     )
 
@@ -264,26 +265,26 @@ async def _handle_resume_pick(
     try:
         idx = int(idx_str)
     except ValueError:
-        await query.answer("Couldn't read selection", show_alert=True)
+        await query.answer(t("Couldn't read selection"), show_alert=True)
         return
 
     thread_id = get_thread_id(update)
     if thread_id is None:
-        await query.answer("Use in a topic", show_alert=True)
+        await query.answer(t("Use in a topic"), show_alert=True)
         return
 
     pending_tid = (
         context.user_data.get(PENDING_THREAD_ID) if context.user_data else None
     )
     if pending_tid is None or thread_id != pending_tid:
-        await query.answer("Stale recovery (topic mismatch)", show_alert=True)
+        await query.answer(t("Stale recovery (topic mismatch)"), show_alert=True)
         return
 
     stored_sessions = (
         context.user_data.get(RECOVERY_SESSIONS) if context.user_data else None
     )
     if not stored_sessions or idx < 0 or idx >= len(stored_sessions):
-        await query.answer("Session no longer in list", show_alert=True)
+        await query.answer(t("Session no longer in list"), show_alert=True)
         return
 
     picked = stored_sessions[idx]
@@ -291,14 +292,14 @@ async def _handle_resume_pick(
 
     old_wid = context.user_data.get(RECOVERY_WINDOW_ID) if context.user_data else None
     if not old_wid:
-        await query.answer("Recovery menu expired", show_alert=True)
+        await query.answer(t("Recovery menu expired"), show_alert=True)
         return
 
     view = window_query.view_window(old_wid)
     if view is None or not view.cwd or not Path(view.cwd).is_dir():
-        await safe_edit(query, "❌ Directory no longer exists.")
+        await safe_edit(query, t("❌ Directory no longer exists."))
         _clear_recovery_state(context.user_data)
-        await query.answer("Project gone")
+        await query.answer(t("Project gone"))
         return
     cwd = view.cwd
 
@@ -312,6 +313,8 @@ async def _handle_resume_pick(
         cwd,
         context,
         agent_args=launch_args,
-        success_label=f"Resuming session: {picked['summary'][:40]}",
+        success_label=t("Resuming session: {summary}").format(
+            summary=picked["summary"][:40]
+        ),
         old_window_id=old_wid,
     )

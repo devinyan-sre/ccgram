@@ -52,6 +52,7 @@ from ..callback_data import (
     CB_WS_SELECT,
     CB_WS_SKIP,
 )
+from ...i18n import t
 from ..callback_helpers import get_thread_id
 from ..callback_registry import register
 from ..messaging_pipeline.message_sender import safe_edit
@@ -228,17 +229,17 @@ async def _resolve_fav_index(
 ) -> str | None:
     """Validate pending thread, parse fav index, and return the fav path or None."""
     if _browser_flow_stale(update, context):
-        await query.answer("Stale browser (flow reset)", show_alert=True)
+        await query.answer(t("Stale browser (flow reset)"), show_alert=True)
         return None
     try:
         idx = int(data[len(prefix) :])
     except ValueError:
-        await query.answer("Invalid data")
+        await query.answer(t("Invalid data"))
         return None
 
     favorites, _starred = get_favorites(user_id)
     if idx < 0 or idx >= len(favorites):
-        await query.answer("Favorite not found", show_alert=True)
+        await query.answer(t("Favorite not found"), show_alert=True)
         return None
     return favorites[idx]
 
@@ -257,7 +258,7 @@ async def _handle_fav(
     if fav_path is None:
         return
     if not Path(fav_path).is_dir():
-        await query.answer("Directory no longer exists", show_alert=True)
+        await query.answer(t("Directory no longer exists"), show_alert=True)
         return
 
     await _render_directory_browser(query, context, fav_path, user_id=user_id)
@@ -288,7 +289,7 @@ async def _handle_star(
         user_id=user_id,
         page=current_page,
     )
-    await query.answer("⭐ Starred" if now_starred else "☆ Unstarred")
+    await query.answer(t("⭐ Starred") if now_starred else t("☆ Unstarred"))
 
 
 async def _handle_select(
@@ -300,19 +301,19 @@ async def _handle_select(
 ) -> None:
     """Handle CB_DIR_SELECT: navigate into a subdirectory."""
     if _browser_flow_stale(update, context):
-        await query.answer("Stale browser (flow reset)", show_alert=True)
+        await query.answer(t("Stale browser (flow reset)"), show_alert=True)
         return
     try:
         idx = int(data[len(CB_DIR_SELECT) :])
     except ValueError:
-        await query.answer("Invalid data")
+        await query.answer(t("Invalid data"))
         return
 
     cached_dirs: list[str] = (
         context.user_data.get(BROWSE_DIRS_KEY, []) if context.user_data else []
     )
     if idx < 0 or idx >= len(cached_dirs):
-        await query.answer("Directory list changed, please refresh", show_alert=True)
+        await query.answer(t("Directory list changed, please refresh"), show_alert=True)
         return
     subdir_name = cached_dirs[idx]
 
@@ -320,7 +321,7 @@ async def _handle_select(
     new_path = (Path(current_path) / subdir_name).resolve()
 
     if not new_path.exists() or not new_path.is_dir():
-        await query.answer("Directory not found", show_alert=True)
+        await query.answer(t("Directory not found"), show_alert=True)
         return
 
     new_path_str = str(new_path)
@@ -336,7 +337,7 @@ async def _handle_up(
 ) -> None:
     """Handle CB_DIR_UP: navigate to parent directory."""
     if _browser_flow_stale(update, context):
-        await query.answer("Stale browser (flow reset)", show_alert=True)
+        await query.answer(t("Stale browser (flow reset)"), show_alert=True)
         return
     current = Path(_current_browse_path(context)).resolve()
     parent = current.parent
@@ -354,7 +355,7 @@ async def _handle_home(
 ) -> None:
     """Handle CB_DIR_HOME: jump to home directory."""
     if _browser_flow_stale(update, context):
-        await query.answer("Stale browser (flow reset)", show_alert=True)
+        await query.answer(t("Stale browser (flow reset)"), show_alert=True)
         return
 
     home_path = str(Path.home())
@@ -371,12 +372,12 @@ async def _handle_page(
 ) -> None:
     """Handle CB_DIR_PAGE: paginate directory listing."""
     if _browser_flow_stale(update, context):
-        await query.answer("Stale browser (flow reset)", show_alert=True)
+        await query.answer(t("Stale browser (flow reset)"), show_alert=True)
         return
     try:
         pg = int(data[len(CB_DIR_PAGE) :])
     except ValueError:
-        await query.answer("Invalid data")
+        await query.answer(t("Invalid data"))
         return
     current_path = _current_browse_path(context)
     await _render_directory_browser(
@@ -425,7 +426,7 @@ async def _handle_confirm(
         if context.user_data is not None:
             context.user_data.pop(PENDING_THREAD_ID, None)
             context.user_data.pop(PENDING_THREAD_TEXT, None)
-        await query.answer("Stale browser (flow reset)", show_alert=True)
+        await query.answer(t("Stale browser (flow reset)"), show_alert=True)
         return
 
     confirm_thread_id = get_thread_id(update)
@@ -435,7 +436,7 @@ async def _handle_confirm(
         if context.user_data is not None:
             context.user_data.pop(PENDING_THREAD_ID, None)
             context.user_data.pop(PENDING_THREAD_TEXT, None)
-        await query.answer("Stale browser (topic mismatch)", show_alert=True)
+        await query.answer(t("Stale browser (topic mismatch)"), show_alert=True)
         return
 
     await query.answer()
@@ -455,7 +456,7 @@ async def _handle_confirm(
             clear_browse_state(context.user_data)
             await safe_edit(
                 query,
-                f"✅ Already bound to window {display}.",
+                t("✅ Already bound to window {name}.").format(name=display),
             )
             return
 
@@ -484,7 +485,7 @@ async def _handle_confirm(
 
 def _cancel_only_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("Cancel", callback_data=CB_DIR_CANCEL)]]
+        [[InlineKeyboardButton(t("Cancel"), callback_data=CB_DIR_CANCEL)]]
     )
 
 
@@ -505,10 +506,10 @@ async def _handle_worktree_callback(
     # otherwise reach a sub-handler whose only remaining guard is a
     # leftover PENDING_WORKTREE_REPO and spawn an unbound window.
     if pending_tid is None:
-        await query.answer("Stale browser (flow reset)", show_alert=True)
+        await query.answer(t("Stale browser (flow reset)"), show_alert=True)
         return
     if get_thread_id(update) != pending_tid:
-        await query.answer("Stale browser (topic mismatch)", show_alert=True)
+        await query.answer(t("Stale browser (topic mismatch)"), show_alert=True)
         return
     if data == CB_WT_USE_CURRENT:
         await _handle_wt_use_current(query, context)
@@ -528,7 +529,7 @@ async def _handle_wt_use_current(
     repo = context.user_data.get(PENDING_WORKTREE_REPO) if context.user_data else None
     selected_path = _required_selected_path(context)
     if not repo or not selected_path:
-        await safe_edit(query, "❌ Worktree state lost. Tap Cancel and retry.")
+        await safe_edit(query, t("❌ Worktree state lost. Tap Cancel and retry."))
         return
     clear_worktree_state(context.user_data)
     await _show_workspace_picker_or_provider(query, selected_path, context)
@@ -541,7 +542,7 @@ async def _handle_wt_new(
     await query.answer()
     repo = context.user_data.get(PENDING_WORKTREE_REPO) if context.user_data else None
     if not repo:
-        await safe_edit(query, "❌ Worktree state lost. Tap Cancel and retry.")
+        await safe_edit(query, t("❌ Worktree state lost. Tap Cancel and retry."))
         return
     repo_path = Path(repo)
     # Offloaded: suggest_branch_name runs blocking git branch/worktree list.
@@ -575,7 +576,7 @@ async def _handle_wt_confirm(
     delegate = tmux_manager.capabilities.native_worktrees
     if not delegate:
         if user_data is not None and user_data.get(PENDING_WORKTREE_CREATING):
-            await query.answer("Creating worktree…")
+            await query.answer(t("Creating worktree…"))
             return
         if user_data is not None:
             user_data[PENDING_WORKTREE_CREATING] = True
@@ -586,7 +587,7 @@ async def _handle_wt_confirm(
     if not (repo and branch and worktree_path):
         if user_data is not None:
             user_data.pop(PENDING_WORKTREE_CREATING, None)
-        await safe_edit(query, "❌ Worktree state lost. Tap Cancel and retry.")
+        await safe_edit(query, t("❌ Worktree state lost. Tap Cancel and retry."))
         return
     if delegate:
         # herdr makes the checkout + grouped workspace itself at creation time.
@@ -612,7 +613,9 @@ async def _handle_wt_confirm(
         logger.warning("Worktree creation failed: %s", exc)
         await safe_edit(
             query,
-            f"❌ Could not create worktree: {str(exc).splitlines()[0]}",
+            t("❌ Could not create worktree: {error}").format(
+                error=str(exc).splitlines()[0]
+            ),
             reply_markup=_cancel_only_keyboard(),
         )
         return
@@ -651,13 +654,13 @@ async def _handle_wt_edit_name(
     # next message in a fresh unbound-topic flow with "Worktree state lost".
     repo = context.user_data.get(PENDING_WORKTREE_REPO) if context.user_data else None
     if not repo:
-        await safe_edit(query, "❌ Worktree state lost. Tap Cancel and retry.")
+        await safe_edit(query, t("❌ Worktree state lost. Tap Cancel and retry."))
         return
     if context.user_data is not None:
         context.user_data[AWAITING_WORKTREE_BRANCH_NAME] = True
     await safe_edit(
         query,
-        "✏️ Send the branch name as a message, or tap Cancel.",
+        t("✏️ Send the branch name as a message, or tap Cancel."),
         reply_markup=_cancel_only_keyboard(),
     )
 
@@ -672,7 +675,7 @@ async def _handle_cancel(
         context.user_data.get(PENDING_THREAD_ID) if context.user_data else None
     )
     if pending_tid is not None and get_thread_id(update) != pending_tid:
-        await query.answer("Stale browser (topic mismatch)", show_alert=True)
+        await query.answer(t("Stale browser (topic mismatch)"), show_alert=True)
         return
     clear_browse_state(context.user_data)
     clear_worktree_state(context.user_data)
@@ -680,8 +683,8 @@ async def _handle_cancel(
     if context.user_data is not None:
         context.user_data.pop(PENDING_THREAD_ID, None)
         context.user_data.pop(PENDING_THREAD_TEXT, None)
-    await safe_edit(query, "Cancelled")
-    await query.answer("Cancelled")
+    await safe_edit(query, t("Cancelled"))
+    await query.answer(t("Cancelled"))
 
 
 # --- Registry dispatch entry point ---

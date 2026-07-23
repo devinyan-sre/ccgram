@@ -20,6 +20,7 @@ from pathlib import Path
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from ...config import config
+from ...i18n import t
 from ...user_preferences import user_preferences
 from ..callback_data import (
     CB_DIR_CANCEL,
@@ -142,9 +143,9 @@ def build_window_picker(
     window_ids = [wid for wid, _, _ in windows]
 
     lines = [
-        "*Bind to Existing Window*\n",
-        "These windows are running but not bound to any topic.",
-        "Pick one to attach it here, or start a new session.\n",
+        t("*Bind to Existing Window*") + "\n",
+        t("These windows are running but not bound to any topic."),
+        t("Pick one to attach it here, or start a new session.") + "\n",
     ]
     for _wid, name, cwd in windows:
         display_cwd = cwd.replace(str(Path.home()), "~")
@@ -165,8 +166,8 @@ def build_window_picker(
 
     buttons.append(
         [
-            InlineKeyboardButton("➕ New Session", callback_data=CB_WIN_NEW),
-            InlineKeyboardButton("Cancel", callback_data=CB_WIN_CANCEL),
+            InlineKeyboardButton(t("➕ New Session"), callback_data=CB_WIN_NEW),
+            InlineKeyboardButton(t("Cancel"), callback_data=CB_WIN_CANCEL),
         ]
     )
 
@@ -298,15 +299,20 @@ def build_directory_browser(
     if path != path.parent:
         action_row.append(InlineKeyboardButton("..", callback_data=CB_DIR_UP))
     action_row.append(InlineKeyboardButton("\U0001f3e0", callback_data=CB_DIR_HOME))
-    action_row.append(InlineKeyboardButton("Select", callback_data=CB_DIR_CONFIRM))
-    action_row.append(InlineKeyboardButton("Cancel", callback_data=CB_DIR_CANCEL))
+    action_row.append(InlineKeyboardButton(t("Select"), callback_data=CB_DIR_CONFIRM))
+    action_row.append(InlineKeyboardButton(t("Cancel"), callback_data=CB_DIR_CANCEL))
     buttons.append(action_row)
 
     display_path = str(path).replace(str(Path.home()), "~")
     if not subdirs and not favorites:
-        text = f"*Select Working Directory*\n\nCurrent: `{display_path}`\n\n_(No subdirectories)_"
+        text = t(
+            "*Select Working Directory*\n\nCurrent: `{path}`\n\n_(No subdirectories)_"
+        ).format(path=display_path)
     else:
-        text = f"*Select Working Directory*\n\nCurrent: `{display_path}`\n\nTap a folder to enter, or select current directory"
+        text = t(
+            "*Select Working Directory*\n\nCurrent: `{path}`\n\n"
+            "Tap a folder to enter, or select current directory"
+        ).format(path=display_path)
 
     return text, InlineKeyboardMarkup(buttons), subdirs
 
@@ -327,12 +333,12 @@ def build_provider_picker(selected_path: str) -> tuple[str, InlineKeyboardMarkup
     Returns: (text, keyboard).
     """
     display_path = selected_path.replace(str(Path.home()), "~")
-    text = (
-        f"*Select Provider*\n\nDirectory: `{display_path}`\n\nWhich agent CLI to use?"
-    )
+    text = t(
+        "*Select Provider*\n\nDirectory: `{path}`\n\nWhich agent CLI to use?"
+    ).format(path=display_path)
     buttons: list[list[InlineKeyboardButton]] = []
     for name, (label, icon) in _PROVIDER_META.items():
-        suffix = " (default)" if name == "claude" else ""
+        suffix = t(" (default)") if name == "claude" else ""
         buttons.append(
             [
                 InlineKeyboardButton(
@@ -341,7 +347,7 @@ def build_provider_picker(selected_path: str) -> tuple[str, InlineKeyboardMarkup
                 )
             ]
         )
-    buttons.append([InlineKeyboardButton("Cancel", callback_data=CB_DIR_CANCEL)])
+    buttons.append([InlineKeyboardButton(t("Cancel"), callback_data=CB_DIR_CANCEL)])
     return text, InlineKeyboardMarkup(buttons)
 
 
@@ -356,16 +362,16 @@ def build_mode_picker(
     provider_label, provider_icon = _PROVIDER_META.get(
         provider_name, (provider_name.title(), "🤖")
     )
-    text = (
+    text = t(
         "*Select Session Mode*\n\n"
-        f"Directory: `{display_path}`\n"
-        f"Provider: {provider_icon} {provider_label}\n\n"
+        "Directory: `{path}`\n"
+        "Provider: {provider}\n\n"
         "Choose how many approvals you want for this session."
-    )
+    ).format(path=display_path, provider=f"{provider_icon} {provider_label}")
     buttons = [
         [
             InlineKeyboardButton(
-                "✅ Standard",
+                t("✅ Standard"),
                 callback_data=f"{CB_MODE_SELECT}{provider_name}:normal",
             )
         ],
@@ -375,7 +381,7 @@ def build_mode_picker(
                 callback_data=f"{CB_MODE_SELECT}{provider_name}:yolo",
             )
         ],
-        [InlineKeyboardButton("Cancel", callback_data=CB_DIR_CANCEL)],
+        [InlineKeyboardButton(t("Cancel"), callback_data=CB_DIR_CANCEL)],
     ]
     return text, InlineKeyboardMarkup(buttons)
 
@@ -405,10 +411,10 @@ def build_workspace_picker(
     Returns: (text, keyboard).
     """
     display_path = selected_path.replace(str(Path.home()), "~")
-    text = (
-        f"*Select Workspace*\n\nDirectory: `{display_path}`\n\n"
+    text = t(
+        "*Select Workspace*\n\nDirectory: `{path}`\n\n"
         "Pick an existing workspace or let ccgram resolve one from the folder."
-    )
+    ).format(path=display_path)
     buttons: list[list[InlineKeyboardButton]] = []
     for i, (_wid, label, cwd) in enumerate(workspaces):
         display_cwd = cwd.replace(str(Path.home()), "~")
@@ -426,9 +432,13 @@ def build_workspace_picker(
             ]
         )
     buttons.append(
-        [InlineKeyboardButton("🔍 Auto-resolve from folder", callback_data=CB_WS_SKIP)]
+        [
+            InlineKeyboardButton(
+                t("🔍 Auto-resolve from folder"), callback_data=CB_WS_SKIP
+            )
+        ]
     )
-    buttons.append([InlineKeyboardButton("Cancel", callback_data=CB_DIR_CANCEL)])
+    buttons.append([InlineKeyboardButton(t("Cancel"), callback_data=CB_DIR_CANCEL)])
     return text, InlineKeyboardMarkup(buttons)
 
 
@@ -444,22 +454,22 @@ def build_worktree_picker(
     Returns: (text, keyboard).
     """
     display_path = repo_path.replace(str(Path.home()), "~")
-    text = (
+    text = t(
         "*Git Worktree*\n\n"
-        f"Repo: `{display_path}`\n"
-        f"Current branch: `{current_branch}`\n\n"
+        "Repo: `{path}`\n"
+        "Current branch: `{branch}`\n\n"
         "Work on the current branch, or create an isolated worktree "
         "on a new branch?"
-    )
+    ).format(path=display_path, branch=current_branch)
     buttons = [
         [
             InlineKeyboardButton(
-                f"🌿 Use current ({current_branch})",
+                t("🌿 Use current ({branch})").format(branch=current_branch),
                 callback_data=CB_WT_USE_CURRENT,
             )
         ],
-        [InlineKeyboardButton("➕ New worktree", callback_data=CB_WT_NEW)],
-        [InlineKeyboardButton("Cancel", callback_data=CB_DIR_CANCEL)],
+        [InlineKeyboardButton(t("➕ New worktree"), callback_data=CB_WT_NEW)],
+        [InlineKeyboardButton(t("Cancel"), callback_data=CB_DIR_CANCEL)],
     ]
     return text, InlineKeyboardMarkup(buttons)
 
@@ -478,20 +488,23 @@ def build_worktree_confirm(
     display_repo = repo_path.replace(str(Path.home()), "~")
     display_wt = worktree_path.replace(str(Path.home()), "~")
     lines = [
-        "*New Worktree*\n",
-        f"Repo: `{display_repo}`",
-        f"Branch: `{branch}`",
-        f"Worktree: `{display_wt}`",
+        t("*New Worktree*") + "\n",
+        t("Repo: `{path}`").format(path=display_repo),
+        t("Branch: `{branch}`").format(branch=branch),
+        t("Worktree: `{path}`").format(path=display_wt),
     ]
     if dirty:
         lines.append(
-            "\n⚠️ The source repo has uncommitted changes. The worktree "
-            "starts from HEAD; uncommitted work stays where it is."
+            "\n"
+            + t(
+                "⚠️ The source repo has uncommitted changes. The worktree "
+                "starts from HEAD; uncommitted work stays where it is."
+            )
         )
     text = "\n".join(lines)
     buttons = [
-        [InlineKeyboardButton("✅ Use this", callback_data=CB_WT_CONFIRM)],
-        [InlineKeyboardButton("✏️ Edit name", callback_data=CB_WT_EDIT_NAME)],
-        [InlineKeyboardButton("Cancel", callback_data=CB_DIR_CANCEL)],
+        [InlineKeyboardButton(t("✅ Use this"), callback_data=CB_WT_CONFIRM)],
+        [InlineKeyboardButton(t("✏️ Edit name"), callback_data=CB_WT_EDIT_NAME)],
+        [InlineKeyboardButton(t("Cancel"), callback_data=CB_DIR_CANCEL)],
     ]
     return text, InlineKeyboardMarkup(buttons)

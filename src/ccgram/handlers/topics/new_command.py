@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from telegram import Update
 from ...config import config
+from ...i18n import t
 from ..messaging_pipeline.message_sender import safe_reply
 from ..user_state import PENDING_THREAD_ID, PENDING_THREAD_TEXT
 from .directory_browser import (
@@ -29,7 +30,9 @@ async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user = update.effective_user
     if not user or not config.is_user_allowed(user.id):
         if update.message:
-            await safe_reply(update.message, "You are not authorized to use this bot.")
+            await safe_reply(
+                update.message, t("You are not authorized to use this bot.")
+            )
         return
 
     clear_browse_state(context.user_data)
@@ -43,6 +46,8 @@ async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if update.message:
         await safe_reply(
             update.message,
-            "\U0001f916 *CCGram*\n\n"
-            "Each topic is a session. Create a new topic to start.",
+            t(
+                "\U0001f916 *CCGram*\n\n"
+                "Each topic is a session. Create a new topic to start."
+            ),
         )

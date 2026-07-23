@@ -14,6 +14,7 @@ import asyncio
 import structlog
 
 from telegram import CallbackQuery, Update
+from ...i18n import t
 from ...telegram_client import PTBTelegramClient
 from ...multiplexer import multiplexer as tmux_manager
 from ..callback_data import (
@@ -104,7 +105,7 @@ async def handle_interactive_callback(
     from ..callback_helpers import get_thread_id, user_owns_window
 
     if not user_owns_window(user_id, window_id):
-        await query.answer("Not your session", show_alert=True)
+        await query.answer(t("Not your session"), show_alert=True)
         return
 
     thread_id = get_thread_id(update)
@@ -133,7 +134,7 @@ async def handle_interactive_callback(
             )
         elif sent and not refresh_ui:
             await clear_interactive_msg(user_id, client, thread_id)
-        await query.answer(INTERACTIVE_KEY_LABELS.get(cb_prefix, ""))
+        await query.answer(t(INTERACTIVE_KEY_LABELS.get(cb_prefix, "")))
 
 
 # --- Registry dispatch entry point ---

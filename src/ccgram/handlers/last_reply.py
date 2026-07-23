@@ -11,6 +11,7 @@ from __future__ import annotations
 import structlog
 from typing import TYPE_CHECKING
 
+from ..i18n import t
 from ..telegram_client import TelegramClient
 from ..thread_router import thread_router
 from ..multiplexer import multiplexer as tmux_manager
@@ -57,13 +58,13 @@ async def send_last_reply(
     if caps.name == "shell":
         scrollback = await tmux_manager.capture_pane_scrollback(window_id, history=200)
         block = extract_last_shell_block(scrollback) if scrollback else None
-        text = block if block is not None else "No command output found."
+        text = block if block is not None else t("No command output found.")
     elif caps.supports_structured_transcript:
         text = await _extract_last_ai_reply(window_id)
     else:
         # Provider without structured transcript (e.g. unknown); best-effort scrollback
         scrollback = await tmux_manager.capture_pane_scrollback(window_id, history=200)
-        text = scrollback.strip() if scrollback else "No reply yet."
+        text = scrollback.strip() if scrollback else t("No reply yet.")
 
     await _deliver(client, chat_id, thread_id, window_id, text)
 
@@ -97,9 +98,9 @@ def _collect_last_turn_blocks(messages: list[dict]) -> str:
     for msg in messages[last_user_idx + 1 :]:
         role = msg.get("role")
         if role == "assistant" and msg.get("content_type") == "text":
-            t = (msg.get("text") or "").strip()
-            if t:
-                blocks.append(t)
+            txt = (msg.get("text") or "").strip()
+            if txt:
+                blocks.append(txt)
         elif role == "user":
             break
     return "\n\n".join(blocks)
@@ -109,10 +110,10 @@ def _most_recent_assistant_text(messages: list[dict]) -> str:
     """Return the most recent assistant text message, or 'No reply yet.'."""
     for msg in reversed(messages):
         if msg.get("role") == "assistant" and msg.get("content_type") == "text":
-            t = (msg.get("text") or "").strip()
-            if t:
-                return t
-    return "No reply yet."
+            txt = (msg.get("text") or "").strip()
+            if txt:
+                return txt
+    return t("No reply yet.")
 
 
 async def _deliver(
@@ -200,17 +201,19 @@ async def last_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
                 update.get_bot(), update.message, update.effective_chat.id
             )
         else:
-            await safe_reply(update.message, "❌ Use this command inside a topic.")
+            await safe_reply(update.message, t("❌ Use this command inside a topic."))
         return
 
     window_id = thread_router.get_window_for_thread(user.id, thread_id)
     if not window_id:
-        await safe_reply(update.message, "❌ This topic is not bound to any session.")
+        await safe_reply(
+            update.message, t("❌ This topic is not bound to any session.")
+        )
         return
 
     w = await tmux_manager.find_window_by_id(window_id)
     if not w:
-        await safe_reply(update.message, "❌ Window no longer exists.")
+        await safe_reply(update.message, t("❌ Window no longer exists."))
         return
 
     chat_id = thread_router.resolve_chat_id(user.id, thread_id)

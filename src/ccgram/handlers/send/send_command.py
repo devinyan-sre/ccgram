@@ -27,6 +27,7 @@ from telegram.error import TelegramError
 from ...telegram_client import PTBTelegramClient, TelegramClient
 
 from ...config import config
+from ...i18n import t
 from ...window_query import view_window
 from ...thread_router import thread_router
 from ..callback_data import (
@@ -264,7 +265,7 @@ def build_file_browser(
     parent_row: list[InlineKeyboardButton] = []
     if current_path != cwd:
         parent_row.append(InlineKeyboardButton("📁 ..", callback_data=CB_SEND_UP))
-    parent_row.append(InlineKeyboardButton("✖ Cancel", callback_data=CB_SEND_CANCEL))
+    parent_row.append(InlineKeyboardButton(t("✖ Cancel"), callback_data=CB_SEND_CANCEL))
     buttons.append(parent_row)
 
     try:
@@ -291,13 +292,17 @@ def build_search_results(
 
     flat = [_make_item_button(path, idx, cwd) for idx, path in enumerate(shown)]
     buttons = _pack_into_rows(flat)
-    buttons.append([InlineKeyboardButton("✖ Cancel", callback_data=CB_SEND_CANCEL)])
+    buttons.append([InlineKeyboardButton(t("✖ Cancel"), callback_data=CB_SEND_CANCEL)])
 
     count = len(matches)
     cap = _ITEMS_PER_PAGE * 3
-    header = f"🔍 {cap}+ results" if count > cap else f"🔍 {count} result(s)"
+    header = (
+        t("🔍 {count}+ results").format(count=cap)
+        if count > cap
+        else t("🔍 {count} result(s)").format(count=count)
+    )
     if query:
-        header += f" for '{query}'"
+        header += t(" for '{query}'").format(query=query)
     return header, InlineKeyboardMarkup(buttons), shown
 
 
@@ -376,7 +381,7 @@ async def _upload_with_feedback(
     try:
         await upload_file(PTBTelegramClient(context.bot), chat_id, thread_id, path)
     except TelegramError as exc:
-        await safe_reply(update.message, f"Upload failed: {exc}")  # type: ignore[arg-type]
+        await safe_reply(update.message, t("Upload failed: {error}").format(error=exc))  # type: ignore[arg-type]
 
 
 async def _dispatch_search(
@@ -398,20 +403,23 @@ async def _dispatch_search(
         if exact.exists() and exact.is_file():
             error = validate_sendable(exact, cwd)
             if error:
-                await safe_reply(update.message, f"Cannot send: {error}")  # type: ignore[arg-type]
+                await safe_reply(
+                    update.message,  # type: ignore[arg-type]
+                    t("Cannot send: {error}").format(error=error),
+                )
                 return
             try:
                 rel = exact.resolve().relative_to(cwd.resolve())
             except ValueError:
                 await safe_reply(
                     update.message,  # type: ignore[arg-type]
-                    "Cannot send: file is outside project directory",
+                    t("Cannot send: file is outside project directory"),
                 )
                 return
             if any(is_excluded_dir(part) for part in rel.parts[:-1]):
                 await safe_reply(
                     update.message,  # type: ignore[arg-type]
-                    "Cannot send: file is in an excluded directory",
+                    t("Cannot send: file is in an excluded directory"),
                 )
                 return
             await _upload_with_feedback(update, context, chat_id, thread_id, exact)
@@ -419,12 +427,18 @@ async def _dispatch_search(
 
     matches = _find_files(cwd, pattern)
     if not matches:
-        await safe_reply(update.message, f"No files found matching: {pattern}")  # type: ignore[arg-type]
+        await safe_reply(
+            update.message,  # type: ignore[arg-type]
+            t("No files found matching: {pattern}").format(pattern=pattern),
+        )
         return
     if len(matches) == 1:
         error = validate_sendable(matches[0], cwd)
         if error:
-            await safe_reply(update.message, f"Cannot send: {error}")  # type: ignore[arg-type]
+            await safe_reply(
+                update.message,  # type: ignore[arg-type]
+                t("Cannot send: {error}").format(error=error),
+            )
             return
         await _upload_with_feedback(update, context, chat_id, thread_id, matches[0])
         return
@@ -448,23 +462,23 @@ async def send_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     user = update.effective_user
     if not user or not config.is_user_allowed(user.id):
-        await safe_reply(update.message, "Not authorized.")
+        await safe_reply(update.message, t("Not authorized."))
         return
 
     thread_id = get_thread_id(update)
     if thread_id is None:
-        await safe_reply(update.message, "Use this command inside a topic.")
+        await safe_reply(update.message, t("Use this command inside a topic."))
         return
 
     window_id = thread_router.resolve_window_for_thread(user.id, thread_id)
     if not window_id:
-        await safe_reply(update.message, "No session bound to this topic.")
+        await safe_reply(update.message, t("No session bound to this topic."))
         return
 
     view = view_window(window_id)
     cwd = Path(view.cwd) if view and view.cwd else None
     if not cwd or not cwd.is_dir():
-        await safe_reply(update.message, "Working directory not available.")
+        await safe_reply(update.message, t("Working directory not available."))
         return
 
     assert context.user_data is not None

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import structlog
 from telegram import CallbackQuery, Message, Update
 from telegram.error import TelegramError
+from ...i18n import t
 from ...providers import get_provider_for_window
 from ...telegram_client import PTBTelegramClient
 from ...window_query import get_window_provider
@@ -49,7 +50,7 @@ async def handle_voice_callback(
 
     # Ensure the message is accessible (not expired/deleted)
     if not isinstance(query.message, Message):
-        await query.answer("Message no longer available")
+        await query.answer(t("Message no longer available"))
         return
 
     try:
@@ -57,7 +58,7 @@ async def handle_voice_callback(
         action = parts[1]
         message_id = int(parts[2])
     except IndexError, ValueError:
-        await query.answer("Invalid callback data")
+        await query.answer(t("Invalid callback data"))
         return
 
     if action == "send":
@@ -65,7 +66,7 @@ async def handle_voice_callback(
     elif action == "drop":
         await _handle_drop(query.message, query, message_id, context)
     else:
-        await query.answer("Invalid callback data")
+        await query.answer(t("Invalid callback data"))
 
 
 async def _handle_send(
@@ -82,14 +83,16 @@ async def _handle_send(
     )
     pending_text = pending_store.pop((msg.chat.id, message_id), None)
     if pending_text is None:
-        await query.answer("⚠️ Session expired, resend voice message", show_alert=True)
+        await query.answer(
+            t("⚠️ Session expired, resend voice message"), show_alert=True
+        )
         return
 
     thread_id = get_thread_id(update)
     window_id = thread_router.resolve_window_for_thread(user_id, thread_id)
     if not window_id:
         pending_store[(msg.chat.id, message_id)] = pending_text
-        await query.answer("⚠️ No session bound.", show_alert=True)
+        await query.answer(t("⚠️ No session bound."), show_alert=True)
         return
 
     client = PTBTelegramClient(msg.get_bot())
@@ -112,7 +115,7 @@ async def _handle_send(
         except (OSError, TelegramError) as exc:
             logger.warning("Shell message handling failed: %s", exc)
             pending_store[(msg.chat.id, message_id)] = pending_text
-            await query.answer("❌ Failed to send", show_alert=True)
+            await query.answer(t("❌ Failed to send"), show_alert=True)
             return
         await _ack_delivered(client, msg, query, message_id)
         return
@@ -158,7 +161,7 @@ async def _handle_drop(
     except TelegramError as e:
         logger.warning("Failed to delete voice confirm message on discard: %s", e)
 
-    await query.answer("Discarded")
+    await query.answer(t("Discarded"))
 
 
 # --- Registry dispatch entry point ---

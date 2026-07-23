@@ -28,6 +28,7 @@ from telegram import (
 from telegram.error import TelegramError
 
 from ...config import config
+from ...i18n import t
 from ...miniapp.auth import sign_token
 from ...screenshot import text_to_image
 from ... import window_query
@@ -77,7 +78,7 @@ def build_dashboard_button(window_id: str, user_id: int) -> InlineKeyboardButton
         user_id=user_id,
     )
     url = f"{base_url.rstrip('/')}/app/{token}"
-    return InlineKeyboardButton("\U0001fa9f Dashboard", web_app=WebAppInfo(url=url))
+    return InlineKeyboardButton(t("\U0001fa9f Dashboard"), web_app=WebAppInfo(url=url))
 
 
 @topic_state.register("window")
@@ -103,7 +104,7 @@ async def _handle_status_recall(
     """Handle CB_STATUS_RECALL: send one of the last shown commands directly."""
     rest = data[len(CB_STATUS_RECALL) :]
     if ":" not in rest:
-        await query.answer("Invalid data")
+        await query.answer(t("Invalid data"))
         return
     window_id, idx_raw = rest.rsplit(":", 1)
     try:
@@ -111,18 +112,18 @@ async def _handle_status_recall(
         if idx < 0:
             raise ValueError
     except ValueError:
-        await query.answer("Invalid data")
+        await query.answer(t("Invalid data"))
         return
     if not user_owns_window(user_id, window_id):
-        await query.answer("Not your session", show_alert=True)
+        await query.answer(t("Not your session"), show_alert=True)
         return
 
     thread_id = get_thread_id(update)
     if thread_id is None:
-        await query.answer("Use in a topic", show_alert=True)
+        await query.answer(t("Use in a topic"), show_alert=True)
         return
     if thread_router.resolve_window_for_thread(user_id, thread_id) != window_id:
-        await query.answer("Stale status button", show_alert=True)
+        await query.answer(t("Stale status button"), show_alert=True)
         return
 
     # Lazy: command_history → messaging_pipeline → status → status_bar_actions
@@ -132,7 +133,7 @@ async def _handle_status_recall(
 
     history = get_history(user_id, thread_id, limit=idx + 1)
     if idx >= len(history):
-        await query.answer("Command not found", show_alert=True)
+        await query.answer(t("Command not found"), show_alert=True)
         return
 
     command = history[idx]
@@ -155,30 +156,30 @@ async def _handle_status_recall(
             window_id,
             command,
         )
-        await query.answer("\u21a9 Recalled")
+        await query.answer(t("\u21a9 Recalled"))
         return
 
     ok, err = await send_to_window(window_id, command)
     if not ok:
-        await query.answer(err or "Failed to send command", show_alert=True)
+        await query.answer(err or t("Failed to send command"), show_alert=True)
         return
 
     record_command(user_id, thread_id, command)
-    await query.answer("\u21a9 Sent")
+    await query.answer(t("\u21a9 Sent"))
 
 
 async def _handle_status_esc(query: CallbackQuery, user_id: int, data: str) -> None:
     """Handle CB_STATUS_ESC: send Escape key from status message."""
     window_id = data[len(CB_STATUS_ESC) :]
     if not user_owns_window(user_id, window_id):
-        await query.answer("Not your session", show_alert=True)
+        await query.answer(t("Not your session"), show_alert=True)
         return
     w = await tmux_manager.find_window_by_id(window_id)
     if w:
         await tmux_manager.send_keys(w.window_id, "Escape", enter=False, literal=False)
-        await query.answer("\u238b Sent Escape")
+        await query.answer(t("\u238b Sent Escape"))
     else:
-        await query.answer("Window not found", show_alert=True)
+        await query.answer(t("Window not found"), show_alert=True)
 
 
 async def _handle_keys(
@@ -188,25 +189,25 @@ async def _handle_keys(
     rest = data[len(CB_KEYS_PREFIX) :]
     colon_idx = rest.find(":")
     if colon_idx < 0:
-        await query.answer("Invalid data")
+        await query.answer(t("Invalid data"))
         return
     key_id = rest[:colon_idx]
     target = rest[colon_idx + 1 :]
     window_id, pane_id = parse_target(target)
 
     if not user_owns_window(user_id, window_id):
-        await query.answer("Not your session", show_alert=True)
+        await query.answer(t("Not your session"), show_alert=True)
         return
 
     key_info = KEYS_SEND_MAP.get(key_id)
     if not key_info:
-        await query.answer("Unknown key")
+        await query.answer(t("Unknown key"))
         return
 
     tmux_key, enter, literal = key_info
     w = await tmux_manager.find_window_by_id(window_id)
     if not w:
-        await query.answer("Window not found", show_alert=True)
+        await query.answer(t("Window not found"), show_alert=True)
         return
 
     if pane_id:
@@ -287,11 +288,11 @@ async def _handle_last_reply(
     """Handle CB_STATUS_LAST_REPLY: show last assistant reply or shell output."""
     window_id = data[len(CB_STATUS_LAST_REPLY) :]
     if not user_owns_window(user_id, window_id):
-        await query.answer("Not your session", show_alert=True)
+        await query.answer(t("Not your session"), show_alert=True)
         return
     thread_id = get_thread_id(update)
     if thread_id is None:
-        await query.answer("Use in a topic", show_alert=True)
+        await query.answer(t("Use in a topic"), show_alert=True)
         return
     chat_id = thread_router.resolve_chat_id(user_id, thread_id)
     # Lazy: last_reply ↔ status_bar_actions cycle
@@ -300,7 +301,7 @@ async def _handle_last_reply(
     await send_last_reply(
         PTBTelegramClient(query.get_bot()), chat_id, thread_id, window_id
     )
-    await query.answer("\U0001f4c4 Last reply")
+    await query.answer(t("\U0001f4c4 Last reply"))
 
 
 async def _handle_get_file(
@@ -316,20 +317,20 @@ async def _handle_get_file(
 
     window_id = data[len(CB_STATUS_GET_FILE) :]
     if not user_owns_window(user_id, window_id):
-        await query.answer("Not your session", show_alert=True)
+        await query.answer(t("Not your session"), show_alert=True)
         return
     view = window_query.view_window(window_id)
     cwd = Path(view.cwd) if view and view.cwd else None
     if not cwd or not cwd.is_dir():
-        await query.answer("Working directory not available", show_alert=True)
+        await query.answer(t("Working directory not available"), show_alert=True)
         return
     if context.user_data is None:
-        await query.answer("State error", show_alert=True)
+        await query.answer(t("State error"), show_alert=True)
         return
     thread_id = get_thread_id(update)
     chat_id = thread_router.resolve_chat_id(user_id, thread_id) if thread_id else None
     if chat_id is None:
-        await query.answer("Use in a topic", show_alert=True)
+        await query.answer(t("Use in a topic"), show_alert=True)
         return
     # Lazy: send subpackage ↔ status_bar_actions cycle
     from ..send import open_file_browser

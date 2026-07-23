@@ -26,6 +26,7 @@ from telegram import (
 )
 
 from ...config import config
+from ...i18n import t
 from ...telegram_client import PTBTelegramClient
 from ...thread_router import thread_router
 from ...multiplexer import multiplexer as tmux_manager
@@ -82,7 +83,7 @@ def build_pane_buttons(
     window_id: str, pane_id: str, subscribed: bool
 ) -> list[InlineKeyboardButton]:
     """Return the per-pane action row used in the ``/panes`` keyboard."""
-    sub_label = "\U0001f515 Unsub" if subscribed else "\U0001f514 Sub"
+    sub_label = t("\U0001f515 Unsub") if subscribed else t("\U0001f514 Sub")
     sub_data = f"{CB_PANE_UNSUBSCRIBE if subscribed else CB_PANE_SUBSCRIBE}{window_id}{CB_PANE_DELIMITER}{pane_id}"
     return [
         InlineKeyboardButton(
@@ -93,7 +94,7 @@ def build_pane_buttons(
         ),
         InlineKeyboardButton(sub_label, callback_data=sub_data[:64]),
         InlineKeyboardButton(
-            "✏️ Rename",
+            t("✏️ Rename"),
             callback_data=f"{CB_PANE_RENAME}{window_id}{CB_PANE_DELIMITER}{pane_id}"[
                 :64
             ],
@@ -105,10 +106,9 @@ def build_pane_lifecycle_button(
     window_id: str, *, enabled: bool
 ) -> InlineKeyboardButton:
     """Return the per-window pane lifecycle notifications toggle button."""
-    icon = "\U0001f514" if enabled else "\U0001f515"
-    state = "on" if enabled else "off"
+    label = t("\U0001f514 Lifecycle: on") if enabled else t("\U0001f515 Lifecycle: off")
     return InlineKeyboardButton(
-        f"{icon} Lifecycle: {state}",
+        label,
         callback_data=f"{CB_PANE_LIFECYCLE_TOGGLE}{window_id}"[:64],
     )
 
@@ -118,11 +118,11 @@ async def _toggle_subscribe(
 ) -> None:
     parsed = _parse_target(data, prefix)
     if parsed is None:
-        await query.answer("Invalid pane")
+        await query.answer(t("Invalid pane"))
         return
     window_id, pane_id = parsed
     if not user_owns_window(user_id, window_id):
-        await query.answer("Not your session", show_alert=True)
+        await query.answer(t("Not your session"), show_alert=True)
         return
     pane = get_pane_projection(window_id, pane_id)
     if pane is None:
@@ -134,14 +134,14 @@ async def _toggle_subscribe(
             live = await tmux_manager.list_panes(window_id)
         except Exception as exc:  # noqa: BLE001
             logger.warning("pane subscribe lookup failed: %s", exc)
-            await query.answer("Pane lookup failed", show_alert=True)
+            await query.answer(t("Pane lookup failed"), show_alert=True)
             return
         if not any(p.pane_id == pane_id for p in live):
-            await query.answer("Pane not found", show_alert=True)
+            await query.answer(t("Pane not found"), show_alert=True)
             return
     upsert_pane(window_id, pane_id, subscribed=subscribed)
-    label = "Subscribed" if subscribed else "Unsubscribed"
-    await query.answer(f"✓ {label} {pane_id}")
+    toast = t("✓ Subscribed {pane}") if subscribed else t("✓ Unsubscribed {pane}")
+    await query.answer(toast.format(pane=pane_id))
 
 
 async def _handle_subscribe(query: CallbackQuery, user_id: int, data: str) -> None:
@@ -165,15 +165,15 @@ async def _handle_rename(
 ) -> None:
     parsed = _parse_target(data, CB_PANE_RENAME)
     if parsed is None:
-        await query.answer("Invalid pane")
+        await query.answer(t("Invalid pane"))
         return
     window_id, pane_id = parsed
     if not user_owns_window(user_id, window_id):
-        await query.answer("Not your session", show_alert=True)
+        await query.answer(t("Not your session"), show_alert=True)
         return
     thread_id = get_thread_id(update)
     if thread_id is None:
-        await query.answer("Use in a topic", show_alert=True)
+        await query.answer(t("Use in a topic"), show_alert=True)
         return
     if context.user_data is not None:
         context.user_data[PANE_RENAME_WINDOW_ID] = window_id
@@ -185,15 +185,15 @@ async def _handle_rename(
     try:
         await client.send_message(
             chat_id=chat_id,
-            text=_RENAME_PROMPT.format(pane_id=pane_id),
+            text=t(_RENAME_PROMPT).format(pane_id=pane_id),
             message_thread_id=thread_id,
             reply_markup=ForceReply(selective=True),
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("pane rename prompt failed: %s", exc)
-        await query.answer("Failed to open rename prompt", show_alert=True)
+        await query.answer(t("Failed to open rename prompt"), show_alert=True)
         return
-    await query.answer("✏️ Rename")
+    await query.answer(t("✏️ Rename"))
 
 
 async def apply_pane_rename(
@@ -223,18 +223,22 @@ async def apply_pane_rename(
     name = text.strip()
     if name == "-" or name == "":
         upsert_pane(window_id, pane_id, name=None)
-        await safe_reply(message, f"✓ Cleared name for {pane_id}")
+        await safe_reply(message, t("✓ Cleared name for {pane}").format(pane=pane_id))
         return True
     if len(name) > _MAX_PANE_NAME_LEN:
         # Reject loudly so the user doesn't see a different name from what
         # they typed. They can resend a shorter version.
         await safe_reply(
             message,
-            f"❌ Name too long ({len(name)} chars, max {_MAX_PANE_NAME_LEN}).",
+            t("❌ Name too long ({length} chars, max {max}).").format(
+                length=len(name), max=_MAX_PANE_NAME_LEN
+            ),
         )
         return True
     upsert_pane(window_id, pane_id, name=name)
-    await safe_reply(message, f"✓ Renamed {pane_id} → {name}")
+    await safe_reply(
+        message, t("✓ Renamed {pane} → {name}").format(pane=pane_id, name=name)
+    )
     return True
 
 
@@ -243,16 +247,19 @@ async def _handle_lifecycle_toggle(
 ) -> None:
     window_id = data[len(CB_PANE_LIFECYCLE_TOGGLE) :]
     if not window_id:
-        await query.answer("Invalid window")
+        await query.answer(t("Invalid window"))
         return
     if not user_owns_window(user_id, window_id):
-        await query.answer("Not your session", show_alert=True)
+        await query.answer(t("Not your session"), show_alert=True)
         return
     current = get_pane_lifecycle_notify(window_id, config.pane_lifecycle_notify)
     new_value = not current
     set_pane_lifecycle_notify(window_id, new_value)
-    label = "on" if new_value else "off"
-    await query.answer(f"✓ Pane lifecycle notifications {label}")
+    await query.answer(
+        t("✓ Pane lifecycle notifications on")
+        if new_value
+        else t("✓ Pane lifecycle notifications off")
+    )
 
 
 @register(

@@ -14,6 +14,7 @@ from __future__ import annotations
 import structlog
 from typing import TYPE_CHECKING
 
+from ..i18n import t
 from ..multiplexer import multiplexer as tmux_manager
 from ..thread_router import thread_router
 
@@ -43,21 +44,23 @@ async def split_command(update: "Update", context: "ContextTypes.DEFAULT_TYPE") 
 
     thread_id = get_thread_id(update)
     if thread_id is None:
-        await safe_reply(update.message, "❌ Use this command inside a topic.")
+        await safe_reply(update.message, t("❌ Use this command inside a topic."))
         return
 
     window_id = thread_router.get_window_for_thread(user.id, thread_id)
     if not window_id:
-        await safe_reply(update.message, "❌ This topic is not bound to any session.")
+        await safe_reply(
+            update.message, t("❌ This topic is not bound to any session.")
+        )
         return
 
     if not await tmux_manager.find_window_by_id(window_id):
-        await safe_reply(update.message, "❌ Window no longer exists.")
+        await safe_reply(update.message, t("❌ Window no longer exists."))
         return
 
     new_pane = await tmux_manager.split_window(window_id)
     if not new_pane:
-        await safe_reply(update.message, "❌ Could not split the window.")
+        await safe_reply(update.message, t("❌ Could not split the window."))
         return
 
     command = " ".join(context.args).strip() if context.args else ""
@@ -65,10 +68,12 @@ async def split_command(update: "Update", context: "ContextTypes.DEFAULT_TYPE") 
         await tmux_manager.send_to_pane(new_pane, command, window_id=window_id)
         await safe_reply(
             update.message,
-            f"✅ Split into pane `{new_pane}` and ran `{command}`. Use /panes to view.",
+            t(
+                "✅ Split into pane `{pane}` and ran `{command}`. Use /panes to view."
+            ).format(pane=new_pane, command=command),
         )
     else:
         await safe_reply(
             update.message,
-            f"✅ Split into pane `{new_pane}`. Use /panes to view.",
+            t("✅ Split into pane `{pane}`. Use /panes to view.").format(pane=new_pane),
         )

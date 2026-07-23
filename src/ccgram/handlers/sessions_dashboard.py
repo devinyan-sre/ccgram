@@ -24,6 +24,7 @@ from telegram import (
     Update,
 )
 from ..config import config
+from ..i18n import t
 from ..telegram_client import PTBTelegramClient, TelegramClient
 from ..thread_router import thread_router
 from ..multiplexer import multiplexer as tmux_manager
@@ -47,9 +48,9 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 _REFRESH_BTN = InlineKeyboardButton(
-    "\U0001f504 Refresh", callback_data=CB_SESSIONS_REFRESH
+    t("\U0001f504 Refresh"), callback_data=CB_SESSIONS_REFRESH
 )
-_NEW_BTN = InlineKeyboardButton("\u2795 New Session", callback_data=CB_SESSIONS_NEW)
+_NEW_BTN = InlineKeyboardButton(t("\u2795 New Session"), callback_data=CB_SESSIONS_NEW)
 
 
 async def _build_dashboard(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
@@ -59,7 +60,7 @@ async def _build_dashboard(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
     if not bindings:
         keyboard = InlineKeyboardMarkup([[_REFRESH_BTN, _NEW_BTN]])
         return (
-            "No active sessions.\n\nCreate a new topic to start a session.",
+            t("No active sessions.\n\nCreate a new topic to start a session."),
             keyboard,
         )
 
@@ -85,7 +86,7 @@ async def _build_dashboard(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
         if alive:
             row: list[InlineKeyboardButton] = [
                 InlineKeyboardButton(
-                    "\u238b Esc",
+                    t("\u238b Esc"),
                     callback_data=f"{CB_STATUS_ESC}{window_id}"[:64],
                 ),
                 InlineKeyboardButton(
@@ -93,13 +94,13 @@ async def _build_dashboard(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
                     callback_data=f"{CB_STATUS_SCREENSHOT}{window_id}"[:64],
                 ),
                 InlineKeyboardButton(
-                    f"\U0001f5d1 Kill {display_name}",
+                    t("\U0001f5d1 Kill {name}").format(name=display_name),
                     callback_data=f"{CB_SESSIONS_KILL}{window_id}"[:64],
                 ),
             ]
             action_rows.append(row)
 
-    text = "Sessions\n\n" + "\n".join(lines)
+    text = t("Sessions") + "\n\n" + "\n".join(lines)
     rows = [*action_rows, [_REFRESH_BTN, _NEW_BTN]]
     return text, InlineKeyboardMarkup(rows)
 
@@ -111,7 +112,7 @@ async def sessions_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) 
         return
 
     if not config.is_user_allowed(user.id):
-        await safe_reply(update.message, "You are not authorized to use this bot.")
+        await safe_reply(update.message, t("You are not authorized to use this bot."))
         return
 
     text, keyboard = await _build_dashboard(user.id)
@@ -133,7 +134,7 @@ async def handle_sessions_kill(
         [
             [
                 InlineKeyboardButton(
-                    f"\u26a0 Confirm kill {display}",
+                    t("\u26a0 Confirm kill {name}").format(name=display),
                     callback_data=f"{CB_SESSIONS_KILL_CONFIRM}{window_id}"[:64],
                 ),
             ],
@@ -142,7 +143,9 @@ async def handle_sessions_kill(
     )
     await safe_edit(
         query,
-        f"Kill session '{display}'?\n\nThis will terminate the Claude Code process.",
+        t(
+            "Kill session '{name}'?\n\nThis will terminate the Claude Code process."
+        ).format(name=display),
         reply_markup=keyboard,
     )
 
@@ -174,7 +177,9 @@ async def handle_sessions_kill_confirm(
     # Re-render dashboard
     text, keyboard = await _build_dashboard(user_id)
     await safe_edit(
-        query, f"\U0001f5d1 Killed '{display}'\n\n{text}", reply_markup=keyboard
+        query,
+        t("\U0001f5d1 Killed '{name}'").format(name=display) + f"\n\n{text}",
+        reply_markup=keyboard,
     )
 
 
@@ -196,22 +201,22 @@ async def _dispatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if data == CB_SESSIONS_REFRESH:
         await handle_sessions_refresh(query, user.id)
-        await query.answer("Refreshed")
+        await query.answer(t("Refreshed"))
     elif data == CB_SESSIONS_NEW:
-        await query.answer("Create a new topic to start a session.")
+        await query.answer(t("Create a new topic to start a session."))
     elif data.startswith(CB_SESSIONS_KILL_CONFIRM):
         window_id = data[len(CB_SESSIONS_KILL_CONFIRM) :]
         if not user_owns_window(user.id, window_id):
-            await query.answer("Not your session", show_alert=True)
+            await query.answer(t("Not your session"), show_alert=True)
             return
         await handle_sessions_kill_confirm(
             query, user.id, window_id, PTBTelegramClient(context.bot)
         )
-        await query.answer("Killed")
+        await query.answer(t("Killed"))
     elif data.startswith(CB_SESSIONS_KILL):
         window_id = data[len(CB_SESSIONS_KILL) :]
         if not user_owns_window(user.id, window_id):
-            await query.answer("Not your session", show_alert=True)
+            await query.answer(t("Not your session"), show_alert=True)
             return
         await handle_sessions_kill(query, user.id, window_id)
         await query.answer()

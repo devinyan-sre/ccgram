@@ -27,6 +27,7 @@ from telegram import (
 from telegram.error import BadRequest, TelegramError
 from .. import window_query
 from ..config import config
+from ..i18n import t
 from ..session import AuditIssue, AuditResult, session_manager
 from ..session_map import session_map_sync
 from ..telegram_client import PTBTelegramClient, TelegramClient
@@ -78,11 +79,11 @@ def _issue_summary_lines(audit: AuditResult) -> list[str]:
 
     if category_counts:
         return [
-            f"⚠ {count} {_CATEGORY_LABELS.get(cat, cat)}"
+            f"⚠ {count} " + t(_CATEGORY_LABELS.get(cat, cat))
             for cat, count in category_counts.items()
         ]
     if audit.total_bindings > 0:
-        return ["✓ No orphaned entries", "✓ Tmux display cache in sync"]
+        return [t("✓ No orphaned entries"), t("✓ Tmux display cache in sync")]
     return []
 
 
@@ -120,43 +121,73 @@ def _format_report(
     lines: list[str] = []
 
     if fixed_count > 0:
-        issue_word = "issue" if fixed_count == 1 else "issues"
-        lines.append(f"✅ Fixed {fixed_count} {issue_word}\n")
+        fixed_tpl = (
+            t("✅ Fixed {count} issue")
+            if fixed_count == 1
+            else t("✅ Fixed {count} issues")
+        )
+        lines.append(fixed_tpl.format(count=fixed_count) + "\n")
     else:
-        lines.append("🔍 State audit\n")
+        lines.append(t("🔍 State audit") + "\n")
 
     if closed_topic_count > 0:
-        topic_word = "topic" if closed_topic_count == 1 else "topics"
-        lines.append(f"ℹ Removed {closed_topic_count} stale {topic_word}")
+        removed_tpl = (
+            t("ℹ Removed {count} stale topic")
+            if closed_topic_count == 1
+            else t("ℹ Removed {count} stale topics")
+        )
+        lines.append(removed_tpl.format(count=closed_topic_count))
 
     if recreated_topic_count > 0:
-        topic_word = "topic" if recreated_topic_count == 1 else "topics"
-        lines.append(f"ℹ Recreated {recreated_topic_count} {topic_word}")
+        recreated_tpl = (
+            t("ℹ Recreated {count} topic")
+            if recreated_topic_count == 1
+            else t("ℹ Recreated {count} topics")
+        )
+        lines.append(recreated_tpl.format(count=recreated_topic_count))
 
     if manual_close_count > 0:
-        topic_word = "topic" if manual_close_count == 1 else "topics"
-        lines.append(
-            f"⚠ {manual_close_count} {topic_word} could not be closed automatically; "
-            "safe to close manually"
+        manual_tpl = (
+            t(
+                "⚠ {count} topic could not be closed automatically; "
+                "safe to close manually"
+            )
+            if manual_close_count == 1
+            else t(
+                "⚠ {count} topics could not be closed automatically; "
+                "safe to close manually"
+            )
         )
+        lines.append(manual_tpl.format(count=manual_close_count))
 
     # Binding summary
     if audit.total_bindings == 0:
-        lines.append("ℹ No topic bindings")
+        lines.append(t("ℹ No topic bindings"))
     elif audit.live_binding_count == audit.total_bindings:
-        lines.append(f"✓ {audit.total_bindings} topics bound, all windows alive")
+        lines.append(
+            t("✓ {count} topics bound, all windows alive").format(
+                count=audit.total_bindings
+            )
+        )
     else:
         dead = audit.total_bindings - audit.live_binding_count
         lines.append(
-            f"⚠ {dead} ghost binding(s) "
-            f"({audit.live_binding_count}/{audit.total_bindings} alive)"
+            t("⚠ {count} ghost binding(s) ({live}/{total} alive)").format(
+                count=dead,
+                live=audit.live_binding_count,
+                total=audit.total_bindings,
+            )
         )
 
     # Dead topic summary (window alive, but Telegram topic deleted)
     dead_topic_count = sum(1 for i in audit.issues if i.category == "dead_topic")
     if dead_topic_count > 0:
-        topic_word = "topic" if dead_topic_count == 1 else "topics"
-        lines.append(f"⚠ {dead_topic_count} dead {topic_word} (deleted in Telegram)")
+        dead_tpl = (
+            t("⚠ {count} dead topic (deleted in Telegram)")
+            if dead_topic_count == 1
+            else t("⚠ {count} dead topics (deleted in Telegram)")
+        )
+        lines.append(dead_tpl.format(count=dead_topic_count))
 
     lines.extend(_issue_summary_lines(audit))
 
@@ -165,15 +196,19 @@ def _format_report(
     # Build keyboard
     fixable = audit.fixable_count
     if fixable > 0:
-        issue_word = "issue" if fixable == 1 else "issues"
+        fix_tpl = (
+            t("\U0001f527 Fix {count} issue")
+            if fixable == 1
+            else t("\U0001f527 Fix {count} issues")
+        )
         keyboard = InlineKeyboardMarkup(
             [
                 [
                     InlineKeyboardButton(
-                        f"\U0001f527 Fix {fixable} {issue_word}",
+                        fix_tpl.format(count=fixable),
                         callback_data=CB_SYNC_FIX,
                     ),
-                    InlineKeyboardButton("✕ Dismiss", callback_data=CB_SYNC_DISMISS),
+                    InlineKeyboardButton(t("✕ Dismiss"), callback_data=CB_SYNC_DISMISS),
                 ]
             ]
         )
@@ -430,10 +465,10 @@ async def sync_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     if not config.is_user_allowed(user.id):
-        await safe_reply(update.message, "You are not authorized to use this bot.")
+        await safe_reply(update.message, t("You are not authorized to use this bot."))
         return
 
-    status_msg = await safe_reply(update.message, "🔍 State audit…")
+    status_msg = await safe_reply(update.message, t("🔍 State audit…"))
     client = PTBTelegramClient(update.get_bot())
     await _sync_live_topic_names(client)
     audit = await _run_audit()
@@ -449,14 +484,14 @@ async def sync_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def handle_sync_fix(query: CallbackQuery) -> None:
     """Run all fix operations, re-audit, and edit message in place."""
-    await safe_edit(query, "🔧 Fixing…", reply_markup=None)
+    await safe_edit(query, t("🔧 Fixing…"), reply_markup=None)
 
     # A destructive repair requires a confirmed multiplexer listing.
     all_windows = await list_windows_for_reconciliation(tmux_manager)
     if all_windows is None:
         await safe_edit(
             query,
-            "⚠ Multiplexer unavailable. No state changes were made.",
+            t("⚠ Multiplexer unavailable. No state changes were made."),
             reply_markup=None,
         )
         return
@@ -521,7 +556,7 @@ async def handle_sync_dismiss(query: CallbackQuery) -> None:
     except TelegramError:
         pass
     original_text = getattr(query.message, "text", None)
-    await safe_edit(query, original_text or "Dismissed", reply_markup=None)
+    await safe_edit(query, original_text or t("Dismissed"), reply_markup=None)
 
 
 @register(CB_SYNC_FIX, CB_SYNC_DISMISS)
@@ -531,8 +566,8 @@ async def _dispatch(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     if query.data == CB_SYNC_FIX:
-        await query.answer("Running fix...")
+        await query.answer(t("Running fix..."))
         await handle_sync_fix(query)
     elif query.data == CB_SYNC_DISMISS:
-        await query.answer("Dismissed")
+        await query.answer(t("Dismissed"))
         await handle_sync_dismiss(query)

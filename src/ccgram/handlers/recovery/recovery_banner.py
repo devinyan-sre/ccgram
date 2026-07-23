@@ -31,6 +31,7 @@ from telegram import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, 
 from telegram.error import TelegramError
 
 from ... import window_query
+from ...i18n import t
 from ...providers import get_provider, get_provider_for_window, resolve_launch_command
 from ...session import session_manager
 from ...session_map import session_map_sync
@@ -151,14 +152,14 @@ def render_banner(banner: RecoveryBanner) -> tuple[str, InlineKeyboardMarkup]:
     label = banner.display or banner.window_id
 
     if banner.mode == "restore":
-        title = f"\U0001f504 Restore `{label}`."
-        prompt = f"Choose how to continue.\n{help_text}"
+        title = t("\U0001f504 Restore `{name}`.").format(name=label)
+        prompt = t("Choose how to continue.") + f"\n{help_text}"
     elif banner.mode == "resume":
-        title = f"⏪ Resume `{label}`."
-        prompt = f"Pick a session below or use the menu.\n{help_text}"
+        title = t("⏪ Resume `{name}`.").format(name=label)
+        prompt = t("Pick a session below or use the menu.") + f"\n{help_text}"
     else:
-        title = f"⚠ Session `{label}` ended."
-        prompt = f"Tap a button or send a message to recover.\n{help_text}"
+        title = t("⚠ Session `{name}` ended.").format(name=label)
+        prompt = t("Tap a button or send a message to recover.") + f"\n{help_text}"
 
     text = f"{title}{cwd_line}\n\n{prompt}"
     return text, keyboard
@@ -175,11 +176,11 @@ def _recovery_help_text(window_id: str) -> str:
     caps = get_provider_for_window(
         window_id, provider_name=window_query.get_window_provider(window_id)
     ).capabilities
-    parts = ["Start fresh"]
+    parts = [t("Start fresh")]
     if caps.supports_continue:
-        parts.append("Continue last session")
+        parts.append(t("Continue last session"))
     if caps.supports_resume:
-        parts.append("Resume from list")
+        parts.append(t("Resume from list"))
     return " · ".join(parts)
 
 
@@ -195,28 +196,28 @@ def build_recovery_keyboard(window_id: str) -> InlineKeyboardMarkup:
     ).capabilities
     options: list[InlineKeyboardButton] = [
         InlineKeyboardButton(
-            "\U0001f195 Fresh",
+            t("\U0001f195 Fresh"),
             callback_data=f"{CB_RECOVERY_FRESH}{window_id}"[:64],
         ),
     ]
     if caps.supports_continue:
         options.append(
             InlineKeyboardButton(
-                "▶ Continue",
+                t("▶ Continue"),
                 callback_data=f"{CB_RECOVERY_CONTINUE}{window_id}"[:64],
             )
         )
     if caps.supports_resume:
         options.append(
             InlineKeyboardButton(
-                "⏪ Resume",
+                t("⏪ Resume"),
                 callback_data=f"{CB_RECOVERY_RESUME}{window_id}"[:64],
             )
         )
     return InlineKeyboardMarkup(
         [
             options,
-            [InlineKeyboardButton("✖ Cancel", callback_data=CB_RECOVERY_CANCEL)],
+            [InlineKeyboardButton(t("✖ Cancel"), callback_data=CB_RECOVERY_CANCEL)],
         ]
     )
 
@@ -229,13 +230,15 @@ async def _create_and_bind_window(
     context: ContextTypes.DEFAULT_TYPE,
     *,
     agent_args: str = "",
-    success_label: str = "Session started.",
+    success_label: str | None = None,
     old_window_id: str = "",
 ) -> bool:
     """Create a new tmux window, bind it, rename topic, forward pending text.
 
     Returns True on success, False on failure.
     """
+    if success_label is None:
+        success_label = t("Session started.")
     thread_router.unbind_thread(user_id, thread_id)
     # Lazy: polling_state → recovery_banner via callback_registry
     # side effects.
@@ -263,7 +266,7 @@ async def _create_and_bind_window(
     if not success:
         await safe_edit(query, f"❌ {message}")
         _clear_recovery_state(context.user_data)
-        await query.answer("Failed")
+        await query.answer(t("Failed"))
         return False
 
     if provider.capabilities.supports_hook:
@@ -308,10 +311,10 @@ async def _create_and_bind_window(
             await safe_send(
                 client,
                 thread_router.resolve_chat_id(user_id, thread_id),
-                f"❌ Failed to send pending message: {send_msg}",
+                t("❌ Failed to send pending message: {error}").format(error=send_msg),
                 message_thread_id=thread_id,
             )
-    await query.answer("Created")
+    await query.answer(t("Created"))
     return True
 
 
@@ -331,11 +334,11 @@ async def _handle_back(
     window_id = data[len(CB_RECOVERY_BACK) :]
     validated = _validate_recovery_state(window_id, update, context)
     if validated is None:
-        await query.answer("Stale recovery (topic mismatch)", show_alert=True)
+        await query.answer(t("Stale recovery (topic mismatch)"), show_alert=True)
         return
     thread_id, _ = validated
     if query.message is None or query.message.chat is None:
-        await query.answer("Chat unavailable", show_alert=True)
+        await query.answer(t("Chat unavailable"), show_alert=True)
         return
     chat_id = query.message.chat.id
     display = thread_router.get_display_name(window_id) or window_id
@@ -364,15 +367,15 @@ async def _handle_fresh(
     old_wid = data[len(CB_RECOVERY_FRESH) :]
     validated = _validate_recovery_state(old_wid, update, context)
     if validated is None:
-        await query.answer("Stale recovery (topic mismatch)", show_alert=True)
+        await query.answer(t("Stale recovery (topic mismatch)"), show_alert=True)
         return
 
     thread_id, _ = validated
     cwd = _cwd_for_window(old_wid)
     if not cwd or not Path(cwd).is_dir():
-        await safe_edit(query, "❌ Directory no longer exists.")
+        await safe_edit(query, t("❌ Directory no longer exists."))
         _clear_recovery_state(context.user_data)
-        await query.answer("Project gone")
+        await query.answer(t("Project gone"))
         return
 
     await _create_and_bind_window(
@@ -381,7 +384,7 @@ async def _handle_fresh(
         thread_id,
         cwd,
         context,
-        success_label="Fresh session started.",
+        success_label=t("Fresh session started."),
         old_window_id=old_wid,
     )
 
@@ -402,15 +405,15 @@ async def _handle_continue(
     old_wid = data[len(CB_RECOVERY_CONTINUE) :]
     validated = _validate_recovery_state(old_wid, update, context)
     if validated is None:
-        await query.answer("Stale recovery (topic mismatch)", show_alert=True)
+        await query.answer(t("Stale recovery (topic mismatch)"), show_alert=True)
         return
 
     thread_id, _ = validated
     cwd = _cwd_for_window(old_wid)
     if not cwd or not Path(cwd).is_dir():
-        await safe_edit(query, "❌ Directory no longer exists.")
+        await safe_edit(query, t("❌ Directory no longer exists."))
         _clear_recovery_state(context.user_data)
-        await query.answer("Project gone")
+        await query.answer(t("Project gone"))
         return
 
     if not await asyncio.to_thread(scan_sessions_for_cwd, cwd):
@@ -427,7 +430,7 @@ async def _handle_continue(
         cwd,
         context,
         agent_args=launch_args,
-        success_label="Continuing previous session.",
+        success_label=t("Continuing previous session."),
         old_window_id=old_wid,
     )
 
@@ -443,14 +446,14 @@ async def _handle_resume(
     old_wid = data[len(CB_RECOVERY_RESUME) :]
     validated = _validate_recovery_state(old_wid, update, context)
     if validated is None:
-        await query.answer("Stale recovery (topic mismatch)", show_alert=True)
+        await query.answer(t("Stale recovery (topic mismatch)"), show_alert=True)
         return
 
     cwd = _cwd_for_window(old_wid)
     if not cwd or not Path(cwd).is_dir():
-        await safe_edit(query, "❌ Directory no longer exists.")
+        await safe_edit(query, t("❌ Directory no longer exists."))
         _clear_recovery_state(context.user_data)
-        await query.answer("Project gone")
+        await query.answer(t("Project gone"))
         return
 
     sessions = await asyncio.to_thread(scan_sessions_for_cwd, cwd)
@@ -467,7 +470,7 @@ async def _handle_resume(
     keyboard = _build_resume_picker_keyboard(sessions, old_wid)
     await safe_edit(
         query,
-        f"⏪ Select a session to resume:\n(`{cwd}`)",
+        t("⏪ Select a session to resume:\n(`{cwd}`)").format(cwd=cwd),
         reply_markup=keyboard,
     )
     await query.answer()
@@ -488,7 +491,7 @@ async def _send_empty_state(
     keyboard = _build_empty_resume_keyboard(window_id)
     await safe_edit(
         query,
-        f"⚠ No sessions in this folder yet.\n(`{cwd}`)",
+        t("⚠ No sessions in this folder yet.\n(`{cwd}`)").format(cwd=cwd),
         reply_markup=keyboard,
     )
     await query.answer()
@@ -517,14 +520,14 @@ async def _handle_browse(
     old_wid = data[len(CB_RECOVERY_BROWSE) :]
     validated = _validate_recovery_state(old_wid, update, context)
     if validated is None:
-        await query.answer("Stale recovery (topic mismatch)", show_alert=True)
+        await query.answer(t("Stale recovery (topic mismatch)"), show_alert=True)
         return
 
     sessions = await asyncio.to_thread(scan_all_sessions)
     if not sessions:
-        await safe_edit(query, "⚠ No past sessions found in any project.")
+        await safe_edit(query, t("⚠ No past sessions found in any project."))
         _clear_recovery_state(context.user_data)
-        await query.answer("Nothing to resume")
+        await query.answer(t("Nothing to resume"))
         return
 
     if context.user_data is not None:
@@ -544,7 +547,7 @@ async def _handle_browse(
     keyboard = _build_resume_keyboard(
         context.user_data[RESUME_SESSIONS] if context.user_data else [], page=0
     )
-    await safe_edit(query, "⏪ Select a session to resume:", reply_markup=keyboard)
+    await safe_edit(query, t("⏪ Select a session to resume:"), reply_markup=keyboard)
     await query.answer()
 
 
@@ -558,16 +561,16 @@ async def _handle_cancel(
 
     thread_id = get_thread_id(update)
     if thread_id is None:
-        await query.answer("Stale recovery (topic mismatch)", show_alert=True)
+        await query.answer(t("Stale recovery (topic mismatch)"), show_alert=True)
         return
 
     pending_tid = (
         context.user_data.get(PENDING_THREAD_ID) if context.user_data else None
     )
     if pending_tid is not None and thread_id != pending_tid:
-        await query.answer("Stale recovery (topic mismatch)", show_alert=True)
+        await query.answer(t("Stale recovery (topic mismatch)"), show_alert=True)
         return
 
     _clear_recovery_state(context.user_data)
-    await safe_edit(query, "Cancelled. Send a message to try again.")
-    await query.answer("Cancelled")
+    await safe_edit(query, t("Cancelled. Send a message to try again."))
+    await query.answer(t("Cancelled"))

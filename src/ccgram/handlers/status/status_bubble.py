@@ -20,6 +20,7 @@ from telegram.error import TelegramError
 
 from ...session_state_ports.live_session_state import get_task_snapshot, get_wait_header
 from ...expandable_quote import format_expandable_quote
+from ...i18n import t
 from ...telegram_client import TelegramClient
 from ...thread_router import thread_router
 from ...window_state_ports.pane_state import PaneProjection, list_pane_projections
@@ -93,7 +94,7 @@ def build_status_keyboard(
     rows.append(
         [
             InlineKeyboardButton(
-                "\u238b Esc",
+                t("\u238b Esc"),
                 callback_data=f"{CB_STATUS_ESC}{window_id}"[:64],
             ),
             InlineKeyboardButton(
@@ -101,11 +102,11 @@ def build_status_keyboard(
                 callback_data=f"{CB_STATUS_SCREENSHOT}{window_id}"[:64],
             ),
             InlineKeyboardButton(
-                "\U0001f4c4 Last",
+                t("\U0001f4c4 Last"),
                 callback_data=f"{CB_STATUS_LAST_REPLY}{window_id}"[:64],
             ),
             InlineKeyboardButton(
-                "\U0001f4e5 Get File",
+                t("\U0001f4e5 Get File"),
                 callback_data=f"{CB_STATUS_GET_FILE}{window_id}"[:64],
             ),
         ]
@@ -150,26 +151,26 @@ _MINUTES_PER_HOUR = 60
 def _format_pane_idle_age(pane: PaneProjection, now_wall: float) -> str:
     """Format a pane's idle duration relative to ``now_wall``."""
     if not pane.last_active_ts:
-        return "idle"
+        return t("idle")
     delta = max(0.0, now_wall - pane.last_active_ts)
     if delta < _SECONDS_PER_MINUTE:
-        return "idle"
+        return t("idle")
     minutes = int(delta // _SECONDS_PER_MINUTE)
     if minutes < _MINUTES_PER_HOUR:
-        return f"idle {minutes}m"
+        return t("idle {minutes}m").format(minutes=minutes)
     hours = int(minutes // _MINUTES_PER_HOUR)
-    return f"idle {hours}h"
+    return t("idle {hours}h").format(hours=hours)
 
 
 def _format_pane_item(pane: PaneProjection, now_wall: float) -> str:
     """Render a single pane as ``"<label> <state>"``."""
     label = pane.name.strip() if pane.name and pane.name.strip() else pane.pane_id
     if pane.state == "active":
-        return f"{label} active"
+        return f"{label} " + t("active")
     if pane.state == "blocked":
-        return f"{label} {_PANE_BLOCKED_GLYPH} blocked"
+        return f"{label} {_PANE_BLOCKED_GLYPH} " + t("blocked")
     if pane.state == "dead":
-        return f"{label} dead"
+        return f"{label} " + t("dead")
     return f"{label} {_format_pane_idle_age(pane, now_wall)}"
 
 
@@ -227,7 +228,11 @@ def _format_task_lines(snapshot: object) -> list[str]:
     open_count = getattr(snapshot, "open_count", 0)
     items = list(getattr(snapshot, "items", []))
     visible_items = items[:_VISIBLE_TASK_LIMIT]
-    lines: list[str] = [f"{total} tasks ({done} done, {open_count} open)"]
+    lines: list[str] = [
+        t("{total} tasks ({done} done, {open} open)").format(
+            total=total, done=done, open=open_count
+        )
+    ]
     for item in visible_items:
         glyph = _TASK_STATUS_GLYPHS.get(item.status, _TASK_DEFAULT_GLYPH)
         label = (
@@ -240,11 +245,11 @@ def _format_task_lines(snapshot: object) -> list[str]:
         line = f"{glyph} #{item.task_id} {label}".rstrip()
         if item.blocked_by:
             blocked = ", ".join(f"#{task_id}" for task_id in item.blocked_by)
-            line = f"{line} blocked by {blocked}"
+            line = f"{line} " + t("blocked by {tasks}").format(tasks=blocked)
         lines.append(line)
     hidden_count = total - len(visible_items)
     if hidden_count > 0:
-        lines.append(f"+{hidden_count} more")
+        lines.append(t("+{count} more").format(count=hidden_count))
     return lines
 
 

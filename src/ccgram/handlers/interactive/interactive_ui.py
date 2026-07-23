@@ -23,6 +23,7 @@ import structlog
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from telegram.error import BadRequest, NetworkError, RetryAfter, TelegramError, TimedOut
 
+from ...i18n import t
 from ...providers import get_provider_for_window
 from ...telegram_client import TelegramClient
 from ...window_query import get_window_provider
@@ -98,9 +99,9 @@ def format_interactive_message(
     (most recent lines win) when the combined message would exceed
     Telegram's 4096-char per-message limit.
     """
-    header = INTERACTIVE_INSTRUCTION_LINE
+    header = t(INTERACTIVE_INSTRUCTION_LINE)
     if pane_id:
-        label = pane_name.strip() if pane_name and pane_name.strip() else "Pane"
+        label = pane_name.strip() if pane_name and pane_name.strip() else t("Pane")
         header = f"{header}\n\U0001f500 {label} ({pane_id}):"
 
     body = text
@@ -174,10 +175,12 @@ def _build_interactive_keyboard(
     rows.append(
         [
             InlineKeyboardButton(
-                "␣ Space", callback_data=f"{CB_ASK_SPACE}{target}"[:64]
+                t("␣ Space"), callback_data=f"{CB_ASK_SPACE}{target}"[:64]
             ),
             InlineKeyboardButton("↑", callback_data=f"{CB_ASK_UP}{target}"[:64]),
-            InlineKeyboardButton("⇥ Tab", callback_data=f"{CB_ASK_TAB}{target}"[:64]),
+            InlineKeyboardButton(
+                t("⇥ Tab"), callback_data=f"{CB_ASK_TAB}{target}"[:64]
+            ),
         ]
     )
     if vertical_only:
@@ -197,10 +200,12 @@ def _build_interactive_keyboard(
     # Row 2: action keys
     rows.append(
         [
-            InlineKeyboardButton("⎋ Esc", callback_data=f"{CB_ASK_ESC}{target}"[:64]),
+            InlineKeyboardButton(
+                t("⎋ Esc"), callback_data=f"{CB_ASK_ESC}{target}"[:64]
+            ),
             InlineKeyboardButton("🔄", callback_data=f"{CB_ASK_REFRESH}{target}"[:64]),
             InlineKeyboardButton(
-                "⏎ Enter", callback_data=f"{CB_ASK_ENTER}{target}"[:64]
+                t("⏎ Enter"), callback_data=f"{CB_ASK_ENTER}{target}"[:64]
             ),
         ]
     )

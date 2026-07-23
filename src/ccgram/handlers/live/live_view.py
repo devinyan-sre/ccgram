@@ -24,6 +24,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.error import RetryAfter, TelegramError
 
 from ...config import config
+from ...i18n import t
 from ...screenshot import text_to_image
 from ...telegram_client import TelegramClient
 from ...multiplexer import multiplexer as tmux_manager
@@ -94,12 +95,20 @@ def build_live_keyboard(
 
     return InlineKeyboardMarkup(
         [
-            [btn("\u2423 Space", "spc"), btn("\u2191", "up"), btn("\u21e5 Tab", "tab")],
+            [
+                btn(t("\u2423 Space"), "spc"),
+                btn("\u2191", "up"),
+                btn(t("\u21e5 Tab"), "tab"),
+            ],
             [btn("\u2190", "lt"), btn("\u2193", "dn"), btn("\u2192", "rt")],
-            [btn("\u238b Esc", "esc"), btn("^C", "cc"), btn("\u23ce Enter", "ent")],
+            [
+                btn(t("\u238b Esc"), "esc"),
+                btn("^C", "cc"),
+                btn(t("\u23ce Enter"), "ent"),
+            ],
             [
                 InlineKeyboardButton(
-                    "\u23f9 Stop Live",
+                    t("\u23f9 Stop Live"),
                     callback_data=f"{CB_LIVE_STOP}{target}"[:64],
                 )
             ],
@@ -135,7 +144,7 @@ async def _tick_one_view(
     try:
         if now - view.start_time > timeout:
             _active_views.pop(key, None)
-            await _edit_caption(client, view, "Live view ended (timeout)")
+            await _edit_caption(client, view, t("Live view ended (timeout)"))
             return
 
         if now < view.next_edit_after:
@@ -144,7 +153,7 @@ async def _tick_one_view(
         window = await tmux_manager.find_window_by_id(view.window_id)
         if window is None:
             _active_views.pop(key, None)
-            await _edit_caption(client, view, "Live view ended (window closed)")
+            await _edit_caption(client, view, t("Live view ended (window closed)"))
             return
 
         text = await _capture_pane(view, window.window_id)
@@ -166,7 +175,7 @@ async def _tick_one_view(
             message_id=view.message_id,
             media=InputMediaPhoto(
                 media=io.BytesIO(png_bytes),
-                caption=f"Live \u00b7 {ts}",
+                caption=t("Live \u00b7 {time}").format(time=ts),
             ),
             reply_markup=keyboard,
         )

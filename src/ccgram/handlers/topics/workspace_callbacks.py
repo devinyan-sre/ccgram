@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from ...i18n import t
 from ...multiplexer import multiplexer as tmux_manager
 from ..callback_data import CB_WS_SELECT, CB_WS_SKIP
 
@@ -78,12 +79,12 @@ async def _handle_workspace_callback(
 ) -> None:
     """Dispatch CB_WS_SELECT / CB_WS_SKIP (shared stale guard)."""
     if _browser_flow_stale(update, context):
-        await query.answer("Stale browser (flow reset)", show_alert=True)
+        await query.answer(t("Stale browser (flow reset)"), show_alert=True)
         return
 
     selected_path = _required_selected_path(context)
     if selected_path is None:
-        await query.answer("Stale browser (flow reset)", show_alert=True)
+        await query.answer(t("Stale browser (flow reset)"), show_alert=True)
         return
 
     await query.answer()
@@ -99,14 +100,16 @@ async def _handle_workspace_callback(
     try:
         idx = int(data[len(CB_WS_SELECT) :])
     except ValueError, IndexError:
-        await safe_edit(query, "❌ Invalid workspace selection. Tap Cancel and retry.")
+        await safe_edit(
+            query, t("❌ Invalid workspace selection. Tap Cancel and retry.")
+        )
         return
 
     workspaces: list[tuple[str, str, str]] = (
         context.user_data.get(PENDING_WORKSPACES, []) if context.user_data else []
     )
     if idx < 0 or idx >= len(workspaces):
-        await safe_edit(query, "❌ Workspace list changed. Tap Cancel and retry.")
+        await safe_edit(query, t("❌ Workspace list changed. Tap Cancel and retry."))
         return
 
     chosen_ws_id = workspaces[idx][0]

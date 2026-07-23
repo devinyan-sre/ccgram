@@ -31,6 +31,7 @@ from telegram import (
 from telegram.error import TelegramError
 
 from ...config import config
+from ...i18n import t
 from ...providers import get_provider, get_provider_for_window, resolve_launch_command
 from ... import window_query
 from ...session import session_manager
@@ -78,15 +79,15 @@ def _relative_time(mtime: float, *, now: float | None = None) -> str:
     ``now`` is injectable so tests can pin the reference time.
     """
     if mtime <= 0:
-        return "never"
+        return t("never")
     current = now if now is not None else time.time()
     diff = max(0.0, current - mtime)
     if diff < _SECONDS_PER_DAY:
-        return "today"
+        return t("today")
     if diff < _SECONDS_PER_DAY * 2:
-        return "yesterday"
+        return t("yesterday")
     days = int(diff // _SECONDS_PER_DAY)
-    return f"{days}d ago"
+    return t("{days}d ago").format(days=days)
 
 
 def _index_msg_count(entry: dict) -> int | None:
@@ -122,11 +123,11 @@ def format_session_entry(
     rel = _relative_time(mtime, now=now)
     text = (summary or "").strip().split("\n", 1)[0][:40]
     if not text:
-        text = (session_id[:12] if session_id else "") or "(unknown)"
+        text = (session_id[:12] if session_id else "") or t("(unknown)")
     last4 = session_id[-4:] if session_id else "????"
     base = f"{rel} · {text} · {last4}"
     if msg_count is not None and msg_count > 0:
-        return f"{base} · {msg_count} msgs"
+        return f"{base} · " + t("{count} msgs").format(count=msg_count)
     return base
 
 
@@ -248,7 +249,7 @@ def _build_resume_keyboard(
         # Show project header when cwd changes
         if cwd != current_cwd:
             current_cwd = cwd
-            short_path = Path(cwd).name if cwd else "unknown"
+            short_path = Path(cwd).name if cwd else t("unknown")
             rows.append(
                 [
                     InlineKeyboardButton(
@@ -283,7 +284,7 @@ def _build_resume_keyboard(
     if page > 0:
         nav_buttons.append(
             InlineKeyboardButton(
-                "\u2b05 Prev",
+                t("\u2b05 Prev"),
                 callback_data=f"{CB_RESUME_PAGE}{page - 1}"[:64],
             )
         )
@@ -291,12 +292,12 @@ def _build_resume_keyboard(
     if page < total_pages - 1:
         nav_buttons.append(
             InlineKeyboardButton(
-                "Next \u27a1",
+                t("Next \u27a1"),
                 callback_data=f"{CB_RESUME_PAGE}{page + 1}"[:64],
             )
         )
     nav_buttons.append(
-        InlineKeyboardButton("\u2716 Cancel", callback_data=CB_RESUME_CANCEL)
+        InlineKeyboardButton(t("\u2716 Cancel"), callback_data=CB_RESUME_CANCEL)
     )
     rows.append(nav_buttons)
 
@@ -316,7 +317,7 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if thread_id is None:
         await safe_reply(
             update.message,
-            "\u274c Please use /resume in a named topic.",
+            t("\u274c Please use /resume in a named topic."),
         )
         return
 
@@ -333,13 +334,13 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not provider.capabilities.supports_resume:
         await safe_reply(
             update.message,
-            "\u274c Resume is not supported by the current provider.",
+            t("\u274c Resume is not supported by the current provider."),
         )
         return
 
     sessions = scan_all_sessions()
     if not sessions:
-        await safe_reply(update.message, "\u274c No past sessions found.")
+        await safe_reply(update.message, t("\u274c No past sessions found."))
         return
 
     session_dicts = [
@@ -358,7 +359,7 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     keyboard = _build_resume_keyboard(session_dicts, page=0)
     await safe_reply(
         update.message,
-        "\u23ea Select a session to resume:",
+        t("\u23ea Select a session to resume:"),
         reply_markup=keyboard,
     )
 
@@ -435,17 +436,17 @@ async def _handle_pick(
     try:
         idx = int(idx_str)
     except ValueError:
-        await query.answer("Couldn't read selection", show_alert=True)
+        await query.answer(t("Couldn't read selection"), show_alert=True)
         return
 
     thread_id = get_thread_id(update)
     if thread_id is None:
-        await query.answer("Use in a topic", show_alert=True)
+        await query.answer(t("Use in a topic"), show_alert=True)
         return
 
     stored = context.user_data.get(RESUME_SESSIONS) if context.user_data else None
     if not stored or idx < 0 or idx >= len(stored):
-        await query.answer("Session no longer in list", show_alert=True)
+        await query.answer(t("Session no longer in list"), show_alert=True)
         return
 
     picked = stored[idx]
@@ -453,9 +454,9 @@ async def _handle_pick(
     cwd = picked.get("cwd", "")
 
     if not cwd or not Path(cwd).is_dir():
-        await safe_edit(query, "\u274c Project directory no longer exists.")
+        await safe_edit(query, t("\u274c Project directory no longer exists."))
         _clear_resume_state(context.user_data)
-        await query.answer("Project gone")
+        await query.answer(t("Project gone"))
         return
 
     success, message, created_wname, created_wid = await _create_resume_window(
@@ -464,7 +465,7 @@ async def _handle_pick(
     if not success:
         await safe_edit(query, f"\u274c {message}")
         _clear_resume_state(context.user_data)
-        await query.answer("Couldn't create window")
+        await query.answer(t("Couldn't create window"))
         return
 
     thread_router.bind_thread(
@@ -492,10 +493,12 @@ async def _handle_pick(
     summary_short = picked.get("summary", "")[:40]
     await safe_edit(
         query,
-        f"\u2705 Resuming session: {summary_short}\n\U0001f4c2 `{cwd}`",
+        t("\u2705 Resuming session: {summary}\n\U0001f4c2 `{cwd}`").format(
+            summary=summary_short, cwd=cwd
+        ),
     )
     _clear_resume_state(context.user_data)
-    await query.answer("Resumed")
+    await query.answer(t("Resumed"))
 
 
 async def _handle_page(
@@ -510,18 +513,18 @@ async def _handle_page(
     try:
         page = int(page_str)
     except ValueError:
-        await query.answer("Invalid page", show_alert=True)
+        await query.answer(t("Invalid page"), show_alert=True)
         return
 
     stored = context.user_data.get(RESUME_SESSIONS) if context.user_data else None
     if not stored:
-        await query.answer("No sessions available", show_alert=True)
+        await query.answer(t("No sessions available"), show_alert=True)
         return
 
     keyboard = _build_resume_keyboard(stored, page=page)
     await safe_edit(
         query,
-        "\u23ea Select a session to resume:",
+        t("\u23ea Select a session to resume:"),
         reply_markup=keyboard,
     )
     await query.answer()
@@ -533,8 +536,8 @@ async def _handle_cancel(
 ) -> None:
     """Handle cancel in resume picker."""
     _clear_resume_state(context.user_data)
-    await safe_edit(query, "Resume cancelled.")
-    await query.answer("Cancelled")
+    await safe_edit(query, t("Resume cancelled."))
+    await query.answer(t("Cancelled"))
 
 
 def _clear_resume_state(user_data: dict | None) -> None:

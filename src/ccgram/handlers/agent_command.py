@@ -28,6 +28,7 @@ from telegram import (
 )
 
 from ..config import config
+from ..i18n import t
 from ..session import session_manager
 from ..telegram_client import PTBTelegramClient, TelegramClient
 from ..thread_router import thread_router
@@ -87,10 +88,10 @@ def _build_keyboard(window_id: str, current: str) -> InlineKeyboardMarkup:
     rows.append(
         [
             InlineKeyboardButton(
-                "🔄 Auto", callback_data=f"{CB_AGENT_SET}{window_id}:auto"
+                t("🔄 Auto"), callback_data=f"{CB_AGENT_SET}{window_id}:auto"
             ),
             InlineKeyboardButton(
-                "Cancel", callback_data=f"{CB_AGENT_CANCEL}{window_id}"
+                t("Cancel"), callback_data=f"{CB_AGENT_CANCEL}{window_id}"
             ),
         ]
     )
@@ -98,13 +99,13 @@ def _build_keyboard(window_id: str, current: str) -> InlineKeyboardMarkup:
 
 
 def _picker_text(window_id: str) -> str:
-    current = identity_state.get_provider_name(window_id) or "(unknown)"
+    current = identity_state.get_provider_name(window_id) or t("(unknown)")
     override = identity_state.is_provider_manually_overridden(window_id)
-    badge = " (manual override)" if override else ""
-    return (
-        f"Current agent for `{window_id}`: **{current}**{badge}\n\n"
+    badge = t(" (manual override)") if override else ""
+    return t(
+        "Current agent for `{window}`: **{current}**{badge}\n\n"
         "Pick a provider, or **Auto** to re-detect."
-    )
+    ).format(window=window_id, current=current, badge=badge)
 
 
 async def _apply_switch(
@@ -125,14 +126,14 @@ async def _apply_switch(
     if chosen == "auto":
         target = await _redetect_provider(window_id)
         manual = False
-        reply_intro = f"Auto-detected: **{target}**."
+        reply_intro = t("Auto-detected: **{provider}**.").format(provider=target)
     else:
         target = chosen
         manual = True
         reply_intro = (
-            f"Agent set to **{target}** (manual override)."
+            t("Agent set to **{provider}** (manual override).").format(provider=target)
             if target != "shell"
-            else "Agent set to **shell**."
+            else t("Agent set to **shell**.")
         )
 
     _commit_switch(window_id, target, current, manual=manual)
@@ -153,13 +154,17 @@ async def _apply_switch(
             chat_id=chat_id,
             thread_id=thread_id,
         )
-        reply = f"{reply_intro} Prompt markers will install on next prompt."
+        reply = reply_intro + " " + t("Prompt markers will install on next prompt.")
     elif chosen == "auto":
         reply = reply_intro
     else:
         reply = (
-            f"{reply_intro}\n"
-            "Launch the agent CLI in this pane; next SessionStart hook will track it."
+            reply_intro
+            + "\n"
+            + t(
+                "Launch the agent CLI in this pane; next SessionStart hook"
+                " will track it."
+            )
         )
     return target, reply
 
@@ -218,7 +223,7 @@ async def agent_command(update: Update, _context: "ContextTypes.DEFAULT_TYPE") -
     resolved = _resolve_window(update)
     if resolved is None or not update.message:
         if update.message:
-            await safe_reply(update.message, "Use /agent inside a bound topic.")
+            await safe_reply(update.message, t("Use /agent inside a bound topic."))
         return
     _user_id, thread_id, window_id = resolved
 
@@ -236,7 +241,9 @@ async def agent_command(update: Update, _context: "ContextTypes.DEFAULT_TYPE") -
     if arg not in _VALID_NAMES:
         await safe_reply(
             update.message,
-            f"Unknown agent `{arg}`. Use one of: {', '.join(sorted(_VALID_NAMES))}.",
+            t("Unknown agent `{name}`. Use one of: {valid}.").format(
+                name=arg, valid=", ".join(sorted(_VALID_NAMES))
+            ),
         )
         return
     client = PTBTelegramClient(update.get_bot())
@@ -256,24 +263,26 @@ async def _dispatch(update: Update, _context: "ContextTypes.DEFAULT_TYPE") -> No
         window_id = query.data[len(CB_AGENT_CANCEL) :]
         user = update.effective_user
         if user is None or not user_owns_window(user.id, window_id):
-            await query.answer("Not your window")
+            await query.answer(t("Not your window"))
             return
         await _ack_and_strip(
             query,
-            f"Cancelled. Agent still **{identity_state.get_provider_name(window_id) or '(unknown)'}**.",
+            t("Cancelled. Agent still **{provider}**.").format(
+                provider=identity_state.get_provider_name(window_id) or t("(unknown)")
+            ),
         )
         return
     payload = query.data[len(CB_AGENT_SET) :]
     if ":" not in payload:
-        await query.answer("Bad callback")
+        await query.answer(t("Bad callback"))
         return
     window_id, chosen = payload.rsplit(":", 1)
     user = update.effective_user
     if user is None or not user_owns_window(user.id, window_id):
-        await query.answer("Not your window")
+        await query.answer(t("Not your window"))
         return
     if chosen not in _VALID_NAMES:
-        await query.answer("Unknown provider")
+        await query.answer(t("Unknown provider"))
         return
     client = PTBTelegramClient(query.get_bot())
     chat_id = query.message.chat.id if query.message else 0

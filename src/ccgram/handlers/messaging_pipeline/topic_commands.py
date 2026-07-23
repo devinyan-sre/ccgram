@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from telegram import Update
 from ...config import config
+from ...i18n import t
 from ...thread_router import thread_router
 from ...utils import handle_general_topic_message, is_general_topic
 from ...window_state_ports import tool_state
@@ -40,29 +41,31 @@ async def verbose_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -
                 update.get_bot(), update.message, update.effective_chat.id
             )
         else:
-            await safe_reply(update.message, "❌ Use this command inside a topic.")
+            await safe_reply(update.message, t("❌ Use this command inside a topic."))
         return
 
     window_id = thread_router.get_window_for_thread(user.id, thread_id)
     if not window_id:
-        await safe_reply(update.message, "❌ This topic is not bound to any session.")
+        await safe_reply(
+            update.message, t("❌ This topic is not bound to any session.")
+        )
         return
 
     new_mode = tool_state.cycle_batch_mode(window_id)
     if new_mode == "batched":
         await safe_reply(
             update.message,
-            "⚡ Tool calls will be *batched* into a single message.",
+            t("⚡ Tool calls will be *batched* into a single message."),
         )
     elif new_mode == "ephemeral":
         await safe_reply(
             update.message,
-            "🫧 Tool calls shown live, removed when the reply is ready (ephemeral).",
+            t("🫧 Tool calls shown live, removed when the reply is ready (ephemeral)."),
         )
     else:
         await safe_reply(
             update.message,
-            "💬 Tool calls will be sent *individually* (verbose mode).",
+            t("💬 Tool calls will be sent *individually* (verbose mode)."),
         )
 
 
@@ -87,28 +90,32 @@ async def toolcalls_command(
                 update.get_bot(), update.message, update.effective_chat.id
             )
         else:
-            await safe_reply(update.message, "❌ Use this command inside a topic.")
+            await safe_reply(update.message, t("❌ Use this command inside a topic."))
         return
 
     window_id = thread_router.get_window_for_thread(user.id, thread_id)
     if not window_id:
-        await safe_reply(update.message, "❌ This topic is not bound to any session.")
+        await safe_reply(
+            update.message, t("❌ This topic is not bound to any session.")
+        )
         return
 
     new_mode = tool_state.cycle_tool_call_visibility(window_id)
     if new_mode == "shown":
         await safe_reply(
             update.message,
-            "⚡ Tool calls *shown* for this topic (overrides global default).",
+            t("⚡ Tool calls *shown* for this topic (overrides global default)."),
         )
     elif new_mode == "hidden":
         await safe_reply(
             update.message,
-            "🔇 Tool calls *hidden* for this topic (overrides global default).",
+            t("🔇 Tool calls *hidden* for this topic (overrides global default)."),
         )
     else:
         resolved = "hidden" if config.hide_tool_calls else "shown"
         await safe_reply(
             update.message,
-            f"🔄 Tool calls follow the global default (currently *{resolved}*).",
+            t("🔄 Tool calls follow the global default (currently *{mode}*).").format(
+                mode=resolved
+            ),
         )

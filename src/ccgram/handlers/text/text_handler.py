@@ -17,6 +17,7 @@ import structlog
 from telegram import Message, Update
 from telegram.constants import ChatAction
 from ...config import config
+from ...i18n import t
 from ...telegram_client import PTBTelegramClient, TelegramClient
 from ..callback_helpers import get_thread_id as _get_thread_id
 from ..commands import sync_scoped_menu_for_text_context
@@ -177,7 +178,7 @@ async def _check_ui_guards(
         if pending_tid == thread_id:
             await safe_reply(
                 message,
-                "Please use the window picker above, or tap Cancel.",
+                t("Please use the window picker above, or tap Cancel."),
             )
             return True
         # Stale picker state from a different thread — clear it.
@@ -196,7 +197,7 @@ async def _check_ui_guards(
         if pending_tid == thread_id:
             await safe_reply(
                 message,
-                "Please use the directory browser above, or tap Cancel.",
+                t("Please use the directory browser above, or tap Cancel."),
             )
             return True
         # Stale browsing state from a different thread — clear it.
@@ -232,14 +233,14 @@ async def _handle_worktree_name_reply(
     if not repo:
         user_data.pop(AWAITING_WORKTREE_BRANCH_NAME, None)
         await safe_reply(
-            message, "❌ Worktree state lost. Start over with a new message."
+            message, t("❌ Worktree state lost. Start over with a new message.")
         )
         return True
 
     name = text.strip()
     # Offloaded: validate_branch_name shells out to `git check-ref-format`.
     if not await asyncio.to_thread(validate_branch_name, name):
-        await safe_reply(message, "❌ Invalid branch name; try again or tap Cancel.")
+        await safe_reply(message, t("❌ Invalid branch name; try again or tap Cancel."))
         return True
 
     worktree_path = worktree_path_for(Path(repo), slug_for_path(name))
@@ -297,7 +298,7 @@ async def _handle_unbound_topic(
             user_data[PENDING_THREAD_ID] = thread_id
             user_data[PENDING_THREAD_TEXT] = text
         await safe_reply(message, msg_text, reply_markup=keyboard)
-        await safe_reply(message, PENDING_DELIVERY_NOTICE)
+        await safe_reply(message, t(PENDING_DELIVERY_NOTICE))
         return True
 
     # No unbound windows — show directory browser to create a new session
@@ -316,7 +317,7 @@ async def _handle_unbound_topic(
         user_data[PENDING_THREAD_ID] = thread_id
         user_data[PENDING_THREAD_TEXT] = text
     await safe_reply(message, msg_text, reply_markup=keyboard)
-    await safe_reply(message, PENDING_DELIVERY_NOTICE)
+    await safe_reply(message, t(PENDING_DELIVERY_NOTICE))
     return True
 
 
@@ -451,7 +452,9 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     user = update.effective_user
     if not user or not config.is_user_allowed(user.id):
         if update.message:
-            await safe_reply(update.message, "You are not authorized to use this bot.")
+            await safe_reply(
+                update.message, t("You are not authorized to use this bot.")
+            )
         return
 
     if not update.message or not update.message.text:
@@ -503,7 +506,9 @@ async def handle_text_message(
         else:
             await safe_reply(
                 message,
-                "\u274c Please use a named topic. Create a new topic to start a session.",
+                t(
+                    "\u274c Please use a named topic. Create a new topic to start a session."
+                ),
             )
         return
 

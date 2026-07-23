@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from ...i18n import t
 from ...providers import registry as provider_registry
 from ...thread_router import thread_router
 from ..callback_data import CB_MODE_SELECT, CB_PROV_SELECT
@@ -62,7 +63,7 @@ async def _validate_provider_select(
         if context.user_data is not None:
             context.user_data.pop(PENDING_THREAD_ID, None)
             context.user_data.pop(PENDING_THREAD_TEXT, None)
-        await query.answer("Stale browser (topic mismatch)", show_alert=True)
+        await query.answer(t("Stale browser (topic mismatch)"), show_alert=True)
         return False
 
     await query.answer()
@@ -78,7 +79,9 @@ async def _validate_provider_select(
                 existing_wid,
                 display,
             )
-            await safe_edit(query, f"✅ Already bound to window {display}.")
+            await safe_edit(
+                query, t("✅ Already bound to window {name}.").format(name=display)
+            )
             return False
 
     return True
@@ -101,13 +104,13 @@ async def _handle_provider_select(
 
     provider_name = data[len(CB_PROV_SELECT) :]
     if not provider_registry.is_valid(provider_name):
-        await query.answer("Unknown provider", show_alert=True)
+        await query.answer(t("Unknown provider"), show_alert=True)
         return
 
     selected_path = _required_selected_path(context)
     if selected_path is None:
         await query.answer()
-        await safe_edit(query, "❌ Selection expired. Tap Cancel and retry.")
+        await safe_edit(query, t("❌ Selection expired. Tap Cancel and retry."))
         return
     pending_thread_id: int | None = (
         context.user_data.get(PENDING_THREAD_ID) if context.user_data else None
@@ -162,21 +165,21 @@ async def _handle_mode_select(
     """Handle CB_MODE_SELECT: select launch mode and create tmux window."""
     parsed = _parse_mode_select(data)
     if parsed is None:
-        await query.answer("Invalid mode", show_alert=True)
+        await query.answer(t("Invalid mode"), show_alert=True)
         return
 
     provider_name, approval_mode = parsed
     if not provider_registry.is_valid(provider_name):
-        await query.answer("Unknown provider", show_alert=True)
+        await query.answer(t("Unknown provider"), show_alert=True)
         return
     if approval_mode not in ("normal", "yolo"):
-        await query.answer("Unknown mode", show_alert=True)
+        await query.answer(t("Unknown mode"), show_alert=True)
         return
 
     selected_path = _required_selected_path(context)
     if selected_path is None:
         await query.answer()
-        await safe_edit(query, "❌ Selection expired. Tap Cancel and retry.")
+        await safe_edit(query, t("❌ Selection expired. Tap Cancel and retry."))
         return
     pending_thread_id: int | None = (
         context.user_data.get(PENDING_THREAD_ID) if context.user_data else None

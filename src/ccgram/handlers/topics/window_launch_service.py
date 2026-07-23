@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 import structlog
 from telegram.error import TelegramError
 
+from ...i18n import t
 from ...providers import registry as provider_registry
 from ...session import session_manager
 from ...session_map import session_map_sync
@@ -314,7 +315,7 @@ async def launch_window(  # noqa: PLR0915, C901
 
     await safe_edit(
         query,
-        f"✅ {message}\n\nBound to this topic. Send messages here.",
+        f"✅ {message}\n\n" + t("Bound to this topic. Send messages here."),
     )
 
     pending_text = request.pending_text
@@ -359,7 +360,9 @@ async def launch_window(  # noqa: PLR0915, C901
                 await safe_send(
                     PTBTelegramClient(context.bot),
                     thread_router.resolve_chat_id(user_id, pending_thread_id),
-                    f"❌ Failed to send pending message: {send_msg}",
+                    t("❌ Failed to send pending message: {error}").format(
+                        error=send_msg
+                    ),
                     message_thread_id=pending_thread_id,
                 )
     elif context.user_data is not None:

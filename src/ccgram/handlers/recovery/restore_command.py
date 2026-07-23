@@ -19,6 +19,7 @@ import structlog
 from telegram import Update
 from ... import window_query
 from ...config import config
+from ...i18n import t
 from ...thread_router import thread_router
 from ...multiplexer import multiplexer as tmux_manager
 from ..messaging_pipeline.message_sender import safe_reply
@@ -43,30 +44,30 @@ async def restore_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     if not config.is_user_allowed(user.id):
-        await safe_reply(update.message, "You are not authorized to use this bot.")
+        await safe_reply(update.message, t("You are not authorized to use this bot."))
         return
 
     thread_id = update.message.message_thread_id
     if thread_id is None:
-        await safe_reply(update.message, "Use this command inside a topic.")
+        await safe_reply(update.message, t("Use this command inside a topic."))
         return
 
     user_id = user.id
     window_id = thread_router.resolve_window_for_thread(user_id, thread_id)
     if not window_id:
-        await safe_reply(update.message, "No session bound to this topic.")
+        await safe_reply(update.message, t("No session bound to this topic."))
         return
 
     window = await tmux_manager.find_window_by_id(window_id)
     if window is not None:
         await safe_reply(
-            update.message, "Window is still running — nothing to restore."
+            update.message, t("Window is still running — nothing to restore.")
         )
         return
 
     view = window_query.view_window(window_id)
     if view is None or not view.cwd or not Path(view.cwd).is_dir():
-        await safe_reply(update.message, "Directory no longer exists.")
+        await safe_reply(update.message, t("Directory no longer exists."))
         return
 
     display = thread_router.get_display_name(window_id) or window_id
