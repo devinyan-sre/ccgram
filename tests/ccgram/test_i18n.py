@@ -34,4 +34,6 @@ class TestCatalogHygiene:
 
         for key, value in i18n._ZH.items():
             for ph in re.findall(r"\{[a-z_]+\}", key):
-                assert ph in value, f"placeholder {ph} missing in translation of {key!r}"
+                assert ph in value, (
+                    f"placeholder {ph} missing in translation of {key!r}"
+                )
