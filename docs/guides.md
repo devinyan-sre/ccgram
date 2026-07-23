@@ -185,6 +185,7 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_INSTANCE_NAME` / `--instance-name`           | 主机名                         | 本实例的显示名称                                                                                     |
 | `CCGRAM_LOG_LEVEL` / `--log-level`                   | `INFO`                         | 日志级别（DEBUG、INFO、WARNING、ERROR）                                                              |
 | `MONITOR_POLL_INTERVAL` / `--monitor-interval`       | `2.0`                          | 转录文件轮询间隔（秒）                                                                               |
+| `CCGRAM_FS_EVENTS`                                   | `1`                            | 文件系统事件唤醒（inotify）：转录/事件文件一有写入立即处理,轮询间隔仅作兜底;设 `0` 禁用             |
 | `AUTOCLOSE_DONE_MINUTES` / `--autoclose-done`        | `30`                           | 已完成话题 N 分钟后自动关闭（0=关闭该功能）                                                          |
 | `AUTOCLOSE_DEAD_MINUTES` / `--autoclose-dead`        | `10`                           | 已死亡会话 N 分钟后自动关闭（0=关闭该功能）                                                          |
 | `CCGRAM_WHISPER_PROVIDER` / `--whisper-provider`     | _（空）_                       | Whisper 提供方：`openai`、`groq`，留空则禁用                                                         |

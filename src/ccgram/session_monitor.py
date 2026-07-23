@@ -32,6 +32,7 @@ from .event_reader import (
     compact_events_file,
     read_new_events,
 )
+from .fs_watcher import TranscriptWatcher
 from .idle_tracker import IdleTracker
 from .monitor_state import MonitorState
 from .providers import get_provider_for_window, registry  # noqa: F401 (used by test patches)
@@ -61,6 +62,9 @@ _LoopError = (OSError, RuntimeError, json.JSONDecodeError, ValueError, TelegramE
 
 _BACKOFF_MIN = 2.0
 _BACKOFF_MAX = 30.0
+# After a filesystem-event wakeup, let a burst of transcript writes settle
+# before reading (batches multi-line appends into one poll cycle).
+_WAKE_DEBOUNCE = 0.05
 _MSG_PREVIEW_LENGTH = 80
 # Cap for the per-session error circuit breaker (see _process_session_guarded).
 _SESSION_ERROR_BACKOFF_MAX = 300.0
@@ -109,6 +113,10 @@ class SessionMonitor:
         self._transcript_reader = TranscriptReader(self.state, self._idle_tracker)
         # session_id → (consecutive_failures, monotonic_ts_of_next_attempt)
         self._session_error_breaker: dict[str, tuple[int, float]] = {}
+
+        # Filesystem-event wakeups (optional; polling is the fallback cadence).
+        self._wake_event = asyncio.Event()
+        self._fs_watcher: TranscriptWatcher | None = None
 
     # Delegation properties for backward-compatible test access
     @property
@@ -482,6 +490,7 @@ class SessionMonitor:
         await self._maybe_compact_events(min_consumed=1)
         initial_map = await self._load_current_session_map()
         session_lifecycle.initialize(initial_map)
+        self._start_fs_watcher()
 
         error_streak = 0
         while self._running:
@@ -544,9 +553,37 @@ class SessionMonitor:
                 continue
 
             error_streak = 0
-            await asyncio.sleep(self.poll_interval)
+            await self._wait_for_next_cycle()
 
         logger.info("Session monitor stopped")
+
+    def _start_fs_watcher(self) -> None:
+        """Start the filesystem watcher (called from inside the running loop).
+
+        Degrades silently to interval polling when disabled or unavailable.
+        """
+        if not config.fs_events_enabled or self._fs_watcher is not None:
+            return
+        watcher = TranscriptWatcher(
+            [self.projects_path, config.events_file.parent],
+            self._wake_event,
+            asyncio.get_running_loop(),
+        )
+        if watcher.start():
+            self._fs_watcher = watcher
+
+    async def _wait_for_next_cycle(self) -> None:
+        """Sleep until the next poll cycle — woken early by filesystem events."""
+        if self._fs_watcher is None:
+            await asyncio.sleep(self.poll_interval)
+            return
+        try:
+            await asyncio.wait_for(self._wake_event.wait(), timeout=self.poll_interval)
+        except TimeoutError:
+            return
+        self._wake_event.clear()
+        # Let a burst of writes settle so one cycle batches them.
+        await asyncio.sleep(_WAKE_DEBOUNCE)
 
     def start(self) -> None:
         if self._running:
@@ -558,6 +595,9 @@ class SessionMonitor:
 
     def stop(self) -> None:
         self._running = False
+        if self._fs_watcher is not None:
+            self._fs_watcher.stop()
+            self._fs_watcher = None
         if self._task:
             self._task.cancel()
             self._task = None

@@ -103,6 +103,15 @@ class Config:
             0.5, float(os.getenv("CCGRAM_STATUS_POLL_INTERVAL", "1.0"))
         )
 
+        # Filesystem-event wakeups: watch transcript/event files and wake the
+        # monitor loop immediately on writes (poll interval stays the fallback
+        # cadence). Set CCGRAM_FS_EVENTS=0 to disable.
+        self.fs_events_enabled: bool = os.getenv("CCGRAM_FS_EVENTS", "1").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+
         # Quiet hours: "HH:MM-HH:MM" local time; automated notifications are
         # delivered silently inside the window. Empty disables.
         self.quiet_hours = os.getenv("CCGRAM_QUIET_HOURS", "").strip()

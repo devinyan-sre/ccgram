@@ -34,6 +34,9 @@ for _key in list(os.environ):
 os.environ["TELEGRAM_BOT_TOKEN"] = "test:0000000000:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 os.environ["ALLOWED_USERS"] = "12345"
 os.environ["CCGRAM_DIR"] = tempfile.mkdtemp(prefix="ccgram-test-")
+# Keep real inotify watchers out of monitor-loop tests; fs_watcher has its
+# own dedicated tests that construct TranscriptWatcher directly.
+os.environ["CCGRAM_FS_EVENTS"] = "0"
 
 
 @pytest.fixture(autouse=True)
