@@ -17,7 +17,13 @@ import time
 from pathlib import Path
 
 import structlog
-from telegram.error import NetworkError, RetryAfter, TelegramError, TimedOut
+from telegram.error import (
+    BadRequest,
+    NetworkError,
+    RetryAfter,
+    TelegramError,
+    TimedOut,
+)
 
 from ... import window_query
 from ...config import config
@@ -47,6 +53,13 @@ _TOPIC_CREATE_RETRY_BUFFER_SECONDS = 1
 _TOPIC_CREATE_TRANSIENT_RETRIES = 1
 _TOPIC_CREATE_TRANSIENT_BACKOFF_S = 1.0
 
+# BadRequest is deterministic (e.g. missing "Manage Topics" admin right):
+# retrying every discovery cycle can never succeed, so back off long.
+# Cleared automatically on the next successful creation.
+_TOPIC_CREATE_BAD_REQUEST_BACKOFF_S = 600
+# Substrings identifying permission-type BadRequests (lowercased match).
+_PERMISSION_ERROR_MARKERS = ("not enough rights", "chat_admin_required")
+
 
 async def _create_forum_topic_with_retry(
     client: TelegramClient, chat_id: int, topic_name: str
@@ -57,6 +70,10 @@ async def _create_forum_topic_with_retry(
         try:
             return await client.create_forum_topic(chat_id=chat_id, name=topic_name)
         except (TimedOut, NetworkError) as exc:
+            # BadRequest subclasses NetworkError in PTB but is deterministic
+            # (e.g. missing admin rights) — never worth a transient retry.
+            if isinstance(exc, BadRequest):
+                raise
             last_exc = exc
             if attempt < _TOPIC_CREATE_TRANSIENT_RETRIES:
                 logger.debug("create_forum_topic transient error, retrying: %s", exc)
@@ -271,6 +288,30 @@ async def create_topic_in_chat(
             chat_id,
             retry_after_seconds,
         )
+    except BadRequest as e:
+        # Deterministic client error — retrying every cycle can never succeed.
+        _topic_create_retry_until[chat_id] = (
+            time.monotonic() + _TOPIC_CREATE_BAD_REQUEST_BACKOFF_S
+        )
+        message = str(e)
+        if any(m in message.lower() for m in _PERMISSION_ERROR_MARKERS):
+            logger.error(
+                "Cannot create topic for window %s in chat %d: %s — "
+                "grant the bot the 'Manage Topics' admin right in this chat. "
+                "Retrying in %ds.",
+                window_id,
+                chat_id,
+                message,
+                _TOPIC_CREATE_BAD_REQUEST_BACKOFF_S,
+            )
+        else:
+            logger.error(
+                "Failed to create topic for window %s in chat %d: %s — retrying in %ds",
+                window_id,
+                chat_id,
+                message,
+                _TOPIC_CREATE_BAD_REQUEST_BACKOFF_S,
+            )
     except TelegramError:
         logger.exception(
             "Failed to create topic for window %s in chat %d",

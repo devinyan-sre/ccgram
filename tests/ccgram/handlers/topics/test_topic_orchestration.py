@@ -414,6 +414,80 @@ class TestHandleNewWindow:
             chat_id=-100500, name="my-project"
         )
 
+    async def test_bad_request_sets_long_backoff_and_skips_retry(self) -> None:
+        """Permission-type BadRequest backs off instead of retrying every cycle."""
+        event = _make_event()
+        bot = AsyncMock()
+        bot.create_forum_topic = AsyncMock(
+            side_effect=BadRequest("Not enough rights to create a topic")
+        )
+
+        retry_state: dict[int, float] = {}
+        with (
+            patch("ccgram.handlers.topics.topic_orchestration.session_manager"),
+            patch(
+                "ccgram.handlers.topics.topic_orchestration.thread_router"
+            ) as mock_tr,
+            patch("ccgram.handlers.topics.topic_orchestration.config") as mock_config,
+            patch(
+                "ccgram.handlers.topics.topic_orchestration._topic_create_retry_until",
+                retry_state,
+            ),
+            patch(
+                "ccgram.handlers.topics.topic_orchestration.time.monotonic",
+                side_effect=[100.0, 100.0, 102.0],
+            ),
+        ):
+            mock_tr.has_window.return_value = False
+            mock_tr.iter_thread_bindings.side_effect = [
+                iter([]),
+                iter([]),
+                iter([]),
+                iter([]),
+            ]
+            mock_config.group_id = -100500
+            mock_config.allowed_users = {12345}
+
+            await handle_new_window(event, bot)
+            # 2s later (one discovery cycle) — still inside the backoff window.
+            await handle_new_window(event, bot)
+
+        bot.create_forum_topic.assert_called_once_with(
+            chat_id=-100500, name="my-project"
+        )
+        assert retry_state[-100500] == pytest.approx(700.0)
+
+    async def test_non_permission_bad_request_also_backs_off(self) -> None:
+        """Any BadRequest is deterministic — all set the long backoff."""
+        event = _make_event()
+        bot = AsyncMock()
+        bot.create_forum_topic = AsyncMock(side_effect=BadRequest("Chat not found"))
+
+        retry_state: dict[int, float] = {}
+        with (
+            patch("ccgram.handlers.topics.topic_orchestration.session_manager"),
+            patch(
+                "ccgram.handlers.topics.topic_orchestration.thread_router"
+            ) as mock_tr,
+            patch("ccgram.handlers.topics.topic_orchestration.config") as mock_config,
+            patch(
+                "ccgram.handlers.topics.topic_orchestration._topic_create_retry_until",
+                retry_state,
+            ),
+            patch(
+                "ccgram.handlers.topics.topic_orchestration.time.monotonic",
+                return_value=100.0,
+            ),
+        ):
+            mock_tr.has_window.return_value = False
+            mock_tr.iter_thread_bindings.return_value = iter([])
+            mock_config.group_id = -100500
+            mock_config.allowed_users = {12345}
+
+            await handle_new_window(event, bot)
+
+        assert retry_state[-100500] == pytest.approx(700.0)
+
     async def test_retries_after_backoff_expires(self) -> None:
         event = _make_event()
         bot = AsyncMock()
