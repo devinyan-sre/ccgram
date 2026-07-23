@@ -44,6 +44,9 @@ _PTB_BOT_ALLOWLIST = frozenset(
         "commands/__init__.py",
         "commands/forward.py",
         "commands/menu_sync.py",
+        # /diff wraps get_bot() in PTBTelegramClient for send_diff
+        # (same pattern as last_reply.py).
+        "diff_command.py",
         "file_handler.py",
         "last_reply.py",  # wraps get_bot() in PTBTelegramClient for send_last_reply
         "live/pane_callbacks.py",
@@ -83,9 +86,13 @@ _SINGLETON_ALLOWLIST = frozenset(
         "commands/forward.py",
         "commands/menu_sync.py",
         "file_handler.py",
+        # /diff resolves window_id via thread_router (same routing as /last).
+        "diff_command.py",
         "hook_events.py",
         "interactive/interactive_ui.py",
         "last_reply.py",  # reads thread_router for window/chat resolution in last_command
+        # /usage resolves window_id via thread_router (same routing as /last).
+        "usage_command.py",
         "live/pane_callbacks.py",
         "live/screenshot_callbacks.py",
         "messaging_pipeline/message_queue.py",
