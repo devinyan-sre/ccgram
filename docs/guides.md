@@ -690,9 +690,11 @@ Description=CCGram - Command & Control Bot for AI coding agents
 After=network.target
 
 [Service]
+Type=notify
 ExecStart=%h/.local/bin/ccgram
 Restart=on-failure
 RestartSec=5
+WatchdogSec=90
 Environment=CCGRAM_DIR=%h/.ccgram
 
 [Install]
@@ -703,6 +705,8 @@ WantedBy=default.target
 systemctl --user enable ccgram
 systemctl --user start ccgram
 ```
+
+`Type=notify` + `WatchdogSec` 启用健康看门狗:bot 启动完成后向 systemd 发送 `READY=1`,之后每半个看门狗周期发送一次心跳——心跳与内部健康检查(会话监控循环、状态轮询循环存活)绑定,任一核心循环卡死或退出即停止心跳,systemd 会自动重启服务。改回 `Type=simple`(并删除 `WatchdogSec`)即可禁用,行为退化为普通崩溃重启。
 
 在 macOS 上，可以使用 launchd plist，或直接在分离的 tmux 会话中运行：
 

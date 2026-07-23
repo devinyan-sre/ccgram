@@ -42,12 +42,14 @@ from .handlers.topics.topic_orchestration import (
 from .multiplexer import get_multiplexer, install_multiplexer, multiplexer
 from .providers import get_provider
 from .session import session_manager
+from . import sd_notify
 from .telegram_client import PTBTelegramClient
 from .session_monitor import (
     NewMessage,
     NewWindowEvent,
     SessionMonitor,
     clear_active_monitor,
+    get_active_monitor,
     set_active_monitor,
 )
 from .utils import task_done_callback
@@ -299,10 +301,31 @@ async def bootstrap_application(application: Application) -> None:
 
     await start_miniapp_if_enabled()
 
+    # systemd integration: signal readiness and arm the health-gated
+    # watchdog heartbeat (both no-ops outside Type=notify units).
+    sd_notify.notify("READY=1")
+    sd_notify.start_watchdog(_runtime_healthy)
+
+
+def _runtime_healthy() -> bool:
+    """Health gate for the systemd watchdog heartbeat.
+
+    Healthy means the two core background loops are actually running: the
+    session monitor task and the status-polling task. Either one dead or
+    finished withholds the heartbeat so systemd restarts the service.
+    """
+    monitor = get_active_monitor()
+    if monitor is None or monitor._task is None or monitor._task.done():
+        return False
+    return _status_poll_task is not None and not _status_poll_task.done()
+
 
 async def shutdown_runtime() -> None:
     """Run the post_shutdown teardown sequence."""
     global _status_poll_task, session_monitor
+
+    sd_notify.notify("STOPPING=1")
+    sd_notify.stop_watchdog()
 
     if _status_poll_task is not None:
         _status_poll_task.cancel()
@@ -356,6 +379,7 @@ def reset_for_testing() -> None:
     session_monitor = None
     _status_poll_task = None
     clear_active_monitor()
+    sd_notify.stop_watchdog()
 
     # Stop any event-stream consumer this run started and clear its caches so the
     # supervisor task + module-global state don't leak into the next test.

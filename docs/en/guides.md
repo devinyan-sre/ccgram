@@ -600,9 +600,11 @@ Description=CCGram - Command & Control Bot for AI coding agents
 After=network.target
 
 [Service]
+Type=notify
 ExecStart=%h/.local/bin/ccgram
 Restart=on-failure
 RestartSec=5
+WatchdogSec=90
 Environment=CCGRAM_DIR=%h/.ccgram
 
 [Install]
@@ -613,6 +615,8 @@ WantedBy=default.target
 systemctl --user enable ccgram
 systemctl --user start ccgram
 ```
+
+`Type=notify` + `WatchdogSec` arm a health watchdog: the bot sends `READY=1` once bootstrapped, then a heartbeat every half watchdog interval — gated on internal health checks (session-monitor and status-polling loops alive). A wedged or dead core loop withholds the heartbeat and systemd restarts the service. Revert to `Type=simple` (and drop `WatchdogSec`) to disable, falling back to plain crash restarts.
 
 On macOS, you can use a launchd plist or simply run in a detached tmux session:
 
