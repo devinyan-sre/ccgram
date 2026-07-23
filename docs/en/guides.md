@@ -492,6 +492,19 @@ Responses longer than 4096 characters are sent as a `.txt` document attachment i
 - User/assistant turn counts and models used
 - Only Claude Code transcripts carry usage data; other providers get a friendly notice
 
+<a id="transcript-search-search-en"></a>
+
+## Transcript search (`/search`)
+
+`/search <keyword>` full-text searches all Claude session history (`~/.claude/projects/`):
+
+- Matches user and assistant message text (not tool-call internals), case-insensitive
+- Results newest-first with project dir, time, role, session ID, and a context snippet
+- Global command — works anywhere, no topic binding required
+- Guardrails: max 10 hits / 300 files / 8s scan budget, with a refine-your-query notice when truncated
+
+Useful for recovering "which session did we discuss X in" context; pair with `/resume` to reopen that session.
+
 ## File Delivery (`/send`)
 
 Send files from the bound window's working directory to Telegram. Three modes in one command:

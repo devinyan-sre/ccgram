@@ -564,6 +564,19 @@ claude     # or: codex, gemini, pi
 - 用户 / 助手轮次数、使用的模型
 - 仅 Claude Code transcript 携带用量数据;其他 provider 会得到友好提示
 
+<a id="transcript-search-search"></a>
+
+## 跨会话搜索(`/search`)
+
+`/search <关键词>` 在所有 Claude 会话历史(`~/.claude/projects/`)中全文检索:
+
+- 匹配用户与助手消息文本(不匹配工具调用内部数据),大小写不敏感
+- 结果按时间倒序,每条附项目目录、时间、角色、会话 ID 与上下文片段
+- 全局命令,任意位置可用,无需绑定话题
+- 内置护栏:最多 10 条结果 / 300 个文件 / 8 秒扫描预算,超出时提示缩小范围
+
+用于找回"上次在哪个会话里讨论过 X"之类的历史上下文,可配合 `/resume` 恢复对应会话。
+
 <a id="file-delivery-send"></a>
 
 ## 文件发送（`/send`）

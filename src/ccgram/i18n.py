@@ -100,6 +100,13 @@ _ZH: dict[str, str] = {
     "❌ This provider's transcript has no token usage data.": (
         "❌ 该 provider 的 transcript 不包含 token 用量数据。"
     ),
+    # /search
+    "Usage: /search <keyword> — search across session transcripts": (
+        "用法:/search <关键词> — 跨会话搜索历史对话"
+    ),
+    "🔍 No matches for “{query}”.": "🔍 未找到与“{query}”匹配的内容。",
+    "🔍 {count} match(es) for “{query}”:": "🔍 “{query}”共 {count} 条结果:",
+    "_(results truncated — refine your query)_": "_(结果已截断,请缩小搜索范围)_",
     # Text handler
     "\U0001f4ac Will deliver once the agent starts.": "\U0001f4ac agent 启动后将自动送达。",
     "Please use the window picker above, or tap Cancel.": (
