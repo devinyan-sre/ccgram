@@ -538,4 +538,11 @@ _ZH: dict[str, str] = {
     "no transcript": "无 transcript",
     "no activity in 24h": "24 小时内无活动",
     "{users} prompts / {replies} replies": "{users} 条提问 / {replies} 条回复",
+    # Operator alerts
+    "⚠️ *CCGram startup check*": "⚠️ *CCGram 启动自检*",
+    "The bot is missing permissions in chat `{chat_id}`:": "机器人在群 `{chat_id}` 缺少以下权限:",
+    "• *Manage Topics* — required to auto-create and rename topics": "• *管理话题* —— 自动创建和重命名话题所必需",
+    "Grant it in the group's admin settings, then it recovers automatically.": "请在群组管理员设置中授予,之后会自动恢复。",
+    "🚨 *CCGram error alert*": "🚨 *CCGram 错误告警*",
+    "`{count}×` in {window}s: {message}": "`{count}×` 于 {window} 秒内:{message}",
 }

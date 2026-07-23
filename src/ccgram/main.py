@@ -155,6 +155,19 @@ def setup_logging(log_level: str) -> None:
     stdout_colors = _use_colors(sys.stdout)
     stderr_colors = _use_colors(sys.stderr)
 
+    # Lazy: config read here to gate the error-alert processor.
+    from .config import config as _config
+
+    # Lazy: operator_alerts pulls telegram_client; import here to avoid a
+    # module-load cycle through config at CLI import time.
+    from .operator_alerts import error_alert_processor
+
+    extra_processors: list[structlog.typing.Processor] = []
+    if _config.error_alerts_enabled:
+        # Runs after positional formatting so `event` is the rendered message;
+        # before the renderer so it sees the structured dict. Pure pass-through.
+        extra_processors.append(error_alert_processor)
+
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
@@ -164,6 +177,7 @@ def setup_logging(log_level: str) -> None:
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             _dim_debug_event,
+            *extra_processors,
             structlog.dev.ConsoleRenderer(
                 colors=stdout_colors,
                 pad_event=40,

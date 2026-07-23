@@ -222,6 +222,26 @@ class Config:
             "yes",
         )
 
+        # Operator DM target for startup self-checks and error alerts. Empty
+        # falls back to the lowest allowed-user id (the primary operator).
+        operator_chat_str = os.getenv("CCGRAM_OPERATOR_CHAT_ID", "").strip()
+        if operator_chat_str:
+            try:
+                self.operator_chat_id: int | None = int(operator_chat_str)
+            except ValueError as e:
+                raise ValueError(
+                    f"CCGRAM_OPERATOR_CHAT_ID must be a valid integer: {e}"
+                ) from e
+        else:
+            self.operator_chat_id = None
+
+        # Error-rate alerting: DM the operator when the same error signature
+        # fires repeatedly in a short window. Set CCGRAM_ERROR_ALERTS=0 to
+        # disable.
+        self.error_alerts_enabled: bool = os.getenv(
+            "CCGRAM_ERROR_ALERTS", "1"
+        ).lower() in ("1", "true", "yes")
+
     def _init_live_view(self) -> None:
         self.live_view_interval: int = max(
             1, _parse_int_env("CCGRAM_LIVE_VIEW_INTERVAL", 5)

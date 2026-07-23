@@ -26,7 +26,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, cast, runtime_checkable
 
-from telegram import Bot, BotCommand, ChatFullInfo, File, ForumTopic, Message
+from telegram import (
+    Bot,
+    BotCommand,
+    ChatFullInfo,
+    ChatMember,
+    File,
+    ForumTopic,
+    Message,
+)
 from telegram._botcommandscope import BotCommandScope
 from telegram._files.inputmedia import InputMedia
 from telegram._reaction import ReactionType
@@ -117,6 +125,10 @@ class TelegramClient(Protocol):
     ) -> bool: ...
 
     async def get_chat(self, chat_id: int | str, **kwargs: Any) -> ChatFullInfo: ...
+
+    async def get_chat_member(
+        self, chat_id: int | str, user_id: int, **kwargs: Any
+    ) -> ChatMember: ...
 
     async def get_file(self, file_id: str, **kwargs: Any) -> File: ...
 
@@ -272,6 +284,13 @@ class PTBTelegramClient:
 
     async def get_chat(self, chat_id: int | str, **kwargs: Any) -> ChatFullInfo:
         return await self._bot.get_chat(chat_id=chat_id, **kwargs)
+
+    async def get_chat_member(
+        self, chat_id: int | str, user_id: int, **kwargs: Any
+    ) -> ChatMember:
+        return await self._bot.get_chat_member(
+            chat_id=chat_id, user_id=user_id, **kwargs
+        )
 
     async def get_file(self, file_id: str, **kwargs: Any) -> File:
         return await self._bot.get_file(file_id=file_id, **kwargs)
@@ -489,6 +508,13 @@ class FakeTelegramClient:
 
     async def get_chat(self, chat_id: int | str, **kwargs: Any) -> ChatFullInfo:
         return self._record("get_chat", {"chat_id": chat_id, **kwargs})
+
+    async def get_chat_member(
+        self, chat_id: int | str, user_id: int, **kwargs: Any
+    ) -> ChatMember:
+        return self._record(
+            "get_chat_member", {"chat_id": chat_id, "user_id": user_id, **kwargs}
+        )
 
     async def get_file(self, file_id: str, **kwargs: Any) -> File:
         return self._record("get_file", {"file_id": file_id, **kwargs})

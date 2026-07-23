@@ -104,6 +104,37 @@ async def register_provider_commands(application: Application) -> None:
     setup_daily_digest_job(application)
 
 
+async def run_startup_permission_check(application: Application) -> None:
+    """Verify the bot's Manage-Topics right in each target chat.
+
+    Surfaces a missing admin right at boot (log + operator DM) instead of
+    silently failing auto-topic-creation later. Best-effort: any failure is
+    logged and swallowed so it can never block startup.
+    """
+    # Lazy: operator_alerts pulls telegram_client + i18n; only needed here.
+    from .operator_alerts import check_group_permissions
+
+    # Lazy: thread_router proxy, read only for extra bound group chats.
+    from .thread_router import thread_router
+
+    chat_ids: set[int] = set()
+    if config.group_id is not None:
+        chat_ids.add(config.group_id)
+    chat_ids.update(cid for cid in thread_router.group_chat_ids.values() if cid < 0)
+    if not chat_ids:
+        return
+    try:
+        bot_id = application.bot.id
+    except RuntimeError, AttributeError:
+        logger.debug("Bot id unavailable; skipping startup permission check")
+        return
+    client = PTBTelegramClient(application.bot)
+    try:
+        await check_group_permissions(client, sorted(chat_ids), bot_id)
+    except Exception:  # noqa: BLE001 — advisory step, never fatal
+        logger.warning("Startup permission check failed", exc_info=True)
+
+
 def verify_hooks_installed() -> None:
     """Warn if managed hooks are missing for the default provider."""
     provider = get_provider()
@@ -295,6 +326,7 @@ async def bootstrap_application(application: Application) -> None:
     await register_provider_commands(application)
     await session_manager.resolve_stale_ids()
     await _adopt_unbound_windows(PTBTelegramClient(application.bot))
+    await run_startup_permission_check(application)
     verify_hooks_installed()
     wire_runtime_callbacks()
     await start_session_monitor(application)
@@ -307,6 +339,13 @@ async def bootstrap_application(application: Application) -> None:
     from .main import start_miniapp_if_enabled
 
     await start_miniapp_if_enabled()
+
+    # Arm error-rate alerting now that the bot can DM the operator.
+    if config.error_alerts_enabled:
+        # Lazy: operator_alerts pulls telegram_client + i18n.
+        from .operator_alerts import set_error_alert_client
+
+        set_error_alert_client(PTBTelegramClient(application.bot))
 
     # systemd integration: signal readiness and arm the health-gated
     # watchdog heartbeat (both no-ops outside Type=notify units).
@@ -333,6 +372,11 @@ async def shutdown_runtime() -> None:
 
     sd_notify.notify("STOPPING=1")
     sd_notify.stop_watchdog()
+
+    # Lazy: disarm the error-alert sink so a stopped bot can't DM.
+    from .operator_alerts import set_error_alert_client
+
+    set_error_alert_client(None)
 
     if _status_poll_task is not None:
         _status_poll_task.cancel()
@@ -399,3 +443,8 @@ def reset_for_testing() -> None:
         event_stream.stop()
         set_active_event_stream(None)
     agent_status_cache.reset()
+
+    # Lazy: clear the error-alert sink + tracker so state can't leak between runs.
+    from .operator_alerts import reset_error_alerts_for_testing
+
+    reset_error_alerts_for_testing()
