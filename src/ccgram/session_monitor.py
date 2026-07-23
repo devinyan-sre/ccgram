@@ -56,6 +56,8 @@ _LoopError = (OSError, RuntimeError, json.JSONDecodeError, ValueError, TelegramE
 _BACKOFF_MIN = 2.0
 _BACKOFF_MAX = 30.0
 _MSG_PREVIEW_LENGTH = 80
+# Cap for the per-session error circuit breaker (see _process_session_guarded).
+_SESSION_ERROR_BACKOFF_MAX = 300.0
 
 logger = structlog.get_logger()
 
@@ -99,6 +101,8 @@ class SessionMonitor:
 
         self._idle_tracker = IdleTracker()
         self._transcript_reader = TranscriptReader(self.state, self._idle_tracker)
+        # session_id → (consecutive_failures, monotonic_ts_of_next_attempt)
+        self._session_error_breaker: dict[str, tuple[int, float]] = {}
 
     # Delegation properties for backward-compatible test access
     @property
@@ -168,15 +172,12 @@ class SessionMonitor:
             fallback_session_ids.add(session_id)
 
         for session_id, file_path in direct_sessions:
-            try:
-                await self._process_session_file(
-                    session_id,
-                    file_path,
-                    new_messages,
-                    window_id=sid_to_wid.get(session_id, ""),
-                )
-            except Exception:
-                logger.exception("Error processing session %s", session_id)
+            await self._process_session_guarded(
+                session_id,
+                file_path,
+                new_messages,
+                window_id=sid_to_wid.get(session_id, ""),
+            )
 
         if fallback_session_ids:
             active_cwds = await self._get_active_cwds()
@@ -189,20 +190,50 @@ class SessionMonitor:
             for session_info in sessions:
                 if session_info.session_id not in fallback_session_ids:
                     continue
-                try:
-                    await self._process_session_file(
-                        session_info.session_id,
-                        session_info.file_path,
-                        new_messages,
-                        window_id=sid_to_wid.get(session_info.session_id, ""),
-                    )
-                except Exception:
-                    logger.exception(
-                        "Error processing session %s", session_info.session_id
-                    )
+                await self._process_session_guarded(
+                    session_info.session_id,
+                    session_info.file_path,
+                    new_messages,
+                    window_id=sid_to_wid.get(session_info.session_id, ""),
+                )
 
         self.state.save_if_dirty()
         return new_messages
+
+    async def _process_session_guarded(
+        self, session_id: str, file_path: Path, new_messages: list, window_id: str = ""
+    ) -> None:
+        """Process one session with a per-session error circuit breaker.
+
+        A persistently failing transcript (corrupt file, parser bug) otherwise
+        logs a full traceback every poll cycle forever. After each consecutive
+        failure the session is skipped for an exponentially growing cooldown
+        (capped at ``_SESSION_ERROR_BACKOFF_MAX``); any success resets it.
+        """
+        import time as _time  # Lazy: keep module deps minimal for the hot loop
+
+        breaker = self._session_error_breaker.get(session_id)
+        now = _time.monotonic()
+        if breaker is not None and now < breaker[1]:
+            return
+
+        try:
+            await self._process_session_file(
+                session_id, file_path, new_messages, window_id=window_id
+            )
+        except Exception:
+            streak = (breaker[0] if breaker else 0) + 1
+            cooldown = min(self.poll_interval * (2**streak), _SESSION_ERROR_BACKOFF_MAX)
+            self._session_error_breaker[session_id] = (streak, now + cooldown)
+            logger.exception(
+                "Error processing session %s (failure #%d, next attempt in %.0fs)",
+                session_id,
+                streak,
+                cooldown,
+            )
+        else:
+            if breaker is not None:
+                del self._session_error_breaker[session_id]
 
     async def _process_session_file(
         self, session_id: str, file_path: Path, new_messages: list, window_id: str = ""
@@ -279,6 +310,7 @@ class SessionMonitor:
             for session_id in stale_sessions:
                 self._transcript_reader.clear_session(session_id)
                 self._idle_tracker.clear_session(session_id)
+                self._session_error_breaker.pop(session_id, None)
             self.state.save_if_dirty()
 
     async def _detect_and_cleanup_changes(
@@ -290,6 +322,7 @@ class SessionMonitor:
 
         for session_id in result.sessions_to_remove:
             self._transcript_reader.clear_session(session_id)
+            self._session_error_breaker.pop(session_id, None)
         if result.sessions_to_remove:
             self.state.save_if_dirty()
 

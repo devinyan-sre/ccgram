@@ -904,6 +904,66 @@ class TestCheckForUpdatesExceptionResilience:
 
         assert monitor.state.get_session("sess-good") is not None
 
+    async def test_circuit_breaker_skips_persistently_failing_session(
+        self, tmp_path
+    ) -> None:
+        """Consecutive failures back the session off instead of retrying every poll."""
+        bad_file = tmp_path / "bad.jsonl"
+        bad_file.write_text('{"type":"summary"}\n')
+
+        monitor = SessionMonitor(
+            projects_path=tmp_path / "projects",
+            state_file=tmp_path / "ms.json",
+        )
+        current_map = {
+            "@0": {
+                "session_id": "sess-bad",
+                "cwd": "/proj",
+                "window_name": "bad",
+                "transcript_path": str(bad_file),
+            },
+        }
+
+        calls = 0
+
+        async def _blow_up(session_id, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            raise ValueError("corrupt transcript")
+
+        with patch.object(monitor, "_process_session_file", side_effect=_blow_up):
+            await monitor.check_for_updates(current_map)
+            # Second poll inside the cooldown window: skipped, no new attempt.
+            await monitor.check_for_updates(current_map)
+
+        assert calls == 1
+        streak, next_attempt = monitor._session_error_breaker["sess-bad"]
+        assert streak == 1
+        assert next_attempt > 0
+
+    async def test_circuit_breaker_resets_on_success(self, tmp_path) -> None:
+        good_file = tmp_path / "good.jsonl"
+        good_file.write_text('{"type":"summary"}\n')
+
+        monitor = SessionMonitor(
+            projects_path=tmp_path / "projects",
+            state_file=tmp_path / "ms.json",
+        )
+        current_map = {
+            "@0": {
+                "session_id": "sess-flaky",
+                "cwd": "/proj",
+                "window_name": "flaky",
+                "transcript_path": str(good_file),
+            },
+        }
+
+        # Seed an expired-cooldown breaker entry, then poll successfully.
+        monitor._session_error_breaker["sess-flaky"] = (3, 0.0)
+        await monitor.check_for_updates(current_map)
+
+        assert "sess-flaky" not in monitor._session_error_breaker
+
 
 class TestActivityTracking:
     def test_get_last_activity_returns_none_for_unknown(
