@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.4.0] - 2026-07-23
+
+### Performance
+
+- Short-TTL topology caches kill the per-tick subprocess fork storm: shared
+  `list_windows` snapshots (tmux + herdr), shared herdr `pane list` /
+  `workspace list` answers, and a 5s foreground-process cache for provider
+  detection (~2N+8 forks/window/s down to ~1-2)
+- Session monitor: `~/.claude/projects` scan moved off the event loop;
+  `prune_session_map` skips its every-2s disk read when the loaded map shows
+  no dead entries; `events.jsonl` reads gated on a `stat()` size check
+- Provider resolved once (not twice) per transcript file per poll cycle
+
+### Fixed
+
+- Circuit breaker for persistently failing sessions: a corrupt transcript
+  backs off exponentially (up to 300s) instead of logging a traceback every 2s
+
+### Changed
+
+- Hook installer/uninstaller/status CLI extracted from `hook.py` into
+  `ccgram.hooks.install` (re-exports keep old imports working)
+- pyright raised to `standard` type-checking mode; ruff gains `B` (bugbear)
+  and `RUF` rule families — all findings fixed
+- Historical design/review documents consolidated under `docs/archive/`
+- Chinese user documentation: `README.md`, `docs/guides.md`,
+  `docs/providers.md` (English originals under `README.en.md` / `docs/en/`)
+
 ## [4.3.11] - 2026-07-11
 
 ### Fixed

@@ -1,6 +1,12 @@
-# Guides
+> [English](en/guides.md) | 中文
 
-## Upgrading
+<a id="guides"></a>
+
+# 使用指南
+
+<a id="upgrading"></a>
+
+## 升级
 
 ```bash
 uv tool upgrade ccgram                # uv (recommended)
@@ -8,7 +14,9 @@ pipx upgrade ccgram                   # pipx
 brew upgrade ccgram                   # Homebrew
 ```
 
-## CLI Reference
+<a id="cli-reference"></a>
+
+## CLI 参考
 
 ```
 ccgram                        # Start the bot
@@ -22,32 +30,36 @@ ccgram --version              # Show version
 ccgram -v                     # Run with debug logging
 ```
 
-## Getting Started
+<a id="getting-started"></a>
 
-### BotFather Setup
+## 快速上手
 
-You need a Telegram bot token to run CCGram. Create one via [@BotFather](https://t.me/BotFather).
+<a id="botfather-setup"></a>
 
-1. **Open [@BotFather](https://t.me/BotFather)** on Telegram and send `/start`
-2. **Create a new bot:** Send `/newbot` and follow the prompts
-   - Name: anything (e.g., "MyCodeBot")
-   - Username: must be unique and end with `bot` (e.g., "my_code_bot")
-   - You'll receive a **Bot Token** — save this for `TELEGRAM_BOT_TOKEN`
-3. **Configure bot settings:** Send `/mybots` → select your bot → **Bot Settings**
-   - Enable **Allow Groups**: On
-   - Enable **Group Privacy**: Off _(required so the bot sees all messages in topics)_
-   - Enable **Topics**: On
-4. **Add bot to your Telegram group:**
-   - Create or open a Telegram group with Topics enabled
-   - Invite the bot to the group
-   - **Promote the bot to Administrator** with these permissions:
-     - Create Topics
-     - Pin Messages
-     - Read Messages / View The Chat
-5. **Get your user ID:** Open [@userinfobot](https://t.me/userinfobot) → it shows your numeric user ID. Save this for `ALLOWED_USERS`
-6. **Get your group ID:** Open [@RawDataBot](https://t.me/RawDataBot) in the group → under **Peer ID**, note the number (remove leading `-100`, or keep it — both formats work)
-   - Save this for `CCGRAM_GROUP_ID` (prefix with `-100` if needed)
-7. **Create `~/.ccgram/.env`:**
+### BotFather 配置
+
+运行 CCGram 需要一个 Telegram 机器人 token，可通过 [@BotFather](https://t.me/BotFather) 创建。
+
+1. **打开 [@BotFather](https://t.me/BotFather)**，发送 `/start`
+2. **创建新机器人：** 发送 `/newbot` 并按提示操作
+   - 名称：任意（例如 "MyCodeBot"）
+   - 用户名：必须唯一且以 `bot` 结尾（例如 "my_code_bot"）
+   - 你会收到一个 **Bot Token** —— 保存下来，用于 `TELEGRAM_BOT_TOKEN`
+3. **配置机器人设置：** 发送 `/mybots` → 选择你的机器人 → **Bot Settings**
+   - 开启 **Allow Groups**: On
+   - 设置 **Group Privacy**: Off _（必须关闭，机器人才能看到话题中的所有消息）_
+   - 开启 **Topics**: On
+4. **将机器人加入你的 Telegram 群组：**
+   - 创建或打开一个启用了话题（Topics）的 Telegram 群组
+   - 邀请机器人进群
+   - **将机器人提升为管理员**，并授予以下权限：
+     - 创建话题（Create Topics）
+     - 置顶消息（Pin Messages）
+     - 读取消息 / 查看聊天（Read Messages / View The Chat）
+5. **获取你的用户 ID：** 打开 [@userinfobot](https://t.me/userinfobot)，它会显示你的数字用户 ID。保存下来，用于 `ALLOWED_USERS`
+6. **获取群组 ID：** 在群里打开 [@RawDataBot](https://t.me/RawDataBot)，在 **Peer ID** 下记录该数字（去掉前缀 `-100` 或保留均可，两种格式都支持）
+   - 保存下来，用于 `CCGRAM_GROUP_ID`（如有需要请加上 `-100` 前缀）
+7. **创建 `~/.ccgram/.env`：**
 
    ```ini
    TELEGRAM_BOT_TOKEN=your_bot_token_here
@@ -55,26 +67,30 @@ You need a Telegram bot token to run CCGram. Create one via [@BotFather](https:/
    CCGRAM_GROUP_ID=your_group_id_here
    ```
 
-8. **Test:** Run `ccgram` and create a new topic in your Telegram group. Send a message and the directory browser should appear.
+8. **测试：** 运行 `ccgram`，在 Telegram 群组中创建一个新话题并发送一条消息，此时应弹出目录浏览器。
 
-### Validation
+<a id="validation"></a>
 
-Run `ccgram doctor` at any time to validate your setup:
+### 校验
+
+可随时运行 `ccgram doctor` 检查你的配置：
 
 ```bash
 ccgram doctor         # Check configuration, hooks, multiplexer, agent CLIs
 ccgram doctor --fix   # Auto-fix common issues (install hooks, kill orphans, etc.)
 ```
 
-## Local Dev in tmux
+<a id="local-dev-in-tmux"></a>
 
-Recommended local development model:
+## 在 tmux 中进行本地开发
 
-- Run ccgram in a dedicated control window `ccgram:__main__`.
-- Keep agent windows in the same `ccgram` tmux session.
-- Restart by sending Ctrl-C to the control pane.
+推荐的本地开发模式：
 
-Use the helper script:
+- 在专用控制窗口 `ccgram:__main__` 中运行 ccgram。
+- 将代理窗口放在同一个 `ccgram` tmux 会话中。
+- 通过向控制面板发送 Ctrl-C 来重启。
+
+使用辅助脚本：
 
 ```bash
 ./scripts/restart.sh start      # fresh start; creates ccgram:__main__ if missing and installs Claude hooks
@@ -83,55 +99,61 @@ Use the helper script:
 ./scripts/restart.sh stop       # sends Ctrl-\ to control pane (supervisor exits)
 ```
 
-Direct key behavior in the control pane (`ccgram:__main__`):
+在控制面板（`ccgram:__main__`）中直接按键的行为：
 
-- `Ctrl-C`: restart ccgram.
-- `Ctrl-\`: stop the local dev supervisor loop.
+- `Ctrl-C`：重启 ccgram。
+- `Ctrl-\`：停止本地开发 supervisor 循环。
 
-### Fresh Start Guide
+<a id="fresh-start-guide"></a>
 
-If you are starting from scratch:
+### 从零开始
+
+如果你是从零开始：
 
 1. `cd /path/to/ccgram`
 2. `./scripts/restart.sh start`
 3. `tmux attach -t ccgram`
-4. In another terminal (or another pane), open your agent windows in the same tmux session.
+4. 在另一个终端（或另一个面板）中，在同一 tmux 会话内打开你的代理窗口。
 
-The `start` command creates the tmux session/window if they do not exist, installs or updates Claude hooks, and then launches the supervisor. No manual tmux bootstrap is required.
+`start` 命令会在 tmux 会话/窗口不存在时自动创建，安装或更新 Claude hooks，然后启动 supervisor。无需手动初始化 tmux。
 
-## Testing
+<a id="testing"></a>
 
-CCGram has three test tiers:
+## 测试
 
-| Tier        | Command                 | Time     | Requirements      |
-| ----------- | ----------------------- | -------- | ----------------- |
-| Unit        | `make test`             | ~10s     | None (all mocked) |
-| Integration | `make test-integration` | ~7s      | tmux              |
-| E2E         | `make test-e2e`         | ~3-4 min | tmux + agent CLIs |
+CCGram 有三个测试层级：
 
-`make check` runs unit + integration tests together with formatting, linting, and type checking.
+| 层级 | 命令                    | 耗时     | 依赖              |
+| ---- | ----------------------- | -------- | ----------------- |
+| 单元 | `make test`             | ~10s     | 无（全部 mock）   |
+| 集成 | `make test-integration` | ~7s      | tmux              |
+| E2E  | `make test-e2e`         | ~3-4 min | tmux + 代理 CLI   |
 
-### E2E Tests
+`make check` 会一并运行单元测试、集成测试，以及格式化、lint 和类型检查。
 
-End-to-end tests exercise the full lifecycle: inject fake Telegram updates → real PTB application → real tmux windows → real agent CLI processes → intercept Bot API responses. Each provider's tests are skipped automatically if its CLI is not installed.
+<a id="e2e-tests"></a>
 
-**Prerequisites:**
+### E2E 测试
 
-- tmux installed and in PATH
-- One or more agent CLIs installed and authenticated: `claude`, `codex`, `gemini`, `pi`
+端到端测试覆盖完整生命周期：注入伪造的 Telegram 更新 → 真实的 PTB 应用 → 真实的 tmux 窗口 → 真实的代理 CLI 进程 → 拦截 Bot API 响应。如果某个提供方的 CLI 未安装，其测试会自动跳过。
 
-**Test coverage per provider:**
+**前置条件：**
 
-| Provider | Tests | Scenarios                                                                                                                                                    |
-| -------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Claude   | 9     | Lifecycle, `/sessions`, `/screenshot`, `/help` forwarding, recovery (fresh + continue), status transitions, multi-topic isolation, notification mode cycling |
-| Codex    | 3     | Lifecycle, command forwarding, recovery                                                                                                                      |
-| Gemini   | 3     | Lifecycle, command forwarding, recovery                                                                                                                      |
-| Pi       | —     | Unit + contract coverage only; no e2e lifecycle suite yet                                                                                                    |
+- 已安装 tmux 且在 PATH 中
+- 已安装并完成认证的一个或多个代理 CLI：`claude`、`codex`、`gemini`、`pi`
 
-**How it works:** The Bot API HTTP layer is mocked — fake `Update` objects are injected via `app.process_update()` and all outgoing API calls are intercepted and recorded for assertions. The tests drive through the full topic binding flow (directory browser → optional worktree picker → provider picker → mode select → window creation) and verify agent processes launch, messages are forwarded, and responses are delivered.
+**各提供方的测试覆盖：**
 
-**Running:**
+| 提供方 | 测试数 | 场景                                                                                                                      |
+| ------ | ------ | ------------------------------------------------------------------------------------------------------------------------- |
+| Claude | 9      | 生命周期、`/sessions`、`/screenshot`、`/help` 转发、恢复（新建 + 继续）、状态切换、多话题隔离、通知模式循环切换            |
+| Codex  | 3      | 生命周期、命令转发、恢复                                                                                                   |
+| Gemini | 3      | 生命周期、命令转发、恢复                                                                                                   |
+| Pi     | —      | 仅有单元 + 契约测试覆盖；暂无 e2e 生命周期套件                                                                             |
+
+**工作原理：** Bot API 的 HTTP 层被 mock —— 通过 `app.process_update()` 注入伪造的 `Update` 对象，并拦截记录所有出站 API 调用以供断言。测试驱动完整的话题绑定流程（目录浏览器 → 可选的 worktree 选择器 → 提供方选择器 → 模式选择 → 窗口创建），并验证代理进程启动、消息被转发、响应被送达。
+
+**运行方式：**
 
 ```bash
 make test-e2e                                         # All providers
@@ -141,85 +163,95 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 # Pi: covered by unit + contract tests in tests/ccgram/providers/test_pi.py
 ```
 
-The tests create an isolated `ccgram-e2e` tmux session that does not interfere with a running `ccgram` instance. Safe to run from a tmux window.
+测试会创建一个隔离的 `ccgram-e2e` tmux 会话，不会干扰正在运行的 `ccgram` 实例。可以安全地在 tmux 窗口内运行。
 
-## Configuration
+<a id="configuration"></a>
 
-All settings accept both CLI flags and environment variables. CLI flags take precedence. `TELEGRAM_BOT_TOKEN` is env-only for security (flags are visible in `ps`).
+## 配置
 
-| Variable / Flag                                      | Default                        | Description                                                                                          |
+所有设置同时支持 CLI 参数和环境变量，CLI 参数优先。`TELEGRAM_BOT_TOKEN` 出于安全考虑仅支持环境变量（CLI 参数在 `ps` 中可见）。
+
+| 变量 / 参数                                          | 默认值                         | 说明                                                                                                 |
 | ---------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `TELEGRAM_BOT_TOKEN`                                 | _(required)_                   | Bot token from @BotFather (env only)                                                                 |
-| `ALLOWED_USERS` / `--allowed-users`                  | _(required)_                   | Comma-separated Telegram user IDs                                                                    |
-| `CCGRAM_DIR` / `--config-dir`                        | `~/.ccgram`                    | Config and state directory                                                                           |
-| `CLAUDE_CONFIG_DIR` / `--claude-config-dir`          | `~/.claude`                    | Override Claude config directory (for wrappers like ce, cc-mirror)                                   |
-| `TMUX_SESSION_NAME` / `--tmux-session`               | `ccgram`                       | tmux session name                                                                                    |
-| `CCGRAM_MULTIPLEXER`                                 | `tmux`                         | Terminal multiplexer backend: `tmux` (default) or `herdr`                                            |
-| `CCGRAM_PROVIDER` / `--provider`                     | `claude`                       | Default agent provider (`claude`, `codex`, `gemini`, `pi`, `shell`)                                  |
-| `CCGRAM_<NAME>_COMMAND`                              | _(from provider)_              | Per-provider launch command (env only, see below)                                                    |
-| `CCGRAM_GROUP_ID` / `--group-id`                     | _(all groups)_                 | Restrict to one Telegram group                                                                       |
-| `CCGRAM_INSTANCE_NAME` / `--instance-name`           | hostname                       | Display label for this instance                                                                      |
-| `CCGRAM_LOG_LEVEL` / `--log-level`                   | `INFO`                         | Logging level (DEBUG, INFO, WARNING, ERROR)                                                          |
-| `MONITOR_POLL_INTERVAL` / `--monitor-interval`       | `2.0`                          | Seconds between transcript polls                                                                     |
-| `AUTOCLOSE_DONE_MINUTES` / `--autoclose-done`        | `30`                           | Auto-close done topics after N minutes (0=off)                                                       |
-| `AUTOCLOSE_DEAD_MINUTES` / `--autoclose-dead`        | `10`                           | Auto-close dead sessions after N minutes (0=off)                                                     |
-| `CCGRAM_WHISPER_PROVIDER` / `--whisper-provider`     | _(empty)_                      | Whisper provider: `openai`, `groq`, or empty to disable                                              |
-| `CCGRAM_WHISPER_API_KEY`                             | _(empty)_                      | API key (env only); falls back to OPENAI_API_KEY/GROQ_API_KEY                                        |
-| `CCGRAM_WHISPER_BASE_URL` / `--whisper-base-url`     | _(provider default)_           | Custom OpenAI-compatible endpoint URL                                                                |
-| `CCGRAM_WHISPER_MODEL` / `--whisper-model`           | _(provider default)_           | Model override (e.g., `whisper-large-v3-turbo`)                                                      |
-| `CCGRAM_WHISPER_LANGUAGE` / `--whisper-language`     | _(auto-detect)_                | Force language code (e.g., `en`, `zh`)                                                               |
-| `CCGRAM_LLM_PROVIDER`                                | _(empty = disabled)_           | LLM provider for shell command generation                                                            |
-| `CCGRAM_LLM_API_KEY`                                 | _(empty)_                      | API key for LLM provider (env only)                                                                  |
-| `CCGRAM_LLM_BASE_URL`                                | _(from provider)_              | Custom LLM API endpoint                                                                              |
-| `CCGRAM_LLM_MODEL`                                   | _(from provider)_              | LLM model override                                                                                   |
-| `CCGRAM_LLM_TEMPERATURE`                             | `0.1`                          | LLM sampling temperature (0 = deterministic)                                                         |
-| `CCGRAM_LIVE_VIEW_INTERVAL` / `--live-view-interval` | `5`                            | Live view refresh interval in seconds (min 1)                                                        |
-| `CCGRAM_LIVE_VIEW_TIMEOUT` / `--live-view-timeout`   | `300`                          | Live view auto-stop timeout in seconds (min 1)                                                       |
-| `CCGRAM_STATUS_MODE` / `--status-mode`               | `system`                       | Topic emoji color scheme: `system` (green=working) or `user` (green=ready)                           |
-| `CCGRAM_HIDE_TOOL_CALLS` / `--hide-tool-calls`       | `false`                        | Set `true` to globally hide `tool_use`/`tool_result` messages (per-window override via `/toolcalls`) |
-| `CCGRAM_PROMPT_MODE` / `--prompt-mode`               | `wrap`                         | Shell prompt marker: `wrap` (append `⌘N⌘`) or `replace` (legacy `{prefix}:N❯`)                       |
-| `CCGRAM_PROMPT_MARKER`                               | `ccgram`                       | Marker prefix used only by `replace` mode                                                            |
-| `CCGRAM_PANE_LIFECYCLE_NOTIFY`                       | `false`                        | Default for per-window pane create/close notifications (toggle via `/panes`)                         |
-| `CCGRAM_SHOW_HIDDEN_DIRS` / `--show-hidden-dirs`     | `false`                        | Show dot-directories in the directory browser                                                        |
-| `CCGRAM_SEND_SEARCH_DEPTH`                           | `5`                            | Max directory depth for `/send` file search                                                          |
-| `CCGRAM_SEND_MAX_RESULTS`                            | `50`                           | Max file results returned by `/send` search                                                          |
-| `CCGRAM_TOOLBAR_CONFIG`                              | `~/.ccgram/toolbar.toml`       | Path to custom toolbar TOML; falls back to built-in defaults if missing                              |
-| `CCGRAM_STATUS_POLL_INTERVAL`                        | `1.0`                          | Status polling interval in seconds (min 0.5)                                                         |
-| `CCGRAM_MINIAPP_BASE_URL`                            | _(disabled)_                   | Externally reachable HTTPS URL for the Mini App dashboard                                            |
-| `CCGRAM_MINIAPP_HOST`                                | `127.0.0.1`                    | Local bind host for the Mini App aiohttp server                                                      |
-| `CCGRAM_MINIAPP_PORT`                                | `8765`                         | Local bind port for the Mini App aiohttp server                                                      |
-| `CCGRAM_TTS_PROVIDER`                                | _(disabled)_                   | TTS backend for voice replies: `edge` (free) or `openai`                                             |
-| `CCGRAM_TTS_VOICE`                                   | `en-US-EmmaMultilingualNeural` | Voice name                                                                                           |
-| `CCGRAM_TTS_MODEL`                                   | `gpt-4o-mini-tts`              | OpenAI TTS model (only used when `CCGRAM_TTS_PROVIDER=openai`)                                       |
-| `CCGRAM_TTS_API_KEY`                                 | _(empty)_                      | API key for OpenAI TTS; falls back to `OPENAI_API_KEY`                                               |
+| `TELEGRAM_BOT_TOKEN`                                 | _（必填）_                     | 来自 @BotFather 的机器人 token（仅环境变量）                                                         |
+| `ALLOWED_USERS` / `--allowed-users`                  | _（必填）_                     | 逗号分隔的 Telegram 用户 ID                                                                          |
+| `CCGRAM_DIR` / `--config-dir`                        | `~/.ccgram`                    | 配置与状态目录                                                                                       |
+| `CLAUDE_CONFIG_DIR` / `--claude-config-dir`          | `~/.claude`                    | 覆盖 Claude 配置目录（用于 ce、cc-mirror 等封装工具）                                                |
+| `TMUX_SESSION_NAME` / `--tmux-session`               | `ccgram`                       | tmux 会话名                                                                                          |
+| `CCGRAM_MULTIPLEXER`                                 | `tmux`                         | 终端复用器后端：`tmux`（默认）或 `herdr`                                                             |
+| `CCGRAM_PROVIDER` / `--provider`                     | `claude`                       | 默认代理提供方（`claude`、`codex`、`gemini`、`pi`、`shell`）                                         |
+| `CCGRAM_<NAME>_COMMAND`                              | _（取自提供方）_               | 各提供方的启动命令（仅环境变量，见下文）                                                             |
+| `CCGRAM_GROUP_ID` / `--group-id`                     | _（所有群组）_                 | 限定到某一个 Telegram 群组                                                                           |
+| `CCGRAM_INSTANCE_NAME` / `--instance-name`           | 主机名                         | 本实例的显示名称                                                                                     |
+| `CCGRAM_LOG_LEVEL` / `--log-level`                   | `INFO`                         | 日志级别（DEBUG、INFO、WARNING、ERROR）                                                              |
+| `MONITOR_POLL_INTERVAL` / `--monitor-interval`       | `2.0`                          | 转录文件轮询间隔（秒）                                                                               |
+| `AUTOCLOSE_DONE_MINUTES` / `--autoclose-done`        | `30`                           | 已完成话题 N 分钟后自动关闭（0=关闭该功能）                                                          |
+| `AUTOCLOSE_DEAD_MINUTES` / `--autoclose-dead`        | `10`                           | 已死亡会话 N 分钟后自动关闭（0=关闭该功能）                                                          |
+| `CCGRAM_WHISPER_PROVIDER` / `--whisper-provider`     | _（空）_                       | Whisper 提供方：`openai`、`groq`，留空则禁用                                                         |
+| `CCGRAM_WHISPER_API_KEY`                             | _（空）_                       | API 密钥（仅环境变量）；回退到 OPENAI_API_KEY/GROQ_API_KEY                                           |
+| `CCGRAM_WHISPER_BASE_URL` / `--whisper-base-url`     | _（提供方默认值）_             | 自定义 OpenAI 兼容端点 URL                                                                           |
+| `CCGRAM_WHISPER_MODEL` / `--whisper-model`           | _（提供方默认值）_             | 模型覆盖（例如 `whisper-large-v3-turbo`）                                                            |
+| `CCGRAM_WHISPER_LANGUAGE` / `--whisper-language`     | _（自动检测）_                 | 强制指定语言代码（例如 `en`、`zh`）                                                                  |
+| `CCGRAM_LLM_PROVIDER`                                | _（空 = 禁用）_                | 用于 shell 命令生成的 LLM 提供方                                                                     |
+| `CCGRAM_LLM_API_KEY`                                 | _（空）_                       | LLM 提供方的 API 密钥（仅环境变量）                                                                  |
+| `CCGRAM_LLM_BASE_URL`                                | _（取自提供方）_               | 自定义 LLM API 端点                                                                                  |
+| `CCGRAM_LLM_MODEL`                                   | _（取自提供方）_               | LLM 模型覆盖                                                                                         |
+| `CCGRAM_LLM_TEMPERATURE`                             | `0.1`                          | LLM 采样温度（0 = 确定性输出）                                                                       |
+| `CCGRAM_LIVE_VIEW_INTERVAL` / `--live-view-interval` | `5`                            | 实时视图刷新间隔（秒，最小 1）                                                                       |
+| `CCGRAM_LIVE_VIEW_TIMEOUT` / `--live-view-timeout`   | `300`                          | 实时视图自动停止超时（秒，最小 1）                                                                   |
+| `CCGRAM_STATUS_MODE` / `--status-mode`               | `system`                       | 话题表情配色方案：`system`（绿=工作中）或 `user`（绿=就绪）                                          |
+| `CCGRAM_HIDE_TOOL_CALLS` / `--hide-tool-calls`       | `false`                        | 设为 `true` 全局隐藏 `tool_use`/`tool_result` 消息（每窗口可用 `/toolcalls` 覆盖）                   |
+| `CCGRAM_PROMPT_MODE` / `--prompt-mode`               | `wrap`                         | Shell 提示符标记：`wrap`（追加 `⌘N⌘`）或 `replace`（旧式 `{prefix}:N❯`）                             |
+| `CCGRAM_PROMPT_MARKER`                               | `ccgram`                       | 仅 `replace` 模式使用的标记前缀                                                                      |
+| `CCGRAM_PANE_LIFECYCLE_NOTIFY`                       | `false`                        | 每窗口面板创建/关闭通知的默认值（可用 `/panes` 切换）                                                |
+| `CCGRAM_SHOW_HIDDEN_DIRS` / `--show-hidden-dirs`     | `false`                        | 在目录浏览器中显示点开头的目录                                                                       |
+| `CCGRAM_SEND_SEARCH_DEPTH`                           | `5`                            | `/send` 文件搜索的最大目录深度                                                                       |
+| `CCGRAM_SEND_MAX_RESULTS`                            | `50`                           | `/send` 搜索返回的最大文件数                                                                         |
+| `CCGRAM_TOOLBAR_CONFIG`                              | `~/.ccgram/toolbar.toml`       | 自定义工具栏 TOML 的路径；文件不存在时回退到内置默认值                                               |
+| `CCGRAM_STATUS_POLL_INTERVAL`                        | `1.0`                          | 状态轮询间隔（秒，最小 0.5）                                                                         |
+| `CCGRAM_MINIAPP_BASE_URL`                            | _（禁用）_                     | Mini App 仪表盘的外部可达 HTTPS URL                                                                  |
+| `CCGRAM_MINIAPP_HOST`                                | `127.0.0.1`                    | Mini App aiohttp 服务的本地绑定主机                                                                  |
+| `CCGRAM_MINIAPP_PORT`                                | `8765`                         | Mini App aiohttp 服务的本地绑定端口                                                                  |
+| `CCGRAM_TTS_PROVIDER`                                | _（禁用）_                     | 语音回复的 TTS 后端：`edge`（免费）或 `openai`                                                       |
+| `CCGRAM_TTS_VOICE`                                   | `en-US-EmmaMultilingualNeural` | 语音名称                                                                                             |
+| `CCGRAM_TTS_MODEL`                                   | `gpt-4o-mini-tts`              | OpenAI TTS 模型（仅当 `CCGRAM_TTS_PROVIDER=openai` 时使用）                                          |
+| `CCGRAM_TTS_API_KEY`                                 | _（空）_                       | OpenAI TTS 的 API 密钥；回退到 `OPENAI_API_KEY`                                                      |
 
-## Topic Emoji Color Scheme
+<a id="topic-emoji-color-scheme"></a>
 
-Topic emojis change color to reflect agent status. The mapping between color and meaning is configurable:
+## 话题表情配色方案
 
-| Mode               | 🟢 Green                        | 🟡 Yellow        | When to pick                       |
-| ------------------ | ------------------------------- | ---------------- | ---------------------------------- |
-| `system` (default) | agent is working                | agent is idle    | "is anything running right now?"   |
-| `user`             | agent is idle / ready for input | agent is working | "does anything need my attention?" |
+话题表情会随代理状态变换颜色。颜色与含义的映射可配置：
 
-Set globally via `CCGRAM_STATUS_MODE=user` or `--status-mode user`. Invalid values fall back to `system`.
+| 模式             | 🟢 绿色              | 🟡 黄色      | 适用场景                     |
+| ---------------- | -------------------- | ------------ | ---------------------------- |
+| `system`（默认） | 代理正在工作         | 代理空闲     | "现在有什么在运行吗？"       |
+| `user`           | 代理空闲 / 等待输入  | 代理正在工作 | "有什么需要我处理的吗？"     |
 
-## Tool-Call Visibility
+通过 `CCGRAM_STATUS_MODE=user` 或 `--status-mode user` 全局设置。无效值回退到 `system`。
 
-By default, `tool_use` and `tool_result` events from Claude/Codex/Gemini are forwarded to Telegram. You can suppress them globally or per-window when they create more noise than signal (e.g., during heavy file or grep work).
+<a id="tool-call-visibility"></a>
 
-- **Global**: `CCGRAM_HIDE_TOOL_CALLS=true` or `--hide-tool-calls` makes the global default `hidden`.
-- **Per-window**: `/toolcalls` in a topic cycles `default → shown → hidden`. The per-window setting always wins over the global default.
+## 工具调用可见性
 
-Hook events (Stop, StopFailure, SubagentStart/Stop, TaskCompleted, TeammateIdle) are **never** suppressed — they bypass the gate so you still see what matters.
+默认情况下，来自 Claude/Codex/Gemini 的 `tool_use` 和 `tool_result` 事件会转发到 Telegram。当它们噪音大于信号时（例如大量文件操作或 grep 工作），可以全局或按窗口屏蔽。
 
-## Voice Message Transcription
+- **全局**：`CCGRAM_HIDE_TOOL_CALLS=true` 或 `--hide-tool-calls` 将全局默认值设为隐藏。
+- **按窗口**：在话题中使用 `/toolcalls` 循环切换 `default → shown → hidden`。窗口级设置始终优先于全局默认值。
 
-Send voice messages in Telegram and have them transcribed and forwarded to the agent.
+Hook 事件（Stop、StopFailure、SubagentStart/Stop、TaskCompleted、TeammateIdle）**永不**被屏蔽 —— 它们绕过该开关，确保重要信息不会丢失。
 
-### Setup
+<a id="voice-message-transcription"></a>
 
-Set a whisper provider and API key:
+## 语音消息转写
+
+在 Telegram 中发送语音消息，自动转写后转发给代理。
+
+<a id="setup"></a>
+
+### 配置
+
+设置 whisper 提供方和 API 密钥：
 
 ```ini
 # Groq (fast, generous free tier)
@@ -236,58 +268,66 @@ CCGRAM_WHISPER_API_KEY=your_key
 CCGRAM_WHISPER_BASE_URL=http://localhost:8000/v1
 ```
 
-Optional overrides:
+可选覆盖项：
 
 ```ini
 CCGRAM_WHISPER_MODEL=whisper-large-v3-turbo   # default depends on provider
 CCGRAM_WHISPER_LANGUAGE=en                     # omit for auto-detect
 ```
 
-### How It Works
+<a id="how-it-works"></a>
 
-1. Send a voice message in a topic bound to an agent
-2. Bot downloads the audio (max 25 MB) and sends it to the Whisper API
-3. Transcription appears with **✓ Send to agent** and **✗ Discard** buttons
-4. Tap **Send** to forward the text to the agent, or **Discard** to cancel
+### 工作原理
 
-In shell topics, voice transcriptions are automatically routed through the LLM for command generation (if `CCGRAM_LLM_PROVIDER` is set). In agent topics, the transcribed text is sent directly to the agent.
+1. 在绑定了代理的话题中发送语音消息
+2. 机器人下载音频（最大 25 MB）并发送给 Whisper API
+3. 转写结果显示，并附带 **✓ 发送给代理** 和 **✗ 丢弃** 按钮
+4. 点击 **发送** 将文本转发给代理，或点击 **丢弃** 取消
 
-Leave `CCGRAM_WHISPER_PROVIDER` empty (the default) to disable voice transcription.
+在 shell 话题中，语音转写会自动经过 LLM 生成命令（需设置 `CCGRAM_LLM_PROVIDER`）。在代理话题中，转写文本直接发送给代理。
 
-## Tmux Session Auto-Detection
+将 `CCGRAM_WHISPER_PROVIDER` 留空（默认）即可禁用语音转写。
 
-> This section applies when `CCGRAM_MULTIPLEXER=tmux` (the default). The herdr backend uses its own workspace/tab model and does not use a tmux session name.
+<a id="tmux-session-auto-detection"></a>
 
-When ccgram starts inside an existing tmux session, it auto-detects the session name and attaches to it instead of creating a new `ccgram` session. This is useful when you already have a tmux session with agent windows.
+## Tmux 会话自动检测
 
-**How it works:**
+> 本节适用于 `CCGRAM_MULTIPLEXER=tmux`（默认）。herdr 后端使用自己的工作区/标签页模型，不使用 tmux 会话名。
 
-1. If `$TMUX` is set and no `--tmux-session` flag is given, ccgram detects the current session name
-2. The bot's own tmux window is automatically excluded from the window list
-3. If another ccgram instance is already running in the same session, startup is refused
+当 ccgram 在已有的 tmux 会话内启动时，它会自动检测会话名并附加到该会话，而不是新建一个 `ccgram` 会话。当你已经有一个包含代理窗口的 tmux 会话时，这很有用。
 
-**Override:** `--tmux-session=NAME` or `TMUX_SESSION_NAME=NAME` always takes precedence over auto-detection.
+**工作原理：**
 
-**Outside tmux:** Behavior is unchanged — ccgram creates a `ccgram` session with a `__main__` placeholder window.
+1. 如果设置了 `$TMUX` 且未传 `--tmux-session` 参数，ccgram 检测当前会话名
+2. 机器人自身所在的 tmux 窗口自动从窗口列表中排除
+3. 如果同一会话中已有另一个 ccgram 实例在运行，则拒绝启动
 
-| Scenario                         | Behavior                                            |
-| -------------------------------- | --------------------------------------------------- |
-| Outside tmux, no flags           | Creates `ccgram` session + `__main__` window        |
-| Outside tmux, `--tmux-session=X` | Creates/attaches `X` + `__main__` window            |
-| Inside tmux, no flags            | Auto-detects session, skips own window, no creation |
-| Inside tmux, `--tmux-session=X`  | Overrides auto-detect, uses `X`                     |
+**覆盖：** `--tmux-session=NAME` 或 `TMUX_SESSION_NAME=NAME` 始终优先于自动检测。
 
-## Herdr Backend (Alternative Multiplexer)
+**在 tmux 之外：** 行为不变 —— ccgram 创建一个带 `__main__` 占位窗口的 `ccgram` 会话。
 
-ccgram talks to the terminal multiplexer through a backend-neutral seam. tmux is the default; [herdr](https://github.com/ogulcancelik/herdr) is an opt-in alternative selected with `CCGRAM_MULTIPLEXER=herdr`. Everything else — topics, providers, hooks, status, recovery — works the same; only the multiplexer underneath changes.
+| 场景                              | 行为                                             |
+| --------------------------------- | ------------------------------------------------ |
+| tmux 之外，无参数                 | 创建 `ccgram` 会话 + `__main__` 窗口             |
+| tmux 之外，`--tmux-session=X`     | 创建/附加 `X` + `__main__` 窗口                  |
+| tmux 之内，无参数                 | 自动检测会话，跳过自身窗口，不新建               |
+| tmux 之内，`--tmux-session=X`     | 覆盖自动检测，使用 `X`                           |
 
-### Setup
+<a id="herdr-backend-alternative-multiplexer"></a>
 
-1. **Install herdr** and make sure the `herdr` binary is in `PATH`. Start its server so the control socket exists.
-2. **Select the backend:** set `CCGRAM_MULTIPLEXER=herdr` (env var or `.env`). The default is `tmux`.
-3. **Socket path (optional):** ccgram reads `$HERDR_SOCKET_PATH` to find the server. Leave it unset to use herdr's default socket; set it to target a specific server.
-4. **Install the ccgram hook as usual:** `ccgram hook --install`. The same Claude Code hook works on both backends — it resolves which window fired from `$HERDR_PANE_ID` (tmux uses `$TMUX_PANE`), so no herdr-specific hook step is required.
-5. **Verify:** `ccgram doctor`. When `CCGRAM_MULTIPLEXER=herdr`, doctor checks the `herdr` binary, socket reachability, the pinned protocol version, and that ccgram's and herdr's own Claude hooks coexist in `settings.json` (instead of the tmux checks).
+## Herdr 后端（可选复用器）
+
+ccgram 通过一个后端中立的接缝与终端复用器通信。tmux 是默认后端；[herdr](https://github.com/ogulcancelik/herdr) 是可选替代方案，通过 `CCGRAM_MULTIPLEXER=herdr` 启用。其他一切 —— 话题、提供方、hooks、状态、恢复 —— 行为完全相同；只有底层复用器变了。
+
+<a id="setup-1"></a>
+
+### 配置
+
+1. **安装 herdr**，并确保 `herdr` 二进制在 `PATH` 中。启动其服务端，使控制套接字存在。
+2. **选择后端：** 设置 `CCGRAM_MULTIPLEXER=herdr`（环境变量或 `.env`）。默认值为 `tmux`。
+3. **套接字路径（可选）：** ccgram 读取 `$HERDR_SOCKET_PATH` 来定位服务端。留空则使用 herdr 的默认套接字；也可以设置它以指向特定服务端。
+4. **照常安装 ccgram hook：** `ccgram hook --install`。同一个 Claude Code hook 在两种后端上都能工作 —— 它通过 `$HERDR_PANE_ID`（tmux 使用 `$TMUX_PANE`）解析触发窗口，因此无需针对 herdr 的额外 hook 步骤。
+5. **验证：** `ccgram doctor`。当 `CCGRAM_MULTIPLEXER=herdr` 时，doctor 检查 `herdr` 二进制、套接字可达性、固定的协议版本，以及 ccgram 与 herdr 各自的 Claude hooks 在 `settings.json` 中是否共存（代替 tmux 相关检查）。
 
 ```bash
 # .env or shell environment
@@ -295,49 +335,59 @@ CCGRAM_MULTIPLEXER=herdr
 # HERDR_SOCKET_PATH=/path/to/herdr.sock   # optional; defaults to herdr's socket
 ```
 
-### Protocol version pinning
+<a id="protocol-version-pinning"></a>
 
-ccgram accepts herdr socket protocols 14, 15, and 16 without warnings. On the first call it reads `herdr status`; an older, newer, missing, or otherwise unknown protocol emits a warning and ccgram continues in best-effort mode, so CLI-backed operations can still work after a herdr upgrade or downgrade. A stopped server, failed status command, or malformed status response still prevents startup. Run the live herdr contract suite before relying on an untested protocol.
+### 协议版本固定
 
-### Differences from tmux
+ccgram 接受 herdr 套接字协议 14、15、16 且不产生警告。首次调用时它会读取 `herdr status`；协议过旧、过新、缺失或未知时会发出警告并以尽力而为模式继续运行，因此在 herdr 升级或降级后，基于 CLI 的操作仍可能正常工作。服务端未启动、status 命令失败或 status 响应格式错误仍会阻止启动。在依赖未经测试的协议之前，请先运行 herdr 在线契约测试套件。
 
-herdr advertises its own capabilities through the seam; the behavioral consequences a user sees:
+<a id="differences-from-tmux"></a>
 
-| Aspect                    | tmux                            | herdr                                                                      |
-| ------------------------- | ------------------------------- | -------------------------------------------------------------------------- |
-| Topic = window            | every window is eligible        | only **agent tabs** surface as topics — a bare shell tab does not          |
-| Foreground detection      | `ps -t <tty>`                   | `pane process-info` (no tty)                                               |
-| Scrollback capture        | unbounded                       | clamped to **1000 lines**; longer output is flagged as truncated           |
-| Agent status              | inferred from terminal scraping | native (herdr reports agent status directly)                               |
-| Window IDs across restart | stable                          | re-minted on a herdr **server** restart — ccgram re-resolves by session id |
-| Topic labels              | window name                     | adaptive `"<workspace> ▸ <tab>"` (tab name is primary)                     |
+### 与 tmux 的差异
 
-Creating sessions from the terminal on herdr is covered in [Creating Sessions from the Terminal](#creating-sessions-from-the-terminal).
+herdr 通过接缝声明自己的能力；用户可感知的行为差异如下：
 
-> **Workspace picker:** On herdr, `/new` shows an extra step after directory selection — a workspace picker that lets you pin the new tab inside an existing herdr workspace. If no workspaces exist yet (or none matches the selected directory), the picker is skipped and ccgram creates a new workspace automatically.
+| 方面                 | tmux                     | herdr                                                                   |
+| -------------------- | ------------------------ | ----------------------------------------------------------------------- |
+| 话题 = 窗口          | 每个窗口都符合条件       | 只有**代理标签页**会成为话题 —— 纯 shell 标签页不会                     |
+| 前台进程检测         | `ps -t <tty>`            | `pane process-info`（无 tty）                                           |
+| 回滚缓冲区捕获       | 无上限                   | 限制为 **1000 行**；更长的输出会被标记为已截断                          |
+| 代理状态             | 从终端抓取推断           | 原生（herdr 直接报告代理状态）                                          |
+| 重启后的窗口 ID      | 稳定                     | herdr **服务端**重启后重新分配 —— ccgram 通过会话 ID 重新解析           |
+| 话题标签             | 窗口名                   | 自适应 `"<workspace> ▸ <tab>"`（以标签页名为主）                        |
+
+在 herdr 上从终端创建会话的方式见 [从终端创建会话](#creating-sessions-from-the-terminal)。
+
+> **工作区选择器：** 在 herdr 上，`/new` 会在目录选择后多显示一步 —— 工作区选择器，让你把新标签页固定到已有的 herdr 工作区内。如果尚无任何工作区（或没有与所选目录匹配的），则跳过该选择器，ccgram 自动创建一个新工作区。
 >
-> **Self-hosting escape hatch:** Workspaces or tabs whose label matches `__*__` (e.g. `__main__`) are invisible to ccgram. Use this naming convention to run ccgram itself inside herdr without it auto-adopting its own terminal as a topic.
+> **自托管逃生口：** 标签匹配 `__*__`（如 `__main__`）的工作区或标签页对 ccgram 不可见。利用这一命名约定，可以在 herdr 内运行 ccgram 本身，而不会让它把自己的终端自动收养为话题。
 
-## Auto-Close Behavior
+<a id="auto-close-behavior"></a>
 
-CCGram automatically closes Telegram topics when sessions end, reducing clutter:
+## 自动关闭行为
 
-- **Done topics** (`--autoclose-done`, default: 30 min) — When Claude finishes a task and the session completes normally, the topic auto-closes after 30 minutes.
-- **Dead sessions** (`--autoclose-dead`, default: 10 min) — When a Claude process crashes or the tmux window is killed externally, the topic auto-closes after 10 minutes.
+CCGram 会在会话结束时自动关闭 Telegram 话题，减少杂乱：
 
-Set to `0` to disable:
+- **已完成的话题**（`--autoclose-done`，默认：30 分钟）—— 当 Claude 完成任务且会话正常结束时，话题在 30 分钟后自动关闭。
+- **已死亡的会话**（`--autoclose-dead`，默认：10 分钟）—— 当 Claude 进程崩溃或 tmux 窗口被外部杀掉时，话题在 10 分钟后自动关闭。
+
+设为 `0` 可禁用：
 
 ```bash
 ccgram --autoclose-done 0 --autoclose-dead 0
 ```
 
-## Multi-Instance Setup
+<a id="multi-instance-setup"></a>
 
-Run multiple ccgram instances on the same machine, each owning a different Telegram group. All instances can share a single bot token.
+## 多实例部署
 
-### Example: work + personal instances
+在同一台机器上运行多个 ccgram 实例，每个实例负责一个不同的 Telegram 群组。所有实例可共用同一个机器人 token。
 
-Instance 1 (`~/.ccgram-work/.env`):
+<a id="example-work--personal-instances"></a>
+
+### 示例：工作 + 个人双实例
+
+实例 1（`~/.ccgram-work/.env`）：
 
 ```ini
 TELEGRAM_BOT_TOKEN=same_token_for_both
@@ -348,7 +398,7 @@ CCGRAM_DIR=~/.ccgram-work
 TMUX_SESSION_NAME=ccgram-work
 ```
 
-Instance 2 (`~/.ccgram-personal/.env`):
+实例 2（`~/.ccgram-personal/.env`）：
 
 ```ini
 TELEGRAM_BOT_TOKEN=same_token_for_both
@@ -359,24 +409,28 @@ CCGRAM_DIR=~/.ccgram-personal
 TMUX_SESSION_NAME=ccgram-personal
 ```
 
-Run both:
+同时运行两个实例：
 
 ```bash
 CCGRAM_DIR=~/.ccgram-work ccgram &
 CCGRAM_DIR=~/.ccgram-personal ccgram &
 ```
 
-Each instance uses a separate tmux session, config directory, and state. When `CCGRAM_GROUP_ID` is set, an instance silently ignores updates from other groups.
+每个实例使用独立的 tmux 会话、配置目录和状态。设置了 `CCGRAM_GROUP_ID` 时，实例会静默忽略来自其他群组的更新。
 
-Without `CCGRAM_GROUP_ID`, a single instance processes all groups (the default).
+不设置 `CCGRAM_GROUP_ID` 时，单个实例处理所有群组（默认行为）。
 
-> To find your group's chat ID, add [@RawDataBot](https://t.me/RawDataBot) to the group — it replies with the chat ID (a negative number like `-1001234567890`).
+> 要查找群组的 chat ID，把 [@RawDataBot](https://t.me/RawDataBot) 加入群组 —— 它会回复 chat ID（一个负数，形如 `-1001234567890`）。
 
-## Creating Sessions from the Terminal
+<a id="creating-sessions-from-the-terminal"></a>
 
-Besides creating sessions through Telegram topics, you can create windows directly in your terminal multiplexer.
+## 从终端创建会话
 
-### tmux (default)
+除了通过 Telegram 话题创建会话，你也可以直接在终端复用器中创建窗口。
+
+<a id="tmux-default"></a>
+
+### tmux（默认）
 
 ```bash
 # Attach to the ccgram tmux session
@@ -389,33 +443,41 @@ tmux new-window -n myproject -c ~/Code/myproject
 claude     # or: codex, gemini, pi
 ```
 
-The window must be in the ccgram tmux session (configurable via `TMUX_SESSION_NAME`).
+窗口必须位于 ccgram 的 tmux 会话中（可通过 `TMUX_SESSION_NAME` 配置）。
 
-### herdr (`CCGRAM_MULTIPLEXER=herdr`)
+<a id="herdr-ccgram_multiplexerherdr"></a>
 
-Open a new herdr tab in the appropriate workspace, then start any supported agent CLI. CCGram discovers agent panes automatically; bare shell panes are not surfaced as topics (only active agent panes are).
+### herdr（`CCGRAM_MULTIPLEXER=herdr`）
 
-### Both backends
+在相应的工作区中打开一个新的 herdr 标签页，然后启动任意受支持的代理 CLI。CCGram 会自动发现代理面板；纯 shell 面板不会成为话题（只有活跃的代理面板才会）。
 
-For Claude, the SessionStart hook registers the session automatically. For Codex, Gemini, and Pi, CCGram auto-detects the provider from the running process name and discovers the session from transcript files on disk. In all cases, the bot creates a matching Telegram topic.
+<a id="both-backends"></a>
 
-This works even on a fresh instance with no existing topic bindings (cold-start).
+### 两种后端通用
 
-## Session Recovery
+对于 Claude，SessionStart hook 会自动注册会话。对于 Codex、Gemini 和 Pi，CCGram 从运行中的进程名自动检测提供方，并从磁盘上的转录文件发现会话。所有情况下，机器人都会创建对应的 Telegram 话题。
 
-When an agent session exits or crashes, the bot detects the dead window and offers recovery options via inline buttons:
+即使是没有任何话题绑定的全新实例（冷启动），此机制同样有效。
 
-- **Fresh** — Kill the old window, create a new one in the same directory
-- **Continue** — Resume the last conversation (all providers support this)
-- **Resume** — Browse and select a past session to resume from
+<a id="session-recovery"></a>
 
-The buttons shown adapt to each provider's capabilities. Claude, Codex, Gemini, and Pi support Fresh, Continue, and Resume. Shell supports Fresh only (shell sessions are ephemeral).
+## 会话恢复
 
-## Manual Provider Override (`/agent`)
+当代理会话退出或崩溃时，机器人会检测到死亡窗口，并通过内联按钮提供恢复选项：
 
-`/agent` (alias `/provider`) fixes a mis-tagged window. Auto-detection (`detect_provider_from_command` + JS-runtime foreground-process fallback via the multiplexer seam) returns empty for custom wrappers like `ralphex`, so the window can keep its prior provider tag — SessionMonitor then polls a stale transcript, `/last` returns old text, and tool calls/replies stop showing up.
+- **Fresh（新建）** —— 杀掉旧窗口，在同一目录中新建一个
+- **Continue（继续）** —— 恢复上一次对话（所有提供方均支持）
+- **Resume（选择恢复）** —— 浏览并选择一个历史会话来恢复
 
-Forms:
+显示的按钮会根据各提供方的能力自适应。Claude、Codex、Gemini 和 Pi 支持 Fresh、Continue 和 Resume。Shell 仅支持 Fresh（shell 会话是临时性的）。
+
+<a id="manual-provider-override-agent"></a>
+
+## 手动指定提供方（`/agent`）
+
+`/agent`（别名 `/provider`）用于修正被错误标记的窗口。自动检测（`detect_provider_from_command` + 经复用器接缝的 JS 运行时前台进程回退）对 `ralphex` 之类的自定义封装工具返回空值，导致窗口保留旧的提供方标记 —— 于是 SessionMonitor 轮询过期的转录文件，`/last` 返回旧文本，工具调用和回复不再出现。
+
+用法：
 
 ```
 /agent              # show picker (current marked ✓, with (manual override) badge if set)
@@ -424,49 +486,61 @@ Forms:
 /agent auto         # clear manual override and re-run auto-detection
 ```
 
-On switch, the bot clears `WindowState.transcript_path`, drops the previous `session_map.json` entry (so SessionMonitor stops reading the wrong transcript), and for shell triggers prompt-marker setup via `shell_prompt_orchestrator.ensure_setup`. The next `SessionStart` hook from the new provider repopulates `session_map`.
+切换时，机器人会清空 `WindowState.transcript_path`，删除旧的 `session_map.json` 条目（让 SessionMonitor 停止读取错误的转录文件），并在切换到 shell 时通过 `shell_prompt_orchestrator.ensure_setup` 触发提示符标记设置。新提供方的下一个 `SessionStart` hook 会重新填充 `session_map`。
 
-Manual overrides set `WindowState.provider_manual_override=True`. The periodic auto-detection in `_detect_and_apply_provider` skips overridden windows until `/agent auto` clears the flag.
+手动覆盖会设置 `WindowState.provider_manual_override=True`。`_detect_and_apply_provider` 中的周期性自动检测会跳过被覆盖的窗口，直到 `/agent auto` 清除该标志。
 
-## Live View
+<a id="live-view"></a>
 
-Monitor agent terminal output in real-time via auto-refreshing screenshots in Telegram.
+## 实时视图
 
-### How It Works
+通过 Telegram 中自动刷新的截图实时监控代理终端输出。
 
-1. Tap the **Live** button in the action toolbar (or `/toolbar` → Live)
-2. CCGram captures the terminal as a PNG and sends it as a photo
-3. Every 5 seconds (configurable), it recaptures and edits the photo in-place
-4. Content-hash gating: if nothing changed on screen, no API call is made
-5. Auto-stops after 5 minutes (configurable) or when you tap **Stop**
+<a id="how-it-works-1"></a>
 
-### Configuration
+### 工作原理
 
-| Setting           | Env Var                     | Default         |
-| ----------------- | --------------------------- | --------------- |
-| Refresh interval  | `CCGRAM_LIVE_VIEW_INTERVAL` | `5` (seconds)   |
-| Auto-stop timeout | `CCGRAM_LIVE_VIEW_TIMEOUT`  | `300` (seconds) |
+1. 点击操作工具栏中的 **Live** 按钮（或 `/toolbar` → Live）
+2. CCGram 将终端截为 PNG 并作为图片发送
+3. 每 5 秒（可配置）重新截图并原位编辑该图片
+4. 内容哈希门控：屏幕内容未变化时不产生 API 调用
+5. 5 分钟后自动停止（可配置），或点击 **Stop** 停止
 
-Both values are clamped to a minimum of 1 second.
+<a id="configuration-1"></a>
 
-## Screenshots
+### 配置
 
-`/screenshot` (or the 📷 status-bar button) captures the current viewport of the bound tmux pane as a readable PNG with ANSI color.
+| 设置项       | 环境变量                    | 默认值        |
+| ------------ | --------------------------- | ------------- |
+| 刷新间隔     | `CCGRAM_LIVE_VIEW_INTERVAL` | `5`（秒）     |
+| 自动停止超时 | `CCGRAM_LIVE_VIEW_TIMEOUT`  | `300`（秒）   |
 
-Live view (auto-refreshing) uses the same viewport capture at a smaller font size for lower file sizes.
+两个值的下限均为 1 秒。
 
-## Last Reply (`/last`)
+<a id="screenshots"></a>
 
-`/last` (or the 📄 **Last** toolbar button) resends the most recent assistant reply to the current topic:
+## 截图
 
-- **AI providers** (Claude, Codex, Gemini, Pi) — extracts contiguous assistant text blocks after the last user message from the session transcript. Falls back to the most recent assistant text if no turn boundary is found.
-- **Shell** — captures scrollback and extracts the last command+output block between prompt markers.
+`/screenshot`（或状态栏的 📷 按钮）将绑定的 tmux 面板当前视口截为一张带 ANSI 颜色、清晰可读的 PNG。
 
-Responses longer than 4096 characters are sent as a `.txt` document attachment instead of a text message.
+实时视图（自动刷新）使用同样的视口捕获，但字号更小以降低文件体积。
 
-## File Delivery (`/send`)
+<a id="last-reply-last"></a>
 
-Send files from the bound window's working directory to Telegram. Three modes in one command:
+## 最近回复（`/last`）
+
+`/last`（或工具栏的 📄 **Last** 按钮）将最近一条助手回复重新发送到当前话题：
+
+- **AI 提供方**（Claude、Codex、Gemini、Pi）—— 从会话转录中提取最后一条用户消息之后的连续助手文本块。找不到轮次边界时回退到最近的助手文本。
+- **Shell** —— 捕获回滚缓冲区，提取提示符标记之间的最后一个命令+输出块。
+
+超过 4096 字符的回复将以 `.txt` 文档附件形式发送，而不是文本消息。
+
+<a id="file-delivery-send"></a>
+
+## 文件发送（`/send`）
+
+将绑定窗口工作目录中的文件发送到 Telegram。一条命令三种模式：
 
 ```bash
 /send docs/arch.png   # exact path → immediate upload
@@ -475,27 +549,31 @@ Send files from the bound window's working directory to Telegram. Three modes in
 /send                 # no args → interactive directory browser at CWD
 ```
 
-Security (project-scoped, deny-by-default):
+安全策略（项目范围限定，默认拒绝）：
 
-- Resolved path must stay within window CWD (blocks `../` traversal and symlink escape)
-- Hidden files/dirs (`.`-prefixed) denied
-- Secret patterns denied: `*.pem`, `*.key`, `*.p12`, `*credential*`, `*secret*`, `.env`, etc.
-- If `.gitleaks.toml` exists, its `[[rules]]` path regexes are enforced
-- Gitignored files denied (`git check-ignore` primary, `pathspec` fallback for non-git)
-- 50 MB cap (Telegram bot API limit)
-- Excluded dirs are never shown: `node_modules`, `__pycache__`, `.venv`, `dist`, `build`, etc.
+- 解析后的路径必须位于窗口 CWD 之内（阻止 `../` 穿越和符号链接逃逸）
+- 隐藏文件/目录（`.` 开头）拒绝
+- 秘密文件模式拒绝：`*.pem`、`*.key`、`*.p12`、`*credential*`、`*secret*`、`.env` 等
+- 如果存在 `.gitleaks.toml`，会强制执行其 `[[rules]]` 中的路径正则
+- gitignore 忽略的文件拒绝（优先 `git check-ignore`，非 git 目录回退到 `pathspec`）
+- 50 MB 上限（Telegram bot API 限制）
+- 排除目录永不显示：`node_modules`、`__pycache__`、`.venv`、`dist`、`build` 等
 
-Tunables: `CCGRAM_SEND_SEARCH_DEPTH` (default 5), `CCGRAM_SEND_MAX_RESULTS` (default 50).
+可调参数：`CCGRAM_SEND_SEARCH_DEPTH`（默认 5）、`CCGRAM_SEND_MAX_RESULTS`（默认 50）。
 
-## Action Toolbar (`/toolbar`)
+<a id="action-toolbar-toolbar"></a>
 
-`/toolbar` opens an inline keyboard of provider-specific tmux key actions. Row 1 is universal: `[📷 Screen, ⏹ Ctrl-C, 📺 Live]`. Row 2 varies per provider: Claude (Mode, Think, Esc), Codex (Esc, Tab, Mode), Gemini (Mode, YOLO, Esc), Pi (Esc, Tab, π Model), Shell (Enter, EOF, Suspend). Claude/Codex/Gemini/Pi add a navigation row (Up, Enter, Down). The final row is `[📄 Last, Get File, Close]`; Shell folds Esc in: `[📄 Last, Get File, Esc, Close]`.
+## 操作工具栏（`/toolbar`）
 
-Toggle actions (Mode = Shift+Tab, Think = Tab, YOLO = Ctrl+Y) capture the pane ~250 ms after the key press and report the resulting mode-line in the toast (e.g., `auto-accept edits on`).
+`/toolbar` 打开一个按提供方定制的 tmux 按键操作内联键盘。第 1 行通用：`[📷 Screen, ⏹ Ctrl-C, 📺 Live]`。第 2 行因提供方而异：Claude（Mode、Think、Esc）、Codex（Esc、Tab、Mode）、Gemini（Mode、YOLO、Esc）、Pi（Esc、Tab、π Model）、Shell（Enter、EOF、Suspend）。Claude/Codex/Gemini/Pi 额外有一个导航行（Up、Enter、Down）。最后一行是 `[📄 Last, Get File, Close]`；Shell 把 Esc 并入其中：`[📄 Last, Get File, Esc, Close]`。
 
-### Custom Toolbar
+切换类操作（Mode = Shift+Tab、Think = Tab、YOLO = Ctrl+Y）会在按键后约 250 ms 捕获面板内容，并在 toast 中报告结果模式行（例如 `auto-accept edits on`）。
 
-Place a TOML file at `~/.ccgram/toolbar.toml` (or set `CCGRAM_TOOLBAR_CONFIG=/path/to/file`). See `docs/examples/toolbar.toml` for a fully annotated example. Schema:
+<a id="custom-toolbar"></a>
+
+### 自定义工具栏
+
+将 TOML 文件放在 `~/.ccgram/toolbar.toml`（或设置 `CCGRAM_TOOLBAR_CONFIG=/path/to/file`）。完整注释示例见 `docs/examples/toolbar.toml`。格式如下：
 
 ```toml
 [actions.clear]                # define a custom action
@@ -513,57 +591,69 @@ buttons = [
 ]
 ```
 
-Action types:
+操作类型：
 
-- `key` — send a tmux key sequence (`"Tab"`, `"C-c"`, `'\x1b[Z'`). Set `literal=true` for raw byte sequences (TOML literal strings — single-quoted).
-- `text` — send literal text + Enter (e.g. `"/clear"`, prompt templates).
-- `builtin` — reserved (`screen`, `ctrlc`, `live`, `getfile`, `last`, `close`). Users cannot define new ones.
+- `key` —— 发送 tmux 按键序列（`"Tab"`、`"C-c"`、`'\x1b[Z'`）。原始字节序列需设置 `literal=true`（TOML 字面字符串 —— 单引号）。
+- `text` —— 发送字面文本 + 回车（例如 `"/clear"`、提示词模板）。
+- `builtin` —— 保留类型（`screen`、`ctrlc`、`live`、`getfile`、`last`、`close`）。用户不能定义新的 builtin。
 
-Action names must be ≤24 chars (callback_data budget). Providers absent from the TOML keep their built-in defaults. Malformed entries are logged and skipped — the loader never raises.
+操作名不得超过 24 个字符（callback_data 预算限制）。TOML 中未出现的提供方保持内置默认值。格式错误的条目会被记录日志并跳过 —— 加载器永不抛出异常。
 
-### Picker Hints
+<a id="picker-hints"></a>
 
-When you forward a slash command that opens a modal in-TUI picker (e.g. Claude `/model`, `/login`, `/theme`; Codex/Gemini `/model`; Pi `/model`), the topic reply adds a hint pointing at `/toolbar` to drive the picker with arrow keys. The hint adapts to your toolbar — if you removed Up/Down/Enter/Esc keys, the hint degrades to "Open /toolbar to drive the picker."
+### 选择器提示
 
-## Git Worktree Topics
+当你转发的斜杠命令会在 TUI 内打开模态选择器时（例如 Claude 的 `/model`、`/login`、`/theme`；Codex/Gemini 的 `/model`；Pi 的 `/model`），话题回复会附带一条提示，指向 `/toolbar`，以便用方向键操作选择器。提示会适配你的工具栏 —— 如果你删除了 Up/Down/Enter/Esc 按键，提示会退化为"打开 /toolbar 操作选择器"。
 
-When you create a new topic and pick a directory that's an **eligible git repo** (in-work-tree, not bare, on a named branch, no in-progress merge/rebase), an extra step appears between directory-confirm and provider-pick:
+<a id="git-worktree-topics"></a>
 
-- **Use current branch** — original flow, no worktree.
-- **New worktree** — suggests `ccg/<kebab(topic-title)>` (or `ccg/agent-<n>`) with branch+worktree collision avoidance. One-tap confirm, or send a text reply to edit the name.
+## Git Worktree 话题
 
-Worktrees are created at `<repo>.worktrees/<slug>` via `git worktree add`. The agent launches rooted at the worktree path. A dirty source repo is allowed with a one-line warning. Branch-name validation runs through `git check-ref-format --branch`. Failure surfaces as a one-line error with a Cancel button.
+当你创建新话题并选择的目录是一个**符合条件的 git 仓库**（位于工作树内、非 bare、处于具名分支、无进行中的 merge/rebase）时，目录确认与提供方选择之间会多出一步：
 
-Non-git directories see the unchanged flow — no warning, no extra step.
+- **使用当前分支** —— 原有流程，不创建 worktree。
+- **新建 worktree** —— 建议命名为 `ccg/<kebab(topic-title)>`（或 `ccg/agent-<n>`），并自动避开分支和 worktree 名冲突。一键确认，或发送文本回复来修改名称。
 
-## Completion Summaries (LLM)
+Worktree 通过 `git worktree add` 创建在 `<repo>.worktrees/<slug>`。代理以 worktree 路径为根目录启动。源仓库有未提交更改时允许继续，仅显示一行警告。分支名验证走 `git check-ref-format --branch`。失败时显示一行错误信息和取消按钮。
 
-When an agent finishes (Stop event), ccgram waits up to ~3 s for the configured LLM to produce a single-line summary of what was accomplished, then edits the Ready message in-place with `Done — {summary}`. The static enriched Ready (task checklist + last status) appears immediately so you're never blocked on the LLM — the summary just upgrades it when it arrives.
+非 git 目录的流程不变 —— 无警告，无额外步骤。
 
-When no LLM is configured (or it times out), the static Ready remains.
+<a id="completion-summaries-llm"></a>
 
-The LLM is the same backend used for shell command generation (`CCGRAM_LLM_PROVIDER`).
+## 完成摘要（LLM）
 
-## Providers
+代理完成任务（Stop 事件）时，ccgram 最多等待约 3 秒，让配置的 LLM 生成一行工作成果摘要，然后将 Ready 消息原位编辑为 `Done — {summary}`。静态的增强版 Ready（任务清单 + 最后状态）会立即显示，因此你永远不会被 LLM 阻塞 —— 摘要到达后只是对其升级。
 
-CCGram supports Claude Code, Codex CLI, Gemini CLI, Pi, and Shell. Each topic can use a different provider. See **[docs/providers.md](providers.md)** for full details on each provider, session modes, custom launch commands, LLM configuration, and provider-specific behavior.
+未配置 LLM（或超时）时，保留静态 Ready。
 
-## Data Storage
+该 LLM 与 shell 命令生成使用同一后端（`CCGRAM_LLM_PROVIDER`）。
 
-All state files live in `$CCGRAM_DIR` (`~/.ccgram/` by default):
+<a id="providers"></a>
 
-| File                 | Description                                                 |
-| -------------------- | ----------------------------------------------------------- |
-| `state.json`         | Thread bindings, window states, display names, read offsets |
-| `session_map.json`   | Hook-generated window → session mappings                    |
-| `events.jsonl`       | Append-only hook event log (read incrementally by monitor)  |
-| `monitor_state.json` | Byte offsets per session (prevents duplicate notifications) |
+## 提供方
 
-Session transcripts are read from provider-specific locations (read-only): `~/.claude/projects/` (Claude), `~/.codex/sessions/` (Codex), `~/.gemini/tmp/` (Gemini), `~/.pi/agent/sessions/` (Pi). Shell has no transcript — output is captured directly from the tmux pane. The bot never writes to agent data directories.
+CCGram 支持 Claude Code、Codex CLI、Gemini CLI、Pi 和 Shell。每个话题可以使用不同的提供方。各提供方的完整说明、会话模式、自定义启动命令、LLM 配置及提供方特有行为见 **[docs/providers.md](providers.md)**。
 
-## Running as a Service
+<a id="data-storage"></a>
 
-For persistent operation, run ccgram as a systemd service or under a process manager:
+## 数据存储
+
+所有状态文件位于 `$CCGRAM_DIR`（默认 `~/.ccgram/`）：
+
+| 文件                 | 说明                                                       |
+| -------------------- | ---------------------------------------------------------- |
+| `state.json`         | 话题绑定、窗口状态、显示名称、读取偏移量                   |
+| `session_map.json`   | hook 生成的窗口 → 会话映射                                 |
+| `events.jsonl`       | 追加式 hook 事件日志（监控器增量读取）                     |
+| `monitor_state.json` | 各会话的字节偏移量（防止重复通知）                         |
+
+会话转录从各提供方的专属位置只读读取：`~/.claude/projects/`（Claude）、`~/.codex/sessions/`（Codex）、`~/.gemini/tmp/`（Gemini）、`~/.pi/agent/sessions/`（Pi）。Shell 没有转录文件 —— 输出直接从 tmux 面板捕获。机器人永不写入代理的数据目录。
+
+<a id="running-as-a-service"></a>
+
+## 作为服务运行
+
+如需长期运行，可将 ccgram 作为 systemd 服务或交由进程管理器运行：
 
 ```bash
 # systemd user service (~/.config/systemd/user/ccgram.service)
@@ -586,7 +676,7 @@ systemctl --user enable ccgram
 systemctl --user start ccgram
 ```
 
-On macOS, you can use a launchd plist or simply run in a detached tmux session:
+在 macOS 上，可以使用 launchd plist，或直接在分离的 tmux 会话中运行：
 
 ```bash
 tmux new-session -d -s ccgram-daemon 'ccgram'
