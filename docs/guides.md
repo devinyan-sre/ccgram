@@ -212,6 +212,9 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_MINIAPP_BASE_URL`                            | _（禁用）_                     | Mini App 仪表盘的外部可达 HTTPS URL                                                                  |
 | `CCGRAM_MINIAPP_HOST`                                | `127.0.0.1`                    | Mini App aiohttp 服务的本地绑定主机                                                                  |
 | `CCGRAM_MINIAPP_PORT`                                | `8765`                         | Mini App aiohttp 服务的本地绑定端口                                                                  |
+| `CCGRAM_LANG`                                        | `en`                           | 机器人界面语言;设为 `zh` 切换为简体中文                                                             |
+| `CCGRAM_QUIET_HOURS`                                 | _(关闭)_                       | 免打扰时段 `HH:MM-HH:MM`(服务器本地时间,支持跨午夜);时段内自动消息静默送达                        |
+| `CCGRAM_DAILY_DIGEST`                                | _(关闭)_                       | 每日摘要时间 `HH:MM`(服务器本地时间);向 General 话题发送各话题过去 24 小时的活动汇总               |
 | `CCGRAM_TTS_PROVIDER`                                | _（禁用）_                     | 语音回复的 TTS 后端：`edge`（免费）或 `openai`                                                       |
 | `CCGRAM_TTS_VOICE`                                   | `en-US-EmmaMultilingualNeural` | 语音名称                                                                                             |
 | `CCGRAM_TTS_MODEL`                                   | `gpt-4o-mini-tts`              | OpenAI TTS 模型（仅当 `CCGRAM_TTS_PROVIDER=openai` 时使用）                                          |
@@ -535,6 +538,30 @@ claude     # or: codex, gemini, pi
 - **Shell** —— 捕获回滚缓冲区，提取提示符标记之间的最后一个命令+输出块。
 
 超过 4096 字符的回复将以 `.txt` 文档附件形式发送，而不是文本消息。
+
+
+<a id="git-diff-diff"></a>
+
+## 查看改动(`/diff`)
+
+`/diff` 把当前话题绑定窗口目录的未提交 git 改动发送到话题:
+
+- 内联显示 `git status --short` + diffstat 摘要
+- 完整 diff 较短时内联(```diff 代码块),超长时作为 `.diff` 文件发送
+- 可选路径参数缩小范围:`/diff src/foo.py`
+- 非 git 目录或工作区干净时给出友好提示
+
+适合在手机上 review agent 刚改完的代码,再决定下一步指令。
+
+<a id="token-usage-usage"></a>
+
+## Token 用量(`/usage`)
+
+`/usage` 解析当前会话的 transcript,统计 token 消耗:
+
+- 输入 / 输出 / 缓存读取 / 缓存写入 tokens 与总计
+- 用户 / 助手轮次数、使用的模型
+- 仅 Claude Code transcript 携带用量数据;其他 provider 会得到友好提示
 
 <a id="file-delivery-send"></a>
 

@@ -190,6 +190,9 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_MINIAPP_BASE_URL`                            | _(disabled)_                   | Externally reachable HTTPS URL for the Mini App dashboard                                            |
 | `CCGRAM_MINIAPP_HOST`                                | `127.0.0.1`                    | Local bind host for the Mini App aiohttp server                                                      |
 | `CCGRAM_MINIAPP_PORT`                                | `8765`                         | Local bind port for the Mini App aiohttp server                                                      |
+| `CCGRAM_LANG`                                        | `en`                           | Bot UI language; set `zh` for Simplified Chinese                                                     |
+| `CCGRAM_QUIET_HOURS`                                 | _(disabled)_                   | Do-not-disturb window `HH:MM-HH:MM` (server local time, wraps midnight); automated messages arrive silently |
+| `CCGRAM_DAILY_DIGEST`                                | _(disabled)_                   | Daily digest time `HH:MM` (server local time); posts a per-topic 24h activity summary to General      |
 | `CCGRAM_TTS_PROVIDER`                                | _(disabled)_                   | TTS backend for voice replies: `edge` (free) or `openai`                                             |
 | `CCGRAM_TTS_VOICE`                                   | `en-US-EmmaMultilingualNeural` | Voice name                                                                                           |
 | `CCGRAM_TTS_MODEL`                                   | `gpt-4o-mini-tts`              | OpenAI TTS model (only used when `CCGRAM_TTS_PROVIDER=openai`)                                       |
@@ -465,6 +468,28 @@ Live view (auto-refreshing) uses the same viewport capture at a smaller font siz
 - **Shell** — captures scrollback and extracts the last command+output block between prompt markers.
 
 Responses longer than 4096 characters are sent as a `.txt` document attachment instead of a text message.
+
+
+<a id="git-diff-diff-en"></a>
+
+## Git diff (`/diff`)
+
+`/diff` sends the bound window directory's uncommitted git changes to the topic:
+
+- `git status --short` + diffstat summary inline
+- Full diff inline when short (```diff code block), or as a `.diff` document when long
+- Optional path filters: `/diff src/foo.py`
+- Friendly notices for non-git directories and clean trees
+
+<a id="token-usage-usage-en"></a>
+
+## Token usage (`/usage`)
+
+`/usage` parses the current session's transcript and reports token consumption:
+
+- Input / output / cache-read / cache-write tokens and total
+- User/assistant turn counts and models used
+- Only Claude Code transcripts carry usage data; other providers get a friendly notice
 
 ## File Delivery (`/send`)
 

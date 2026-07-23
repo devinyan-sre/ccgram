@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.5.0] - 2026-07-23
+
+### Added
+
+- `/diff` — send the bound window's uncommitted git changes to the topic
+  (status + diffstat inline; full diff inline or as a `.diff` document);
+  optional path filters
+- `/usage` — token usage report parsed from the session transcript
+  (input/output/cache tokens, turns, models)
+- `CCGRAM_LANG=zh` — full Simplified Chinese bot UI (439 localized call
+  sites, 300-entry catalog); default remains English
+- `CCGRAM_QUIET_HOURS="HH:MM-HH:MM"` — automated notifications delivered
+  silently inside the window (approval prompts stay audible)
+- `CCGRAM_DAILY_DIGEST="HH:MM"` — daily per-topic 24h activity summary
+  posted to the General topic
+
 ## [4.4.0] - 2026-07-23
 
 ### Performance
