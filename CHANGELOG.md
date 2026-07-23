@@ -5,6 +5,63 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.6.0] - 2026-07-23
+
+### Added
+
+- `/search` — cross-session transcript keyword search (global command; caps
+  10 hits / 300 files / 8s)
+- Reply-quote context — replying to a message prepends its quoted text
+  (≤600 chars) to the forwarded message as agent context
+- Live token/context warnings — an in-topic `/compact` reminder when the
+  session context reaches `CCGRAM_CONTEXT_WARN`% of `CCGRAM_CONTEXT_LIMIT`
+  tokens; optional cumulative `CCGRAM_TOKEN_WARN`
+- Operator alerts — a startup permission self-check DMs the operator (and
+  logs) when the bot lacks the group's **Manage Topics** admin right, and an
+  error-rate monitor DMs the operator when the same error recurs in a short
+  window (`CCGRAM_OPERATOR_CHAT_ID`, `CCGRAM_ERROR_ALERTS`, both opt-out)
+
+### Performance & Reliability
+
+- Crash-safe outbound delivery — a two-cursor monitor offset (read vs
+  delivery-committed) means a crash between read and send replays the batch
+  (at-least-once) instead of losing messages; only the delivered cursor is
+  persisted, schema unchanged
+- Filesystem-event wakeups — writes under `~/.claude/projects` / `~/.ccgram`
+  wake the monitor loop in ~50ms instead of waiting for the 1s poll
+  (`CCGRAM_FS_EVENTS=0` to disable)
+- Adaptive status polling — idle windows (no pane change, no transcript
+  activity for 30s) tick every 5th cycle, skipping their pane-capture
+  subprocess; any activity restores the per-cycle cadence
+  (`CCGRAM_ADAPTIVE_POLL=0` to disable)
+- `events.jsonl` compaction — consumed bytes dropped at startup and past a
+  256 KB prefix, archived to a bounded `events.jsonl.old`
+- systemd `Type=notify` readiness + a health-gated watchdog heartbeat
+  (`WatchdogSec`): a wedged core loop withholds the heartbeat and systemd
+  restarts the service
+- Skip bot-command re-registration when the menu is unchanged — the 10-min
+  refresh no longer re-sends an identical command list to Telegram
+
+### Fixed
+
+- Auto topic creation now backs off (and logs one actionable line) on a
+  deterministic `BadRequest` such as a missing Manage-Topics right, instead
+  of retrying every ~2s with full tracebacks
+- False "Selection expired" on a duplicate tap during window launch — an
+  in-flight guard answers "⏳ creating…" instead of misreporting expiry
+- e2e test runs no longer leak into a live production instance (isolated
+  tmux session **and** `CCGRAM_DIR`)
+- Scheduled jobs (menu refresh, daily digest, autoclose) now run — the PTB
+  job-queue extra was missing
+
+### Changed
+
+- i18n coverage gate — every literal `t("…")` string must carry a Chinese
+  translation; enforced in CI
+- Docs: production deployment guide (systemd + watchdog + file logging),
+  isolation-model & hard-constraints section, and a topic status-emoji
+  legend — Chinese-first with English mirrors
+
 ## [4.5.0] - 2026-07-23
 
 ### Added
