@@ -43,11 +43,12 @@ async def _tick_bound_windows(
     window_lookup: "dict[str, TmuxWindow]",
     *,
     runtime: PollingRuntime | None = None,
+    adaptive: bool = True,
 ) -> None:
     """Tick every thread-bound window once.
 
-    Extracted so tests can drive a single iteration with an isolated
-    ``PollingRuntime``. Production callers pass no runtime; default singletons.
+    Extracted so tests can drive one iteration with an isolated runtime.
+    ``adaptive`` enables the idle-window backoff inside ``tick_window``.
     """
     for user_id, thread_id, wid in list(thread_router.iter_thread_bindings()):
         structlog.contextvars.clear_contextvars()
@@ -55,7 +56,7 @@ async def _tick_bound_windows(
         try:
             w = window_lookup.get(wid)
             await window_tick.tick_window(
-                bot, user_id, thread_id, wid, w, runtime=runtime
+                bot, user_id, thread_id, wid, w, runtime=runtime, adaptive=adaptive
             )
         except (TelegramError, OSError) as e:
             log_throttled(
@@ -89,9 +90,11 @@ async def status_poll_loop(bot: "Bot") -> None:
     # Lazy: periodic_tasks ↔ coordinator cycle
     from .periodic_tasks import run_lifecycle_tasks, run_periodic_tasks
 
-    poll_interval = _cfg.status_poll_interval
+    poll_interval, adaptive = _cfg.status_poll_interval, _cfg.adaptive_poll
     client = PTBTelegramClient(bot)
-    logger.info("Status polling started (interval: %ss)", poll_interval)
+    logger.info(
+        "Status polling started (interval: %ss, adaptive: %s)", poll_interval, adaptive
+    )
     timers = {"topic_check": 0.0, "live_view": 0.0}
     _error_streak = 0
     while True:
@@ -100,17 +103,14 @@ async def status_poll_loop(bot: "Bot") -> None:
             window_lookup = {w.window_id: w for w in all_windows}
 
             await run_periodic_tasks(client, all_windows, timers)
-            await _tick_bound_windows(bot, window_lookup)
+            await _tick_bound_windows(bot, window_lookup, adaptive=adaptive)
             await run_lifecycle_tasks(client, all_windows)
 
-        except _LoopError:
-            logger.exception("Status poll loop error")
-            backoff_delay = min(_BACKOFF_MAX, _BACKOFF_MIN * (2**_error_streak))
-            _error_streak += 1
-            await asyncio.sleep(backoff_delay)
-            continue
-        except Exception:
-            logger.exception("Unexpected error in status poll loop")
+        except Exception as e:
+            if isinstance(e, _LoopError):
+                logger.exception("Status poll loop error")
+            else:
+                logger.exception("Unexpected error in status poll loop")
             backoff_delay = min(_BACKOFF_MAX, _BACKOFF_MIN * (2**_error_streak))
             _error_streak += 1
             await asyncio.sleep(backoff_delay)

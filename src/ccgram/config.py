@@ -212,6 +212,16 @@ class Config:
             "yes",
         )
 
+        # Adaptive status polling: idle windows (no pane change, no transcript
+        # activity for 30s) are ticked every 5th cycle instead of every cycle,
+        # skipping their pane-capture subprocess. Any activity restores the
+        # per-cycle cadence immediately. Set CCGRAM_ADAPTIVE_POLL=0 to disable.
+        self.adaptive_poll: bool = os.getenv("CCGRAM_ADAPTIVE_POLL", "1").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+
     def _init_live_view(self) -> None:
         self.live_view_interval: int = max(
             1, _parse_int_env("CCGRAM_LIVE_VIEW_INTERVAL", 5)

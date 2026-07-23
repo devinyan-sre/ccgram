@@ -80,6 +80,9 @@ def _patch_loop_deps(
             mocks["tmux_manager"].list_windows = AsyncMock(return_value=windows)
             mocks["thread_router"].iter_thread_bindings.return_value = bindings
             mocks["config"].status_poll_interval = 1.0
+            # Adaptive backoff has its own tests (test_adaptive_poll.py);
+            # keep loop-iteration tests deterministic.
+            mocks["config"].adaptive_poll = False
 
             ctx.mocks = mocks
             yield ctx

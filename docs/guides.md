@@ -189,6 +189,7 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_CONTEXT_LIMIT`                               | `200000`                       | 上下文预警的容量基准(tokens)                                                                       |
 | `CCGRAM_TOKEN_WARN`                                  | `0`                            | 会话累计 tokens 超过该值时提醒一次(0=关闭)                                                         |
 | `CCGRAM_FS_EVENTS`                                   | `1`                            | 文件系统事件唤醒（inotify）：转录/事件文件一有写入立即处理,轮询间隔仅作兜底;设 `0` 禁用             |
+| `CCGRAM_ADAPTIVE_POLL`                               | `1`                            | 自适应状态轮询：空闲窗口（30 秒无终端变化和转录活动）降为每 5 个周期检查一次,有活动立即恢复;设 `0` 禁用 |
 | `AUTOCLOSE_DONE_MINUTES` / `--autoclose-done`        | `30`                           | 已完成话题 N 分钟后自动关闭（0=关闭该功能）                                                          |
 | `AUTOCLOSE_DEAD_MINUTES` / `--autoclose-dead`        | `10`                           | 已死亡会话 N 分钟后自动关闭（0=关闭该功能）                                                          |
 | `CCGRAM_WHISPER_PROVIDER` / `--whisper-provider`     | _（空）_                       | Whisper 提供方：`openai`、`groq`，留空则禁用                                                         |

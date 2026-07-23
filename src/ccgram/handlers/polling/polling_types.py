@@ -13,6 +13,7 @@ Imports are restricted to stdlib + ``ccgram.providers.base.StatusUpdate`` plus
 
 from __future__ import annotations
 
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
@@ -28,6 +29,13 @@ if TYPE_CHECKING:
 
 # Transcript activity heuristic threshold (seconds).
 ACTIVITY_THRESHOLD = 10.0
+
+# Adaptive poll backoff: after this long with neither pane-content change nor
+# transcript activity, a window is considered idle and its tick (pane capture
+# subprocess + parse) runs only every IDLE_TICK_EVERY poll cycles instead of
+# every cycle. Any activity resets it to per-cycle cadence.
+IDLE_BACKOFF_AFTER = 30.0
+IDLE_TICK_EVERY = 5
 
 # Startup timeout before transitioning to idle (seconds).
 STARTUP_TIMEOUT = 30.0
@@ -54,6 +62,39 @@ def is_shell_prompt(pane_current_command: str) -> bool:
     return cmd in SHELL_COMMANDS
 
 
+def should_skip_idle_tick(
+    ws: WindowPollState | None,
+    last_activity_ts: float | None,
+    now: float,
+    *,
+    queue_empty: bool = True,
+) -> bool:
+    """Pure decision: skip this cycle's tick for an idle window?
+
+    A window backs off to every-``IDLE_TICK_EVERY``-cycles cadence once it has
+    shown no pane-content change (``last_change_ts``) and no transcript
+    activity (session monitor) for ``IDLE_BACKOFF_AFTER`` seconds.  Never
+    skips when: the window has no poll state yet (first tick), the user has
+    messages in flight, an interactive UI is on screen, or an RC badge
+    debounce is active — those paths need per-cycle responsiveness.
+
+    The caller maintains ``ws.skipped_ticks`` (increment on skip, reset on
+    tick); at most ``IDLE_TICK_EVERY - 1`` consecutive cycles are skipped.
+    """
+    if ws is None or not queue_empty:
+        return False
+    if ws.last_pyte_result is not None and ws.last_pyte_result.is_interactive:
+        return False
+    if ws.rc_active:
+        return False
+    last_seen = ws.last_change_ts
+    if last_activity_ts is not None:
+        last_seen = max(last_seen, last_activity_ts)
+    if now - last_seen < IDLE_BACKOFF_AFTER:
+        return False
+    return ws.skipped_ticks < IDLE_TICK_EVERY - 1
+
+
 # ── Per-window / per-topic state dataclasses ────────────────────────────
 
 
@@ -73,6 +114,9 @@ class WindowPollState:
     rc_active: bool = False
     rc_off_since: float | None = None
     last_rc_detected: bool = False
+    # Adaptive poll backoff (see should_skip_idle_tick).
+    last_change_ts: float = field(default_factory=time.time)
+    skipped_ticks: int = 0
 
 
 @dataclass

@@ -224,6 +224,11 @@ class TerminalScreenBuffer:
             self.update_rc_state(ws, ws.last_rc_detected)
             return ws.last_pyte_result
 
+        # Adaptive poll backoff: stamp real content changes (not the
+        # interactive-UI re-parse of an unchanged screen).
+        if ws.last_pane_hash != content_hash:
+            ws.last_change_ts = time.time()
+
         buf = self.get_screen_buffer(window_id, columns, rows)
         buf.feed(pane_text)
         ws.last_rendered_text = buf.rendered_text

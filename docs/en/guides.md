@@ -167,6 +167,7 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_CONTEXT_LIMIT`                               | `200000`                       | Context capacity baseline (tokens) for the warning                                                   |
 | `CCGRAM_TOKEN_WARN`                                  | `0`                            | Warn once when a session's cumulative tokens pass this value (0=off)                                 |
 | `CCGRAM_FS_EVENTS`                                   | `1`                            | Filesystem-event wakeups (inotify): process transcript/event writes immediately, polling stays the fallback; set `0` to disable |
+| `CCGRAM_ADAPTIVE_POLL`                               | `1`                            | Adaptive status polling: idle windows (30s without pane change or transcript activity) drop to every-5th-cycle checks, any activity restores per-cycle cadence; set `0` to disable |
 | `AUTOCLOSE_DONE_MINUTES` / `--autoclose-done`        | `30`                           | Auto-close done topics after N minutes (0=off)                                                       |
 | `AUTOCLOSE_DEAD_MINUTES` / `--autoclose-dead`        | `10`                           | Auto-close dead sessions after N minutes (0=off)                                                     |
 | `CCGRAM_WHISPER_PROVIDER` / `--whisper-provider`     | _(empty)_                      | Whisper provider: `openai`, `groq`, or empty to disable                                              |

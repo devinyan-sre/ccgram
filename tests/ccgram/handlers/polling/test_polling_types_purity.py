@@ -82,6 +82,7 @@ def test_polling_types_imports_are_restricted() -> None:
         "collections",
         "collections.abc",
         "dataclasses",
+        "time",
         "typing",
         "ccgram.providers.base",
         "providers.base",

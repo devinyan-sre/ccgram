@@ -16,6 +16,7 @@ coordinator imports nothing else.
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 from ....telegram_client import PTBTelegramClient
@@ -28,7 +29,12 @@ from ..polling_state import (
     terminal_poll_state,
     terminal_screen_buffer,
 )
-from ..polling_types import TickContext, TickDecision, is_shell_prompt
+from ..polling_types import (
+    TickContext,
+    TickDecision,
+    is_shell_prompt,
+    should_skip_idle_tick,
+)
 from .apply import (
     _apply_active_transition,
     _apply_done_transition,
@@ -68,8 +74,17 @@ async def tick_window(
     window_id: str,
     window: "TmuxWindow | None",
     runtime: PollingRuntime | None = None,
+    adaptive: bool = True,
 ) -> None:
-    """Run one poll cycle for one window."""
+    """Run one poll cycle for one window.
+
+    With ``adaptive`` (default), idle windows — no pane-content change and no
+    transcript activity for ``IDLE_BACKOFF_AFTER`` — run only every
+    ``IDLE_TICK_EVERY`` cycles, skipping the pane-capture subprocess the other
+    cycles. The skip check reads only in-memory state, so transcript activity
+    (hook event, inotify wake, agent output) restores per-cycle cadence on the
+    next poll cycle. Dead windows are never skipped — the death path must run.
+    """
     rt = runtime if runtime is not None else get_default_runtime()
     if rt.lifecycle.is_dead_notified(user_id, thread_id, window_id):
         return
@@ -80,6 +95,20 @@ async def tick_window(
         )
         return
 
+    queue = get_message_queue(user_id)
+    if adaptive:
+        ws = rt.poll_state.peek_state(window_id)
+        if ws is not None:
+            if should_skip_idle_tick(
+                ws,
+                _get_last_activity_ts(window_id),
+                time.time(),
+                queue_empty=queue is None or queue.empty(),
+            ):
+                ws.skipped_ticks += 1
+                return
+            ws.skipped_ticks = 0
+
     await discover_and_register_transcript(
         window_id,
         _window=window,
@@ -88,7 +117,6 @@ async def tick_window(
         thread_id=thread_id,
     )
 
-    queue = get_message_queue(user_id)
     if queue and not queue.empty():
         await _check_interactive_only(
             bot, user_id, window_id, thread_id, _window=window, runtime=rt
