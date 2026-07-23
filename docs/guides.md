@@ -53,9 +53,11 @@ ccgram -v                     # Run with debug logging
    - 创建或打开一个启用了话题（Topics）的 Telegram 群组
    - 邀请机器人进群
    - **将机器人提升为管理员**，并授予以下权限：
-     - 创建话题（Create Topics）
+     - **管理话题（Manage Topics）**——最关键的一项，创建、重命名、关闭话题都靠它
      - 置顶消息（Pin Messages）
      - 读取消息 / 查看聊天（Read Messages / View The Chat）
+
+   > **缺少「管理话题」权限的症状**：从终端手动开的 agent 窗口无法自动创建话题（日志出现 `Not enough rights to create a topic`，且该群会进入 10 分钟退避）；话题名前的状态表情（🟢/🟡/✅/💥）也无法更新——它是通过 `editForumTopic` 重命名实现的。补上权限后下一个轮询周期即自动恢复，无需重启。
 5. **获取你的用户 ID：** 打开 [@userinfobot](https://t.me/userinfobot)，它会显示你的数字用户 ID。保存下来，用于 `ALLOWED_USERS`
 6. **获取群组 ID：** 在群里打开 [@RawDataBot](https://t.me/RawDataBot)，在 **Peer ID** 下记录该数字（去掉前缀 `-100` 或保留均可，两种格式都支持）
    - 保存下来，用于 `CCGRAM_GROUP_ID`（如有需要请加上 `-100` 前缀）
@@ -227,9 +229,27 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 
 <a id="topic-emoji-color-scheme"></a>
 
-## 话题表情配色方案
+## 话题状态角标（表情含义）
 
-话题表情会随代理状态变换颜色。颜色与含义的映射可配置：
+每个话题名前的表情实时反映该窗口内代理的状态（通过 `editForumTopic` 重命名实现，有防抖，需要机器人具备「管理话题」权限）。扫一眼话题列表即可知道哪些会话在跑、哪些在等你——相当于一个任务看板。
+
+**状态表情**（默认 `system` 模式）：
+
+| 表情    | 状态   | 含义                                                       |
+| ------- | ------ | ---------------------------------------------------------- |
+| 🟢 绿色 | active | 代理正在工作（思考 / 调用工具 / 输出中），不用管           |
+| 🟡 黄色 | idle   | 空闲，**在等你输入**（轮到你了）                           |
+| ✅      | done   | 代理进程正常退出（窗口还在，可通过恢复按钮重启）           |
+| 💥      | dead   | 复用器窗口已消失（被杀 / 崩溃），话题内会出现恢复面板      |
+
+**附加徽章**（叠加在状态表情之后）：
+
+| 表情    | 含义                                                          |
+| ------- | ------------------------------------------------------------- |
+| 🎲 骰子 | YOLO 模式（`--dangerously-skip-permissions` 自动批准）        |
+| 📡 卫星 | Remote Control 已激活（Claude `/remote-control`）             |
+
+**绿/黄配色方案**可配置——两种视角对调绿黄含义：
 
 | 模式             | 🟢 绿色              | 🟡 黄色      | 适用场景                     |
 | ---------------- | -------------------- | ------------ | ---------------------------- |
@@ -463,9 +483,15 @@ claude     # or: codex, gemini, pi
 
 ### 两种后端通用
 
-对于 Claude，SessionStart hook 会自动注册会话。对于 Codex、Gemini 和 Pi，CCGram 从运行中的进程名自动检测提供方，并从磁盘上的转录文件发现会话。所有情况下，机器人都会创建对应的 Telegram 话题。
+对于 Claude，SessionStart hook 会自动注册会话。对于 Codex、Gemini 和 Pi，CCGram 从运行中的进程名自动检测提供方，并从磁盘上的转录文件发现会话。所有情况下，机器人都会创建对应的 Telegram 话题（通常几秒内出现，话题名取窗口名 / 项目目录名）。
 
-即使是没有任何话题绑定的全新实例（冷启动），此机制同样有效。
+即使是没有任何话题绑定的全新实例（冷启动），此机制同样有效。CCGram 重启后，此前未绑定的窗口也会被统一补收养。
+
+**前提与排查：**
+
+- 机器人必须在群里具备**「管理话题」管理员权限**，否则自动建话题会失败：日志（`~/.ccgram/ccgram.log`）出现 `Not enough rights to create a topic`，且该群进入 10 分钟退避（避免刷 API）。补上权限后无需重启，等下一次尝试即可；也可以直接重启 `ccgram` 立即触发。
+- 窗口必须位于 ccgram 自己的复用器会话中（tmux 默认会话名 `ccgram`，可用 `TMUX_SESSION_NAME` 配置）——其他 tmux 会话里的窗口不会被发现。
+- 运行 `ccgram doctor` 可检查 hook 是否安装、复用器与 agent CLI 是否就绪。
 
 <a id="session-recovery"></a>
 

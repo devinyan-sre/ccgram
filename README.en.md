@@ -87,7 +87,7 @@ uv tool install ccgram          # recommended
 **Telegram setup:**
 
 1. Create a bot via [@BotFather](https://t.me/BotFather) — [full instructions](docs/en/guides.md#getting-started)
-2. Add bot to a Telegram group with Topics enabled; promote to Admin
+2. Add bot to a Telegram group with Topics enabled; promote to Admin — **make sure to grant the "Manage Topics" right** (auto-topic-creation and status emojis depend on it)
 3. Create `~/.ccgram/.env`:
 
 ```ini

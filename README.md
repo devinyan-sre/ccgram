@@ -87,7 +87,7 @@ uv tool install ccgram          # 推荐
 **Telegram 配置:**
 
 1. 通过 [@BotFather](https://t.me/BotFather) 创建机器人 — [完整教程](docs/guides.md#getting-started)
-2. 把机器人加入一个开启了「话题(Topics)」的 Telegram 群组,并提升为管理员
+2. 把机器人加入一个开启了「话题(Topics)」的 Telegram 群组,并提升为管理员——**务必勾选「管理话题(Manage Topics)」权限**(自动建话题和状态表情都依赖它)
 3. 创建 `~/.ccgram/.env`:
 
 ```ini

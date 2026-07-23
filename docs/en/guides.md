@@ -43,9 +43,11 @@ You need a Telegram bot token to run CCGram. Create one via [@BotFather](https:/
    - Create or open a Telegram group with Topics enabled
    - Invite the bot to the group
    - **Promote the bot to Administrator** with these permissions:
-     - Create Topics
+     - **Manage Topics** — the critical one: creating, renaming, and closing topics all require it
      - Pin Messages
      - Read Messages / View The Chat
+
+   > **Symptoms of a missing "Manage Topics" right**: agent windows opened manually in the terminal fail to auto-create topics (`Not enough rights to create a topic` in the log, and the chat enters a 10-minute backoff); topic status emojis (🟢/🟡/✅/💥) also stop updating — they are implemented via `editForumTopic` renames. Once the right is granted, everything recovers on the next polling cycle without a restart.
 5. **Get your user ID:** Open [@userinfobot](https://t.me/userinfobot) → it shows your numeric user ID. Save this for `ALLOWED_USERS`
 6. **Get your group ID:** Open [@RawDataBot](https://t.me/RawDataBot) in the group → under **Peer ID**, note the number (remove leading `-100`, or keep it — both formats work)
    - Save this for `CCGRAM_GROUP_ID` (prefix with `-100` if needed)
@@ -203,9 +205,27 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_TTS_MODEL`                                   | `gpt-4o-mini-tts`              | OpenAI TTS model (only used when `CCGRAM_TTS_PROVIDER=openai`)                                       |
 | `CCGRAM_TTS_API_KEY`                                 | _(empty)_                      | API key for OpenAI TTS; falls back to `OPENAI_API_KEY`                                               |
 
-## Topic Emoji Color Scheme
+## Topic Status Emojis
 
-Topic emojis change color to reflect agent status. The mapping between color and meaning is configurable:
+The emoji in front of each topic name reflects the live state of the agent in that window (implemented via debounced `editForumTopic` renames — requires the bot's "Manage Topics" admin right). A glance at the topic list tells you which sessions are running and which are waiting on you — effectively a task board.
+
+**Status emojis** (default `system` mode):
+
+| Emoji     | State  | Meaning                                                            |
+| --------- | ------ | ------------------------------------------------------------------ |
+| 🟢 Green  | active | agent is working (thinking / running tools / streaming) — hands off |
+| 🟡 Yellow | idle   | idle, **waiting for your input** (your turn)                        |
+| ✅        | done   | agent process exited normally (window still alive; restart via recovery buttons) |
+| 💥        | dead   | multiplexer window is gone (killed / crashed); a recovery panel appears in the topic |
+
+**Badges** (appended after the status emoji):
+
+| Emoji        | Meaning                                                       |
+| ------------ | ------------------------------------------------------------- |
+| 🎲 Dice      | YOLO mode (`--dangerously-skip-permissions` auto-approve)     |
+| 📡 Satellite | Remote Control active (Claude `/remote-control`)              |
+
+**Green/yellow color scheme** is configurable — the two perspectives swap green and yellow:
 
 | Mode               | 🟢 Green                        | 🟡 Yellow        | When to pick                       |
 | ------------------ | ------------------------------- | ---------------- | ---------------------------------- |
@@ -407,9 +427,15 @@ Open a new herdr tab in the appropriate workspace, then start any supported agen
 
 ### Both backends
 
-For Claude, the SessionStart hook registers the session automatically. For Codex, Gemini, and Pi, CCGram auto-detects the provider from the running process name and discovers the session from transcript files on disk. In all cases, the bot creates a matching Telegram topic.
+For Claude, the SessionStart hook registers the session automatically. For Codex, Gemini, and Pi, CCGram auto-detects the provider from the running process name and discovers the session from transcript files on disk. In all cases, the bot creates a matching Telegram topic (usually within seconds, named after the window / project directory).
 
-This works even on a fresh instance with no existing topic bindings (cold-start).
+This works even on a fresh instance with no existing topic bindings (cold-start). After a CCGram restart, previously unbound windows are adopted in one sweep.
+
+**Prerequisites & troubleshooting:**
+
+- The bot needs the **"Manage Topics" admin right** in the group, or auto-topic-creation fails: the log (`~/.ccgram/ccgram.log`) shows `Not enough rights to create a topic` and the chat enters a 10-minute backoff (to avoid hammering the API). After granting the right, no restart is needed — the next attempt succeeds; restarting `ccgram` triggers it immediately.
+- The window must live in ccgram's own multiplexer session (tmux session name `ccgram` by default, configurable via `TMUX_SESSION_NAME`) — windows in other tmux sessions are not discovered.
+- Run `ccgram doctor` to check hook installation, multiplexer, and agent CLI readiness.
 
 ## Session Recovery
 
