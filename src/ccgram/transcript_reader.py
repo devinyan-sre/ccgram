@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -94,14 +95,37 @@ class TranscriptReader:
         self._idle_tracker = idle_tracker
         self._pending_tools: dict[str, dict[str, Any]] = {}
         self._file_mtimes: dict[str, float] = {}
+        # session_id → read offset awaiting delivery confirmation. Promoted to
+        # TrackedSession.delivered_byte_offset by commit_delivered().
+        self._pending_commits: dict[str, int] = {}
 
     def clear_session(self, session_id: str) -> None:
         """Remove all per-session state for a cleaned-up session."""
         self._state.remove_session(session_id)
         self._file_mtimes.pop(session_id, None)
         self._pending_tools.pop(session_id, None)
+        self._pending_commits.pop(session_id, None)
         token_watch.clear_session(session_id)
         log_throttle_reset(f"partial-jsonl:{session_id}")
+
+    def commit_delivered(self, drained: Callable[[str], bool] | None = None) -> None:
+        """Promote delivered cursors for batches at a delivery terminal state.
+
+        ``drained(session_id)`` reports whether the outbound queues serving a
+        session are fully drained — its messages were sent, consciously
+        dropped (no binding, thinking too short), or failed after retries.
+        ``None`` commits unconditionally (no delivery pipeline wired; keeps
+        the pre-crash-recovery behaviour for bare monitors in tests).
+        """
+        for session_id, offset in list(self._pending_commits.items()):
+            if drained is not None and not drained(session_id):
+                continue
+            tracked = self._state.get_session(session_id)
+            if tracked is not None:
+                # Never advance past the read cursor (truncation resets it).
+                tracked.delivered_byte_offset = min(offset, tracked.last_byte_offset)
+                self._state.update_session(tracked)
+            del self._pending_commits[session_id]
 
     def _adopt_tracking_for_file(
         self, session_id: str, file_path: Path
@@ -126,6 +150,7 @@ class TranscriptReader:
                 session_id=session_id,
                 file_path=str(file_path),
                 last_byte_offset=old_session.last_byte_offset,
+                delivered_byte_offset=old_session.delivered_byte_offset,
             )
             self._state.remove_session(old_session_id)
             self._state.update_session(tracked)
@@ -133,6 +158,10 @@ class TranscriptReader:
                 self._file_mtimes[session_id] = self._file_mtimes.pop(old_session_id)
             if old_session_id in self._pending_tools:
                 self._pending_tools[session_id] = self._pending_tools.pop(
+                    old_session_id
+                )
+            if old_session_id in self._pending_commits:
+                self._pending_commits[session_id] = self._pending_commits.pop(
                     old_session_id
                 )
             log_throttle_reset(f"partial-jsonl:{old_session_id}")
@@ -154,6 +183,7 @@ class TranscriptReader:
         current_map: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         """Process a single session file for new messages."""
+        appended_from = len(new_messages)
         tracked = self._state.get_session(session_id)
         provider = _resolve_provider_for_file(window_id, file_path)
 
@@ -253,6 +283,14 @@ class TranscriptReader:
                 NewMessage(session_id=session_id, text=warning, is_complete=True)
             )
 
+        if len(new_messages) == appended_from:
+            # Nothing to deliver from these bytes — commit immediately.
+            tracked.delivered_byte_offset = tracked.last_byte_offset
+        else:
+            # Commit only once the batch reaches a delivery terminal state
+            # (commit_delivered); a crash before that replays these bytes.
+            self._pending_commits[session_id] = tracked.last_byte_offset
+
         self._state.update_session(tracked)
 
     async def _read_new_lines(
@@ -288,6 +326,7 @@ class TranscriptReader:
                         file_size,
                     )
                     session.last_byte_offset = 0
+                    session.delivered_byte_offset = 0
 
                 await f.seek(session.last_byte_offset)
 

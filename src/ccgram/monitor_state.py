@@ -4,12 +4,22 @@ Persists TrackedSession records (session_id, file_path, last_byte_offset)
 to ~/.ccgram/monitor_state.json so the session monitor can resume
 incremental reading after restarts without re-sending old messages.
 
+Crash recovery: each session carries two cursors. ``last_byte_offset`` is
+the in-memory read cursor (drives incremental reads within a run);
+``delivered_byte_offset`` trails it and is promoted only once the messages
+parsed from those bytes reached a delivery terminal state (sent, dropped,
+or failed-after-retry — see ``TranscriptReader.commit_delivered``). Only
+the delivered cursor is persisted (under the existing ``last_byte_offset``
+key, so the schema is unchanged in both directions): a crash between read
+and delivery restarts the reader at the delivered cursor and replays the
+lost batch (at-least-once).
+
 Key classes: MonitorState, TrackedSession.
 """
 
 import json
 import structlog
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -24,15 +34,32 @@ class TrackedSession:
 
     session_id: str
     file_path: str  # Path to .jsonl file
-    last_byte_offset: int = 0  # Byte offset for incremental reading
+    last_byte_offset: int = 0  # In-memory read cursor for incremental reading
+    # Crash-safe cursor: bytes whose messages reached a delivery terminal
+    # state. -1 (default) initializes it to last_byte_offset.
+    delivered_byte_offset: int = -1
+
+    def __post_init__(self) -> None:
+        if self.delivered_byte_offset < 0:
+            self.delivered_byte_offset = self.last_byte_offset
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dict for JSON serialization."""
-        return asdict(self)
+        """Convert to dict for JSON serialization.
+
+        Persists the *delivered* cursor under the ``last_byte_offset`` key —
+        never a read position whose messages might still be undelivered —
+        clamped to the read cursor (a truncation reset can move the read
+        cursor below a stale delivered value).
+        """
+        return {
+            "session_id": self.session_id,
+            "file_path": self.file_path,
+            "last_byte_offset": min(self.delivered_byte_offset, self.last_byte_offset),
+        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TrackedSession":
-        """Create from dict."""
+        """Create from dict; both cursors start at the persisted value."""
         return cls(
             session_id=data.get("session_id", ""),
             file_path=data.get("file_path", ""),

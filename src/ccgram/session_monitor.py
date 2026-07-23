@@ -108,6 +108,9 @@ class SessionMonitor:
         from .providers.base import HookEvent
 
         self._hook_event_callback: Callable[[HookEvent], Awaitable[None]] | None = None
+        # Crash-recovery commit barrier: reports whether the outbound queues
+        # serving a session are drained. None → commit unconditionally.
+        self._delivery_drained_callback: Callable[[str], bool] | None = None
 
         self._idle_tracker = IdleTracker()
         self._transcript_reader = TranscriptReader(self.state, self._idle_tracker)
@@ -155,6 +158,10 @@ class SessionMonitor:
 
     def set_hook_event_callback(self, callback: Callable[..., Awaitable[None]]) -> None:
         self._hook_event_callback = callback
+
+    def set_delivery_drained_callback(self, callback: Callable[[str], bool]) -> None:
+        """Wire the queue-drained probe used to commit delivered offsets."""
+        self._delivery_drained_callback = callback
 
     def record_hook_activity(self, window_id: str) -> None:
         """Record hook-based activity for a window (resets idle timers)."""
@@ -520,6 +527,12 @@ class SessionMonitor:
                         current_map, live_window_ids
                     )
 
+                # Promote delivered cursors for previous cycles' batches whose
+                # queues drained; check_for_updates persists them via
+                # save_if_dirty.
+                self._transcript_reader.commit_delivered(
+                    self._delivery_drained_callback
+                )
                 new_messages = await self.check_for_updates(current_map)
 
                 for msg in new_messages:
@@ -601,6 +614,9 @@ class SessionMonitor:
         if self._task:
             self._task.cancel()
             self._task = None
+        # Final commit: batches whose queues drained since the last cycle are
+        # persisted as delivered, so a clean restart does not replay them.
+        self._transcript_reader.commit_delivered(self._delivery_drained_callback)
         self.state.save()
         # Distinct from the loop's "Session monitor stopped" (logged when the
         # poll loop actually exits) — this marks the stop request + state save.

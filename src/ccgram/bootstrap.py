@@ -29,7 +29,10 @@ from .cc_commands import register_commands
 from .config import config
 from .handlers.commands import setup_menu_refresh_job
 from .handlers.hook_events import dispatch_hook_event
-from .handlers.messaging_pipeline.message_queue import shutdown_workers
+from .handlers.messaging_pipeline.message_queue import (
+    is_session_delivery_drained,
+    shutdown_workers,
+)
 from .handlers.messaging_pipeline.message_routing import handle_new_message
 from .handlers.polling.polling_coordinator import status_poll_loop
 from .handlers.shell import register_approval_callback, show_command_approval
@@ -238,6 +241,10 @@ async def start_session_monitor(application: Application) -> SessionMonitor:
         await dispatch_hook_event(event, client)
 
     monitor.set_hook_event_callback(hook_event_callback)
+
+    # Crash-recovery commit barrier: monitor offsets are persisted as
+    # delivered only once the serving queues drain.
+    monitor.set_delivery_drained_callback(is_session_delivery_drained)
 
     monitor.start()
     session_monitor = monitor

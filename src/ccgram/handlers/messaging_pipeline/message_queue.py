@@ -130,6 +130,29 @@ def get_message_queue(user_id: int) -> asyncio.Queue[MessageTask] | None:
     return _message_queues.get(user_id)
 
 
+def is_session_delivery_drained(session_id: str) -> bool:
+    """True when every outbound queue serving this session is fully drained.
+
+    The crash-recovery commit barrier for monitor offsets: a session's read
+    bytes are persisted as delivered only after its parsed messages reached a
+    terminal state (sent, dropped, or failed-after-retry). ``join()``-style
+    accounting (``_unfinished_tasks``) covers the task the worker currently
+    holds, which ``empty()`` alone would miss.
+    """
+    # Lazy: session_query pulls session_resolver; keep the queue module light.
+    from ... import session_query
+
+    for user_id, _window_id, _thread_id in session_query.find_users_for_session(
+        session_id
+    ):
+        queue = _message_queues.get(user_id)
+        if queue is None:
+            continue
+        if not queue.empty() or getattr(queue, "_unfinished_tasks", 0) > 0:
+            return False
+    return True
+
+
 def get_or_create_queue(
     client: TelegramClient, user_id: int
 ) -> asyncio.Queue[MessageTask]:
