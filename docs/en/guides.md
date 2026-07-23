@@ -163,6 +163,9 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_INSTANCE_NAME` / `--instance-name`           | hostname                       | Display label for this instance                                                                      |
 | `CCGRAM_LOG_LEVEL` / `--log-level`                   | `INFO`                         | Logging level (DEBUG, INFO, WARNING, ERROR)                                                          |
 | `MONITOR_POLL_INTERVAL` / `--monitor-interval`       | `2.0`                          | Seconds between transcript polls                                                                     |
+| `CCGRAM_CONTEXT_WARN`                                | `80`                           | Warn in-topic to /compact when context reaches N% of the limit (0=off)                               |
+| `CCGRAM_CONTEXT_LIMIT`                               | `200000`                       | Context capacity baseline (tokens) for the warning                                                   |
+| `CCGRAM_TOKEN_WARN`                                  | `0`                            | Warn once when a session's cumulative tokens pass this value (0=off)                                 |
 | `CCGRAM_FS_EVENTS`                                   | `1`                            | Filesystem-event wakeups (inotify): process transcript/event writes immediately, polling stays the fallback; set `0` to disable |
 | `AUTOCLOSE_DONE_MINUTES` / `--autoclose-done`        | `30`                           | Auto-close done topics after N minutes (0=off)                                                       |
 | `AUTOCLOSE_DEAD_MINUTES` / `--autoclose-dead`        | `10`                           | Auto-close dead sessions after N minutes (0=off)                                                     |
@@ -503,6 +506,16 @@ Responses longer than 4096 characters are sent as a `.txt` document attachment i
 - `/recall` history keeps your raw input
 
 E.g. reply to an error dump with "fix this" and the agent receives both the error and the instruction.
+
+<a id="token-context-warnings-en"></a>
+
+## Token / context warnings
+
+SessionMonitor parses transcript `usage` blocks live and pushes warnings into the topic:
+
+- **Context warning** (on by default): when the current context reaches `CCGRAM_CONTEXT_WARN`% of `CCGRAM_CONTEXT_LIMIT` (default 80% of 200k), a "consider /compact or a fresh session" notice is sent; it re-arms after compaction shrinks the context, so each fill-up warns once
+- **Cumulative warning** (off by default): set `CCGRAM_TOKEN_WARN=<tokens>` to get a one-time notice when a session's total consumption passes the threshold
+- Sidechain (subagent) turns never affect the context check but do count toward totals; only Claude transcripts carry usage — other providers no-op
 
 <a id="transcript-search-search-en"></a>
 

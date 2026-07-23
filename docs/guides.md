@@ -185,6 +185,9 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_INSTANCE_NAME` / `--instance-name`           | 主机名                         | 本实例的显示名称                                                                                     |
 | `CCGRAM_LOG_LEVEL` / `--log-level`                   | `INFO`                         | 日志级别（DEBUG、INFO、WARNING、ERROR）                                                              |
 | `MONITOR_POLL_INTERVAL` / `--monitor-interval`       | `2.0`                          | 转录文件轮询间隔（秒）                                                                               |
+| `CCGRAM_CONTEXT_WARN`                                | `80`                           | 上下文用量达到上限的 N% 时在话题内提醒执行 /compact(0=关闭)                                        |
+| `CCGRAM_CONTEXT_LIMIT`                               | `200000`                       | 上下文预警的容量基准(tokens)                                                                       |
+| `CCGRAM_TOKEN_WARN`                                  | `0`                            | 会话累计 tokens 超过该值时提醒一次(0=关闭)                                                         |
 | `CCGRAM_FS_EVENTS`                                   | `1`                            | 文件系统事件唤醒（inotify）：转录/事件文件一有写入立即处理,轮询间隔仅作兜底;设 `0` 禁用             |
 | `AUTOCLOSE_DONE_MINUTES` / `--autoclose-done`        | `30`                           | 已完成话题 N 分钟后自动关闭（0=关闭该功能）                                                          |
 | `AUTOCLOSE_DEAD_MINUTES` / `--autoclose-dead`        | `10`                           | 已死亡会话 N 分钟后自动关闭（0=关闭该功能）                                                          |
@@ -575,6 +578,16 @@ claude     # or: codex, gemini, pi
 - `/recall` 历史仍记录你的原始输入
 
 例如回复一条报错输出并输入"修复这个",agent 会同时收到报错内容与指令。
+
+<a id="token-context-warnings"></a>
+
+## Token / 上下文预警
+
+SessionMonitor 实时解析 transcript 的 `usage` 数据,自动在话题内推送预警:
+
+- **上下文预警**(默认开启):当前上下文达到 `CCGRAM_CONTEXT_LIMIT` 的 `CCGRAM_CONTEXT_WARN`%(默认 200k 的 80%)时提醒"建议 /compact 或开新会话";压缩后上下文回落会自动重新武装,每次填满只提醒一次
+- **累计预警**(默认关闭):设置 `CCGRAM_TOKEN_WARN=<tokens>` 后,会话累计消耗超过阈值时提醒一次
+- 子代理(sidechain)轮次不影响上下文判断但计入累计;仅 Claude transcript 携带 usage,其他 provider 自动跳过
 
 <a id="transcript-search-search"></a>
 

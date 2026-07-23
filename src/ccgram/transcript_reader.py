@@ -23,6 +23,7 @@ import structlog
 
 from .monitor_events import NewMessage, SessionInfo
 from .monitor_state import MonitorState, TrackedSession
+from .token_watch import token_watch
 from .providers import (
     detect_provider_from_transcript_path,
     get_provider_for_window,
@@ -99,6 +100,7 @@ class TranscriptReader:
         self._state.remove_session(session_id)
         self._file_mtimes.pop(session_id, None)
         self._pending_tools.pop(session_id, None)
+        token_watch.clear_session(session_id)
         log_throttle_reset(f"partial-jsonl:{session_id}")
 
     def _adopt_tracking_for_file(
@@ -242,6 +244,13 @@ class TranscriptReader:
                     role=entry.role,
                     tool_name=entry.tool_name,
                 )
+            )
+
+        # Token/context watch: raw entries carry per-turn usage blocks.
+        # Warnings ride the normal message pipeline after the agent content.
+        for warning in token_watch.record_entries(session_id, new_entries):
+            new_messages.append(
+                NewMessage(session_id=session_id, text=warning, is_complete=True)
             )
 
         self._state.update_session(tracked)

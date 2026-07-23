@@ -103,14 +103,7 @@ class Config:
             0.5, float(os.getenv("CCGRAM_STATUS_POLL_INTERVAL", "1.0"))
         )
 
-        # Filesystem-event wakeups: watch transcript/event files and wake the
-        # monitor loop immediately on writes (poll interval stays the fallback
-        # cadence). Set CCGRAM_FS_EVENTS=0 to disable.
-        self.fs_events_enabled: bool = os.getenv("CCGRAM_FS_EVENTS", "1").lower() in (
-            "1",
-            "true",
-            "yes",
-        )
+        self._load_monitoring_env()
 
         # Quiet hours: "HH:MM-HH:MM" local time; automated notifications are
         # delivered silently inside the window. Empty disables.
@@ -197,6 +190,26 @@ class Config:
             self.config_dir,
             len(self.allowed_users),
             self.tmux_session_name,
+        )
+
+    def _load_monitoring_env(self) -> None:
+        # Token/context watch. Context warning fires when the current context
+        # reaches CCGRAM_CONTEXT_WARN percent of CCGRAM_CONTEXT_LIMIT tokens
+        # (0 disables); the cumulative warning fires once per session past
+        # CCGRAM_TOKEN_WARN total tokens (0 = disabled, the default).
+        self.context_warn_pct = max(0, _parse_int_env("CCGRAM_CONTEXT_WARN", 80))
+        self.context_limit_tokens = max(
+            1, _parse_int_env("CCGRAM_CONTEXT_LIMIT", 200000)
+        )
+        self.token_warn_total = max(0, _parse_int_env("CCGRAM_TOKEN_WARN", 0))
+
+        # Filesystem-event wakeups: watch transcript/event files and wake the
+        # monitor loop immediately on writes (poll interval stays the fallback
+        # cadence). Set CCGRAM_FS_EVENTS=0 to disable.
+        self.fs_events_enabled: bool = os.getenv("CCGRAM_FS_EVENTS", "1").lower() in (
+            "1",
+            "true",
+            "yes",
         )
 
     def _init_live_view(self) -> None:

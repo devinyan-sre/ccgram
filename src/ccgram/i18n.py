@@ -100,6 +100,14 @@ _ZH: dict[str, str] = {
     "❌ This provider's transcript has no token usage data.": (
         "❌ 该 provider 的 transcript 不包含 token 用量数据。"
     ),
+    # Token/context watch
+    "⚠️ Context is {pct}% full ({used} / {limit} tokens) — "
+    "consider /compact or a fresh session.": (
+        "⚠️ 上下文已使用 {pct}%({used} / {limit} tokens),建议执行 /compact 或开启新会话。"
+    ),
+    "⚠️ This session has consumed {total} tokens (warning threshold: {threshold}).": (
+        "⚠️ 本会话已消耗 {total} tokens(预警阈值:{threshold})。"
+    ),
     # /search
     "Usage: /search <keyword> — search across session transcripts": (
         "用法:/search <关键词> — 跨会话搜索历史对话"
