@@ -42,7 +42,10 @@ async def test_synthesize_wraps_edge_no_audio_as_tts_error(monkeypatch):
 
 
 async def test_synthesize_wraps_edge_exceptions_as_tts_error(monkeypatch):
-    from edge_tts.exceptions import WebSocketError
+    edge_tts_exceptions = pytest.importorskip(
+        "edge_tts.exceptions", reason="edge-tts optional extra not installed"
+    )
+    WebSocketError = edge_tts_exceptions.WebSocketError  # noqa: N806
 
     class FailingCommunicate:
         def __init__(self, *a, **kw):
