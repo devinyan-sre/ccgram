@@ -564,6 +564,18 @@ claude     # or: codex, gemini, pi
 - 用户 / 助手轮次数、使用的模型
 - 仅 Claude Code transcript 携带用量数据;其他 provider 会得到友好提示
 
+<a id="reply-quote-context"></a>
+
+## 回复引用即上下文
+
+在话题内**回复**某条历史消息(bot 转发的 agent 输出或你自己的消息)再输入指令时,被引用的内容会作为上下文一并转发给 agent:
+
+- 支持 Telegram 精确引用(长按选中部分文字回复),优先使用选中片段
+- 引用内容截断至 600 字符;`!` bash 命令不受影响(保持原样执行)
+- `/recall` 历史仍记录你的原始输入
+
+例如回复一条报错输出并输入"修复这个",agent 会同时收到报错内容与指令。
+
 <a id="transcript-search-search"></a>
 
 ## 跨会话搜索(`/search`)

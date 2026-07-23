@@ -78,6 +78,9 @@ logger = structlog.get_logger()
 # Maximum characters for bash output before truncation (fits Telegram 4096-char limit)
 _BASH_OUTPUT_LIMIT = 3800
 
+# Maximum quoted-reply characters forwarded to the agent as context.
+_QUOTE_LIMIT = 600
+
 PENDING_DELIVERY_NOTICE = "\U0001f4ac Will deliver once the agent starts."
 
 # Active bash capture tasks: (user_id, thread_id) -> asyncio.Task
@@ -395,6 +398,52 @@ async def _handle_dead_window(
     return True
 
 
+def _build_reply_context(message: Message, thread_id: int | None) -> str | None:
+    """Return the quoted text when *message* is a real reply, else None.
+
+    In forum topics every non-reply message carries ``reply_to_message``
+    pointing at the topic's service anchor — filtered out via the
+    ``forum_topic_created`` payload and the ``message_id == thread_id``
+    convention. A Telegram precise quote (``message.quote``) wins over the
+    full replied-to text.
+    """
+    reply = message.reply_to_message
+    if reply is None:
+        return None
+    if reply.forum_topic_created is not None:
+        return None  # topic anchor, not a real reply
+    if thread_id is not None and reply.message_id == thread_id:
+        return None
+    quote = message.quote
+    quoted = (quote.text if quote is not None and quote.text else None) or (
+        reply.text or reply.caption or ""
+    )
+    quoted = quoted.strip()
+    if not quoted:
+        return None
+    if len(quoted) > _QUOTE_LIMIT:
+        quoted = quoted[:_QUOTE_LIMIT] + "…"
+    return quoted
+
+
+def _compose_with_quote(text: str, quoted: str) -> str:
+    """Prepend the quoted reply as agent-readable context."""
+    return f'[Replying to this earlier message:]\n"""\n{quoted}\n"""\n\n{text}'
+
+
+def _reply_quote_send_text(
+    message: Message, thread_id: int | None, text: str
+) -> str | None:
+    """Quote-augmented forward text for a real reply, else None.
+
+    Bash (``!``) commands stay verbatim — a prefix would break execution.
+    """
+    if text.startswith("!"):
+        return None
+    quoted = _build_reply_context(message, thread_id)
+    return _compose_with_quote(text, quoted) if quoted else None
+
+
 async def _forward_message(
     window_id: str,
     user_id: int,
@@ -402,8 +451,15 @@ async def _forward_message(
     text: str,
     client: TelegramClient,
     message: Message,
+    *,
+    send_text: str | None = None,
 ) -> None:
-    """Forward a text message to the bound tmux window."""
+    """Forward a text message to the bound tmux window.
+
+    ``send_text`` (when given) is what actually reaches the window — e.g.
+    the reply-quote-augmented form — while ``text`` stays the user's raw
+    input for bash detection and /recall history.
+    """
     await message.chat.send_action(ChatAction.TYPING)  # type: ignore[union-attr]
     # Enqueue a status clear to actually delete the Telegram message
     # (clear_status_msg_info only clears the tracking dict, leaving a ghost)
@@ -414,7 +470,7 @@ async def _forward_message(
 
     lifecycle_strategy.clear_probe_failures(window_id)
 
-    success, err_message = await send_to_window(window_id, text)
+    success, err_message = await send_to_window(window_id, send_text or text)
     if not success:
         await safe_reply(message, f"\u274c {err_message}")
         return
@@ -545,7 +601,7 @@ async def handle_text_message(
         )
         return
 
-    # Forward message to window
+    # Forward message to window (real replies carry the quoted context)
     await _forward_message(
         window_id,
         user.id,
@@ -553,4 +609,5 @@ async def handle_text_message(
         text,
         PTBTelegramClient(context.bot),
         message,
+        send_text=_reply_quote_send_text(message, thread_id, text),
     )

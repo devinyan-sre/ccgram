@@ -492,6 +492,18 @@ Responses longer than 4096 characters are sent as a `.txt` document attachment i
 - User/assistant turn counts and models used
 - Only Claude Code transcripts carry usage data; other providers get a friendly notice
 
+<a id="reply-quote-context-en"></a>
+
+## Reply quotes as context
+
+**Reply** to an earlier message in a topic (relayed agent output or your own message) and the quoted content is forwarded to the agent together with your instruction:
+
+- Telegram precise quotes (reply to a selected span) win over the full message
+- Quotes are truncated at 600 chars; `!` bash commands are never augmented
+- `/recall` history keeps your raw input
+
+E.g. reply to an error dump with "fix this" and the agent receives both the error and the instruction.
+
 <a id="transcript-search-search-en"></a>
 
 ## Transcript search (`/search`)

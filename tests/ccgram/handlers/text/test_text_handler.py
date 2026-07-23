@@ -4,10 +4,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from ccgram.handlers.text.text_handler import (
+    _QUOTE_LIMIT,
+    _build_reply_context,
     _check_ui_guards,
+    _compose_with_quote,
     _forward_message,
     _handle_dead_window,
     _handle_unbound_topic,
+    _reply_quote_send_text,
 )
 from ccgram.handlers.polling.polling_state import lifecycle_strategy
 from ccgram.handlers.topics.directory_browser import (
@@ -454,6 +458,98 @@ class TestShellProviderRouting:
             mock_shell.assert_not_called()
 
 
+def _reply_message(
+    *,
+    reply_text: str | None = "earlier agent output",
+    reply_caption: str | None = None,
+    reply_message_id: int = 900,
+    forum_topic_created: object | None = None,
+    quote_text: str | None = None,
+) -> MagicMock:
+    """A Message mock carrying a reply_to_message with explicit fields."""
+    message = MagicMock()
+    reply = MagicMock()
+    reply.text = reply_text
+    reply.caption = reply_caption
+    reply.message_id = reply_message_id
+    reply.forum_topic_created = forum_topic_created
+    message.reply_to_message = reply
+    if quote_text is None:
+        message.quote = None
+    else:
+        quote = MagicMock()
+        quote.text = quote_text
+        message.quote = quote
+    return message
+
+
+class TestBuildReplyContext:
+    def test_real_reply_returns_text(self) -> None:
+        message = _reply_message(reply_text="the failing test is test_login")
+        assert _build_reply_context(message, 42) == "the failing test is test_login"
+
+    def test_no_reply_returns_none(self) -> None:
+        message = MagicMock()
+        message.reply_to_message = None
+        assert _build_reply_context(message, 42) is None
+
+    def test_topic_anchor_service_message_ignored(self) -> None:
+        message = _reply_message(forum_topic_created=object())
+        assert _build_reply_context(message, 42) is None
+
+    def test_thread_anchor_message_id_ignored(self) -> None:
+        # Forum convention: the topic anchor's message_id equals thread_id.
+        message = _reply_message(reply_message_id=42)
+        assert _build_reply_context(message, 42) is None
+
+    def test_precise_quote_wins_over_full_text(self) -> None:
+        message = _reply_message(
+            reply_text="a very long earlier message", quote_text="earlier"
+        )
+        assert _build_reply_context(message, 42) == "earlier"
+
+    def test_caption_fallback(self) -> None:
+        message = _reply_message(reply_text=None, reply_caption="photo caption")
+        assert _build_reply_context(message, 42) == "photo caption"
+
+    def test_empty_reply_returns_none(self) -> None:
+        message = _reply_message(reply_text="   ")
+        assert _build_reply_context(message, 42) is None
+
+    def test_long_quote_truncated(self) -> None:
+        message = _reply_message(reply_text="x" * (_QUOTE_LIMIT + 100))
+        quoted = _build_reply_context(message, 42)
+        assert quoted is not None
+        assert len(quoted) == _QUOTE_LIMIT + 1
+        assert quoted.endswith("…")
+
+
+class TestComposeWithQuote:
+    def test_wraps_quote_and_appends_text(self) -> None:
+        result = _compose_with_quote("fix it", "the error was X")
+        assert "the error was X" in result
+        assert result.endswith("fix it")
+        assert result.index("the error was X") < result.index("fix it")
+
+
+class TestReplyQuoteSendText:
+    def test_augments_real_reply(self) -> None:
+        message = _reply_message(reply_text="the traceback")
+        result = _reply_quote_send_text(message, 42, "explain this")
+        assert result is not None
+        assert "the traceback" in result
+        assert result.endswith("explain this")
+
+    def test_bash_command_never_augmented(self) -> None:
+        message = _reply_message(reply_text="the traceback")
+        assert _reply_quote_send_text(message, 42, "!ls -la") is None
+
+    def test_plain_message_returns_none(self) -> None:
+        message = MagicMock()
+        message.reply_to_message = None
+        assert _reply_quote_send_text(message, 42, "hello") is None
+
+
 class TestForwardMessage:
     @patch(f"{_TH}.send_to_window", new_callable=AsyncMock, return_value=(True, "ok"))
     @patch(f"{_TH}.window_query")
@@ -467,6 +563,27 @@ class TestForwardMessage:
             await _forward_message("@0", 100, 42, "hello", bot, message)
 
         mock_send.assert_called_once_with("@0", "hello")
+
+    @patch(f"{_TH}.send_to_window", new_callable=AsyncMock, return_value=(True, "ok"))
+    @patch(f"{_TH}.window_query")
+    async def test_send_text_override_reaches_window(
+        self, mock_sm: MagicMock, mock_send: AsyncMock
+    ) -> None:
+        """Quote-augmented send_text is delivered; raw text stays for history."""
+        bot = AsyncMock()
+        message = AsyncMock()
+        augmented = _compose_with_quote("hello", "quoted context")
+
+        with (
+            patch(f"{_TH}.get_interactive_window", return_value=None),
+            patch("ccgram.handlers.command_history.record_command") as mock_record,
+        ):
+            await _forward_message(
+                "@0", 100, 42, "hello", bot, message, send_text=augmented
+            )
+
+        mock_send.assert_called_once_with("@0", augmented)
+        mock_record.assert_called_once_with(100, 42, "hello")
 
     @patch(f"{_TH}.safe_reply", new_callable=AsyncMock)
     @patch(
