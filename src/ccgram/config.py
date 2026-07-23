@@ -103,6 +103,14 @@ class Config:
             0.5, float(os.getenv("CCGRAM_STATUS_POLL_INTERVAL", "1.0"))
         )
 
+        # Quiet hours: "HH:MM-HH:MM" local time; automated notifications are
+        # delivered silently inside the window. Empty disables.
+        self.quiet_hours = os.getenv("CCGRAM_QUIET_HOURS", "").strip()
+
+        # Daily digest: "HH:MM" local time to post a per-topic activity
+        # summary to the group's General topic. Empty disables.
+        self.daily_digest_time = os.getenv("CCGRAM_DAILY_DIGEST", "").strip()
+
         # Multi-instance support
         group_id_str = os.getenv("CCGRAM_GROUP_ID")
         if group_id_str:

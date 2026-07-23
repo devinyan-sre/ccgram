@@ -86,6 +86,9 @@ _SINGLETON_ALLOWLIST = frozenset(
         "commands/forward.py",
         "commands/menu_sync.py",
         "file_handler.py",
+        # Daily digest iterates thread bindings to group windows per user
+        # (same notification-routing pattern as hook_events.py).
+        "daily_digest.py",
         # /diff resolves window_id via thread_router (same routing as /last).
         "diff_command.py",
         "hook_events.py",

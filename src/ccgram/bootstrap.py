@@ -93,6 +93,10 @@ async def register_provider_commands(application: Application) -> None:
     except TelegramError:
         logger.warning("Failed to register bot commands at startup, will retry later")
     setup_menu_refresh_job(application)
+    # Lazy: daily_digest pulls handler messaging paths; wire only at bootstrap
+    from .handlers.daily_digest import setup_daily_digest_job
+
+    setup_daily_digest_job(application)
 
 
 def verify_hooks_installed() -> None:

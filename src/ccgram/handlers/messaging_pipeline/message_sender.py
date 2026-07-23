@@ -205,7 +205,17 @@ async def rate_limit_send_message(
 
     Combines rate_limit_send() + _send_with_fallback() for convenience.
     Returns the sent Message on success, None on failure.
+
+    This is the choke point for *automated* outbound (queue worker,
+    status/Ready notices) — during configured quiet hours these are sent
+    with ``disable_notification=True``. User-initiated replies and
+    interactive approval prompts do not route through here.
     """
+    # Lazy: quiet_hours reads the config singleton; resolve at send time.
+    from ...quiet_hours import silent_kwargs
+
+    for key, value in silent_kwargs().items():
+        kwargs.setdefault(key, value)
     await rate_limit_send(chat_id)
     return await _send_with_fallback(client, chat_id, text, **kwargs)
 
