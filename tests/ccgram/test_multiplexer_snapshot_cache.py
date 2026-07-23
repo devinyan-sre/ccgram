@@ -27,42 +27,43 @@ from ccgram.providers.process_detection import (
 # ── tmux: list_windows snapshot ────────────────────────────────────────
 
 
-def _tmux_manager(ttl: float | None = None) -> TmuxManager:
+def _tmux_manager(ttl: float | None = None) -> tuple[TmuxManager, MagicMock]:
     mgr = TmuxManager(session_name="ccgram-test", window_cache_ttl=ttl)
-    mgr.get_session = MagicMock(return_value=None)  # type: ignore[method-assign]
-    return mgr
+    session_mock = MagicMock(return_value=None)
+    mgr.get_session = session_mock  # type: ignore[method-assign]
+    return mgr, session_mock
 
 
 async def test_tmux_list_windows_served_from_cache_within_ttl() -> None:
-    mgr = _tmux_manager()
+    mgr, session_mock = _tmux_manager()
     assert await mgr.list_windows() == []
     assert await mgr.list_windows() == []
     # Only the first call touched tmux; the second hit the snapshot.
-    assert mgr.get_session.call_count == 1
+    assert session_mock.call_count == 1
 
 
 async def test_tmux_zero_ttl_disables_cache() -> None:
-    mgr = _tmux_manager(ttl=0)
+    mgr, session_mock = _tmux_manager(ttl=0)
     await mgr.list_windows()
     await mgr.list_windows()
-    assert mgr.get_session.call_count == 2
+    assert session_mock.call_count == 2
 
 
 async def test_tmux_mutations_invalidate_cache() -> None:
-    mgr = _tmux_manager()
+    mgr, session_mock = _tmux_manager()
     await mgr.list_windows()
     await mgr.kill_window("@1")  # session None → returns False, still invalidates
     await mgr.list_windows()
     # get_session: list(1) + kill(1) + list(1)
-    assert mgr.get_session.call_count == 3
+    assert session_mock.call_count == 3
 
 
 async def test_tmux_reset_server_drops_cache() -> None:
-    mgr = _tmux_manager()
+    mgr, session_mock = _tmux_manager()
     await mgr.list_windows()
     mgr._reset_server()
     await mgr.list_windows()
-    assert mgr.get_session.call_count == 2
+    assert session_mock.call_count == 2
 
 
 # ── herdr: pane list / workspace labels / window snapshot ──────────────
