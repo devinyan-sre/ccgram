@@ -25,6 +25,44 @@ def events_file(tmp_path: Path, monkeypatch) -> Path:
     return path
 
 
+class TestMaybeCompactEvents:
+    async def test_compacts_and_persists_offset(
+        self, monitor: SessionMonitor, events_file: Path
+    ) -> None:
+        line = (
+            json.dumps(
+                {
+                    "ts": 1.0,
+                    "event": "Stop",
+                    "window_key": "ccgram:@0",
+                    "session_id": "s1",
+                    "data": {},
+                }
+            )
+            + "\n"
+        )
+        events_file.write_text(line)
+        monitor.state.events_offset = len(line)
+
+        await monitor._maybe_compact_events(min_consumed=1)
+
+        assert monitor.state.events_offset == 0
+        assert events_file.stat().st_size == 0
+        # Offset persisted immediately (crash safety).
+        assert json.loads(monitor.state.state_file.read_text())["events_offset"] == 0
+
+    async def test_skips_below_threshold(
+        self, monitor: SessionMonitor, events_file: Path
+    ) -> None:
+        events_file.write_text("x" * 10)
+        monitor.state.events_offset = 10
+
+        await monitor._maybe_compact_events(min_consumed=1024)
+
+        assert monitor.state.events_offset == 10
+        assert events_file.stat().st_size == 10
+
+
 class TestReadHookEvents:
     async def test_reads_events_incrementally(
         self, monitor: SessionMonitor, events_file: Path

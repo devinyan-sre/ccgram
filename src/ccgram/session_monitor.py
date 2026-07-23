@@ -27,7 +27,11 @@ from typing import Any
 from telegram.error import TelegramError
 
 from .config import config
-from .event_reader import read_new_events
+from .event_reader import (
+    EVENTS_COMPACT_THRESHOLD,
+    compact_events_file,
+    read_new_events,
+)
 from .idle_tracker import IdleTracker
 from .monitor_state import MonitorState
 from .providers import get_provider_for_window, registry  # noqa: F401 (used by test patches)
@@ -280,6 +284,24 @@ class SessionMonitor:
             except _CallbackError:
                 logger.exception("Hook event callback error for %s", event.event_type)
 
+    async def _maybe_compact_events(self, min_consumed: int) -> None:
+        """Compact events.jsonl when the consumed prefix reaches ``min_consumed``.
+
+        The append-only log otherwise grows without bound. Compaction runs off
+        the event loop (flock + blocking rewrite) and the new offset is saved
+        immediately: a crash between the two leaves a stale large offset that
+        read_new_events resolves via its truncation reset, replaying only
+        still-unconsumed tail events.
+        """
+        if self.state.events_offset < min_consumed or self.state.events_offset <= 0:
+            return
+        new_offset = await asyncio.to_thread(
+            compact_events_file, config.events_file, self.state.events_offset
+        )
+        if new_offset != self.state.events_offset:
+            self.state.events_offset = new_offset
+            self.state.save()
+
     async def _load_current_session_map(
         self, raw: dict | None = None
     ) -> dict[str, dict[str, str]]:
@@ -455,6 +477,9 @@ class SessionMonitor:
         from .session_map import session_map_sync
 
         await self._cleanup_all_stale_sessions()
+        # Startup compaction: any consumed prefix is dropped so events.jsonl
+        # starts each run near-empty even on low-traffic installs.
+        await self._maybe_compact_events(min_consumed=1)
         initial_map = await self._load_current_session_map()
         session_lifecycle.initialize(initial_map)
 
@@ -462,6 +487,7 @@ class SessionMonitor:
         while self._running:
             try:
                 await self._read_hook_events()
+                await self._maybe_compact_events(min_consumed=EVENTS_COMPACT_THRESHOLD)
                 raw_session_map = await read_session_map_raw()
                 await session_map_sync.load_session_map(raw_session_map)
 
