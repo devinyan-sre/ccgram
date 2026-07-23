@@ -78,7 +78,11 @@ target-version = "py314"
 exclude = ["src/ccgram/_version.py"]
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "ARG", "G", "BLE", "SIM", "PLR2004", "C901", "PLR0911", "PLR0912", "PLR0915", "N"]
+select = ["E4", "E7", "E9", "F", "ARG", "G", "BLE", "SIM", "PLR2004", "C901", "PLR0911", "PLR0912", "PLR0915", "N", "B", "RUF"]
+# RUF001/002/003: intentional non-ASCII glyphs (⌘ prompt markers, ▸ topic
+# labels, box-drawing in TUI parsers, Chinese docs) trip the ambiguous-unicode
+# heuristics wholesale — not worth per-site noqa.
+ignore = ["RUF001", "RUF002", "RUF003"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
@@ -89,8 +93,9 @@ max-branches = 15
 max-statements = 60
 
 [tool.ruff.lint.per-file-ignores]
-# Tests: unused args (fixtures, mock lambdas), magic values in assertions
-"tests/**" = ["ARG", "PLR2004"]
+# Tests: unused args (fixtures, mock lambdas), magic values in assertions,
+# unused unpacked tuple parts (intentional shape assertions)
+"tests/**" = ["ARG", "PLR2004", "RUF059"]
 # ANSI SGR codes/Unicode ranges + ANSI code parsing is inherently branchy
 "src/ccgram/screenshot.py" = ["PLR2004", "C901", "PLR0912"]
 # Transcript parser: inherently complex JSONL parsing and tool dispatch
@@ -112,13 +117,13 @@ max-statements = 60
 # Response builder: message formatting with content-type dispatch
 "src/ccgram/handlers/response_builder.py" = ["C901", "PLR0912"]
 # Polling coordinator: background loop with multiple state checks
-"src/ccgram/handlers/polling_coordinator.py" = ["C901", "PLR0912"]
+"src/ccgram/handlers/polling/polling_coordinator.py" = ["C901", "PLR0912"]
 # Message queue: worker loop with task dispatch and error handling
-"src/ccgram/handlers/message_queue.py" = ["C901"]
+"src/ccgram/handlers/messaging_pipeline/message_queue.py" = ["C901"]
 # Directory callbacks: confirm handler with state cleanup branches
 "src/ccgram/handlers/topics/directory_callbacks.py" = ["C901"]
 # Recovery callbacks: fresh handler with state cleanup branches
-"src/ccgram/handlers/recovery_callbacks.py" = ["C901"]
+"src/ccgram/handlers/recovery/recovery_callbacks.py" = ["C901"]
 
 [tool.deptry.per_rule_ignores]
 # DEP002: dev/CLI tools (never imported in src/)
@@ -128,6 +133,7 @@ DEP003 = ["edge-tts"]
 
 [tool.pyright]
 pythonVersion = "3.14"
+typeCheckingMode = "standard"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

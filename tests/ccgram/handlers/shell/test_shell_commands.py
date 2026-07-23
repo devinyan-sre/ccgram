@@ -553,7 +553,7 @@ class TestGatherLlmContext:
 
 
 class TestCancelStuckInput:
-    def _mock_window(self, pane_cmd: str = "fish"):  # noqa: ANN202
+    def _mock_window(self, pane_cmd: str = "fish"):
         from ccgram.multiplexer.base import WindowRef as TmuxWindow
 
         return TmuxWindow(
@@ -796,7 +796,7 @@ class TestGenerationCounter:
 
         call_count = 0
 
-        async def slow_generate(*args, **kwargs):  # noqa: ARG001
+        async def slow_generate(*args, **kwargs):
             nonlocal call_count
             call_count += 1
             return CommandResult(
@@ -1075,7 +1075,7 @@ class TestTypingAction:
         bot.send_chat_action = AsyncMock()
         message = AsyncMock(spec=Message)
 
-        async def slow_generate(*args, **kwargs):  # noqa: ARG001
+        async def slow_generate(*args, **kwargs):
             # 0.25 s with refresh 0.05 s ⇒ at least 4 pulses + initial.
             await asyncio.sleep(0.25)
             return CommandResult(command="ls", explanation="", is_dangerous=False)

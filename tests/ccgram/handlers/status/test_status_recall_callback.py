@@ -3,7 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from ccgram.handlers.callback_data import CB_STATUS_RECALL
-from ccgram.handlers.status.status_bar_actions import _handle_status_bar_action  # noqa: F401
+from ccgram.handlers.status.status_bar_actions import _handle_status_bar_action
 
 
 def _make_query() -> AsyncMock:

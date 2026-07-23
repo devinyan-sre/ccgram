@@ -112,7 +112,7 @@ async def _typing_pulse(
 
 # gather_llm_context, redact_for_llm, and _detect_shell_tools moved to
 # shell_context.py — re-exported here for callers that haven't been migrated.
-from .shell_context import (  # noqa: E402, F401
+from .shell_context import (  # noqa: E402
     gather_llm_context,
     redact_for_llm,
 )

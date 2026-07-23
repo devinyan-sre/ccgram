@@ -33,9 +33,9 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 __all__ = [
+    "_handle_workspace_callback",
     "_show_provider_picker",
     "_show_workspace_picker_or_provider",
-    "_handle_workspace_callback",
 ]
 
 

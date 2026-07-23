@@ -36,10 +36,10 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 __all__ = [
-    "_validate_provider_select",
+    "_handle_mode_select",
     "_handle_provider_select",
     "_parse_mode_select",
-    "_handle_mode_select",
+    "_validate_provider_select",
 ]
 
 

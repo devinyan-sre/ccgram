@@ -166,14 +166,14 @@ class TestBuildLiveKeyboard:
     def test_stop_callback_data_format(self):
         kb = build_live_keyboard("@0")
         flat = [btn for row in kb.inline_keyboard for btn in row]
-        stop_btn = [btn for btn in flat if "Stop" in btn.text][0]
+        stop_btn = next(btn for btn in flat if "Stop" in btn.text)
         assert isinstance(stop_btn.callback_data, str)
         assert stop_btn.callback_data.startswith(CB_LIVE_STOP)
 
     def test_pane_id_in_callback_data(self):
         kb = build_live_keyboard("@0", pane_id="%3")
         flat = [btn for row in kb.inline_keyboard for btn in row]
-        stop_btn = [btn for btn in flat if "Stop" in btn.text][0]
+        stop_btn = next(btn for btn in flat if "Stop" in btn.text)
         assert isinstance(stop_btn.callback_data, str)
         assert "@0|%3" in stop_btn.callback_data
 
@@ -202,21 +202,21 @@ class TestBuildScreenshotKeyboard:
     def test_live_callback_data_format(self):
         kb = build_screenshot_keyboard("@0")
         flat = [btn for row in kb.inline_keyboard for btn in row]
-        live_btn = [btn for btn in flat if "Live" in btn.text][0]
+        live_btn = next(btn for btn in flat if "Live" in btn.text)
         assert isinstance(live_btn.callback_data, str)
         assert live_btn.callback_data.startswith(CB_LIVE_START)
 
     def test_refresh_callback_data_format(self):
         kb = build_screenshot_keyboard("@0")
         flat = [btn for row in kb.inline_keyboard for btn in row]
-        refresh_btn = [btn for btn in flat if "Refresh" in btn.text][0]
+        refresh_btn = next(btn for btn in flat if "Refresh" in btn.text)
         assert isinstance(refresh_btn.callback_data, str)
         assert refresh_btn.callback_data.startswith(CB_SCREENSHOT_REFRESH)
 
     def test_pane_id_propagated(self):
         kb = build_screenshot_keyboard("@0", pane_id="%5")
         flat = [btn for row in kb.inline_keyboard for btn in row]
-        live_btn = [btn for btn in flat if "Live" in btn.text][0]
+        live_btn = next(btn for btn in flat if "Live" in btn.text)
         assert isinstance(live_btn.callback_data, str)
         assert "@0|%5" in live_btn.callback_data
 
@@ -253,7 +253,7 @@ class TestBuildToolbarKeyboard:
         ):
             kb = build_toolbar_keyboard("@0")
         flat = [btn for row in kb.inline_keyboard for btn in row]
-        live_btn = [btn for btn in flat if "Live" in btn.text][0]
+        live_btn = next(btn for btn in flat if "Live" in btn.text)
         assert isinstance(live_btn.callback_data, str)
         assert live_btn.callback_data == f"{CB_TOOLBAR}@0:live"
 

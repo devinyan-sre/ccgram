@@ -97,11 +97,7 @@ def _herdr_runner() -> _FakeRunner:
     return _FakeRunner(
         {
             ("tab", "list"): _ok(
-                {
-                    "tabs": [
-                        {"label": "proj", "tab_id": "w1:t1", "workspace_id": "w1"}
-                    ]
-                }
+                {"tabs": [{"label": "proj", "tab_id": "w1:t1", "workspace_id": "w1"}]}
             ),
             ("pane", "list"): _ok(
                 {

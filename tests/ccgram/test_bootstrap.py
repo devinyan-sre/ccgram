@@ -23,7 +23,7 @@ class TestBootstrapApplicationOrdering:
     async def test_start_session_monitor_raises_when_callbacks_unwired(self):
         app = _make_app()
         with pytest.raises(
-            RuntimeError, match="wire_runtime_callbacks.*before.*start_session_monitor"
+            RuntimeError, match=r"wire_runtime_callbacks.*before.*start_session_monitor"
         ):
             await bootstrap.start_session_monitor(app)
 

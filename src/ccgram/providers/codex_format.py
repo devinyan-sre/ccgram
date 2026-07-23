@@ -195,7 +195,7 @@ def _extract_previews(lines: list[str]) -> list[str]:
     head = all_previews[:_HEAD_TAIL_LINES]
     tail = all_previews[-_HEAD_TAIL_LINES:]
     omitted = len(all_previews) - _HEAD_TAIL_LINES * 2
-    return head + [f"... ({omitted} more lines)"] + tail
+    return [*head, f"... ({omitted} more lines)", *tail]
 
 
 def _push_preview(previews: list[str], seen: set[str], text: str) -> None:

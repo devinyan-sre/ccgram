@@ -513,13 +513,13 @@ _active_monitor: SessionMonitor | None = None
 
 def set_active_monitor(monitor: SessionMonitor) -> None:
     """Set the active SessionMonitor instance (called by bot.py post_init)."""
-    global _active_monitor  # noqa: PLW0603
+    global _active_monitor
     _active_monitor = monitor
 
 
 def clear_active_monitor() -> None:
     """Clear the active SessionMonitor singleton (shutdown / test reset)."""
-    global _active_monitor  # noqa: PLW0603
+    global _active_monitor
     _active_monitor = None
 
 

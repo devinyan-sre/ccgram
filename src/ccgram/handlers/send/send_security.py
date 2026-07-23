@@ -93,7 +93,7 @@ def _gitignored_by_pathspec(path: Path, cwd: Path) -> bool:
         # Lazy: pathspec is an optional fallback only used when git itself
         # is unavailable; importing at top would force the dep on pure-tmux
         # deployments that never run /send.
-        import pathspec  # noqa: PLC0415
+        import pathspec
 
         lines: list[str] = []
         current = path.parent

@@ -1,6 +1,6 @@
 import json
 from dataclasses import FrozenInstanceError
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -30,7 +30,7 @@ class StubProvider(JsonlProvider):
         builtin_commands=("help", "clear"),
     )
 
-    _BUILTINS = {"help": "Show help", "clear": "Clear screen"}
+    _BUILTINS: ClassVar[dict[str, str]] = {"help": "Show help", "clear": "Clear screen"}
 
     def make_launch_args(
         self,

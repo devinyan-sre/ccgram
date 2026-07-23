@@ -30,7 +30,7 @@ logger = structlog.get_logger()
 _MIN_THINKING_LENGTH = 20
 
 
-async def handle_new_message(msg: NewMessage, client: TelegramClient) -> None:  # noqa: C901, PLR0912
+async def handle_new_message(msg: NewMessage, client: TelegramClient) -> None:  # noqa: C901
     """Handle a new assistant message — enqueue for sequential processing.
 
     Messages are queued per-user to ensure status messages always appear last.

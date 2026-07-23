@@ -30,7 +30,7 @@ _toolbar_cfg: ToolbarConfig | None = None
 
 def get_toolbar_config() -> ToolbarConfig:
     """Return the loaded ToolbarConfig, lazy-loading on first access."""
-    global _toolbar_cfg  # noqa: PLW0603
+    global _toolbar_cfg
     if _toolbar_cfg is None:
         _toolbar_cfg = load_toolbar_config(config.toolbar_config_path)
     return _toolbar_cfg
@@ -38,7 +38,7 @@ def get_toolbar_config() -> ToolbarConfig:
 
 def reload_toolbar_config() -> None:
     """Force-reload of the toolbar config. Used by tests and future /reload."""
-    global _toolbar_cfg  # noqa: PLW0603
+    global _toolbar_cfg
     _toolbar_cfg = None
 
 

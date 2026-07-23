@@ -19,8 +19,9 @@ _edge_tts_available = False
 Communicate: Any = None
 
 try:
-    from edge_tts import Communicate
-    from edge_tts.exceptions import (
+    # Optional extra — absent in envs without the tts extra installed.
+    from edge_tts import Communicate  # pyright: ignore[reportMissingImports]
+    from edge_tts.exceptions import (  # pyright: ignore[reportMissingImports]
         NoAudioReceived,
         UnexpectedResponse,
         UnknownResponse,

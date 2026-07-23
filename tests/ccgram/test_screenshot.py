@@ -63,7 +63,9 @@ async def test_live_mode_palette_size():
     assert img.mode == "P"
     palette = img.getpalette()
     assert palette is not None
-    unique_colors = len(set(zip(palette[::3], palette[1::3], palette[2::3])))
+    unique_colors = len(
+        set(zip(palette[::3], palette[1::3], palette[2::3], strict=False))
+    )
     assert unique_colors <= 32
 
 

@@ -109,24 +109,24 @@ class TestBuildStatusKeyboard:
 
     def test_last_reply_button_label(self) -> None:
         kb = build_status_keyboard("@0")
-        btn = [
+        btn = next(
             b
             for row in kb.inline_keyboard
             for b in row
             if isinstance(b.callback_data, str)
             and b.callback_data.startswith(CB_STATUS_LAST_REPLY)
-        ][0]
+        )
         assert btn.text == "\U0001f4c4 Last"
 
     def test_get_file_button_label(self) -> None:
         kb = build_status_keyboard("@0")
-        btn = [
+        btn = next(
             b
             for row in kb.inline_keyboard
             for b in row
             if isinstance(b.callback_data, str)
             and b.callback_data.startswith(CB_STATUS_GET_FILE)
-        ][0]
+        )
         assert btn.text == "\U0001f4e5 Get File"
 
 

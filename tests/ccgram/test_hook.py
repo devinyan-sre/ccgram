@@ -1,5 +1,6 @@
 import io
 import json
+from typing import ClassVar
 import shlex
 import subprocess
 import sys
@@ -557,7 +558,7 @@ class TestUninstallHook:
 
 
 class TestTabDelimitedParsing:
-    _VALID_PAYLOAD = {
+    _VALID_PAYLOAD: ClassVar[dict[str, str]] = {
         "session_id": "550e8400-e29b-41d4-a716-446655440000",
         "cwd": "/tmp/proj",
         "hook_event_name": "SessionStart",
@@ -796,14 +797,14 @@ class TestNestedHookEndToEnd:
     or events.jsonl.
     """
 
-    _OBSERVER_PAYLOAD = {
+    _OBSERVER_PAYLOAD: ClassVar[dict[str, str]] = {
         "session_id": "35339b36-8b46-41eb-98fc-df51cd1ff498",
         "cwd": "/Users/alexei/.claude-mem/observer-sessions",
         "transcript_path": "/Users/alexei/.claude-team/projects/x/35339b36.jsonl",
         "hook_event_name": "SessionStart",
     }
 
-    _PRIMARY_PAYLOAD = {
+    _PRIMARY_PAYLOAD: ClassVar[dict[str, str]] = {
         "session_id": "550e8400-e29b-41d4-a716-446655440000",
         "cwd": "/Users/alexei/Workspace/reflex",
         "transcript_path": "/Users/alexei/.claude/projects/y/550e8400.jsonl",

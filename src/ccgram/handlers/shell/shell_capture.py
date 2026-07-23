@@ -428,7 +428,7 @@ def mark_telegram_command(
     is the user's source message — used as the target for ✅/❌ reaction
     feedback once the command completes.
     """
-    global _fix_generation  # noqa: PLW0603
+    global _fix_generation
     _fix_generation += 1
     state = _shell_monitor_state.setdefault(window_id, _ShellMonitorState())
     state.telegram_command = command

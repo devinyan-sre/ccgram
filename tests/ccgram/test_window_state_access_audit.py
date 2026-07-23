@@ -177,7 +177,9 @@ def _audit_file(path: Path) -> list[tuple[str, str, int, str]]:
             continue
         recv = node.value
         matched = False
-        if isinstance(recv, ast.Name) and recv.id in bound or _is_ws_source_expr(recv):
+        if (isinstance(recv, ast.Name) and recv.id in bound) or _is_ws_source_expr(
+            recv
+        ):
             matched = True
         if not matched:
             continue

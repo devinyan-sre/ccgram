@@ -213,7 +213,7 @@ class TranscriptReader:
         carry = self._pending_tools.get(session_id, {})
         session_cwd: str | None = None
         if current_map:
-            for wkey, details in current_map.items():
+            for _wkey, details in current_map.items():
                 if details.get("session_id") == session_id:
                     session_cwd = details.get("cwd")
                     break

@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ccgram.handlers.topics.topic_orchestration import (  # noqa: E501
+from ccgram.handlers.topics.topic_orchestration import (
     _is_pending_user_creation,
     _pending_user_creations,
     clear_pending_creation,

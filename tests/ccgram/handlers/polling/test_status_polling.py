@@ -785,8 +785,8 @@ class TestProviderSwitchPromptSetup:
         with (
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
-            ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            ) as mock_sm,
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.tmux_manager"
             ) as mock_tmux,
@@ -832,7 +832,7 @@ class TestProviderSwitchPromptSetup:
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
             ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.tmux_manager"
             ) as mock_tmux,
@@ -876,8 +876,8 @@ class TestProviderSwitchPromptSetup:
         with (
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
-            ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            ) as mock_sm,
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.tmux_manager"
             ) as mock_tmux,
@@ -924,7 +924,7 @@ class TestProviderSwitchPromptSetup:
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
             ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.tmux_manager"
             ) as mock_tmux,
@@ -1005,8 +1005,8 @@ class TestProviderSwitchChain:
         with (
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
-            ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            ) as mock_sm,
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.tmux_manager"
             ) as mock_tmux,
@@ -1115,8 +1115,8 @@ class TestMaybeDiscoverTranscript:
         with (
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
-            ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            ) as mock_sm,
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.get_provider_for_window",
                 return_value=mock_provider,
@@ -1154,8 +1154,8 @@ class TestMaybeDiscoverTranscript:
         with (
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
-            ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            ) as mock_sm,
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.tmux_manager"
             ) as mock_tmux,
@@ -1189,8 +1189,8 @@ class TestMaybeDiscoverTranscript:
         with (
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
-            ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            ) as mock_sm,
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_map_sync"
             ) as mock_sms,
@@ -1226,8 +1226,8 @@ class TestMaybeDiscoverTranscript:
         with (
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
-            ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            ) as mock_sm,
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.get_provider_for_window",
                 return_value=mock_provider,
@@ -1247,8 +1247,8 @@ class TestMaybeDiscoverTranscript:
         with (
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
-            ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            ) as mock_sm,
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
         ):
             mock_ws.window_states = {}
             await discover_and_register_transcript("@7")
@@ -1276,7 +1276,7 @@ class TestMaybeDiscoverTranscript:
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
             ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_map_sync"
             ) as mock_sms,
@@ -1343,7 +1343,7 @@ class TestMaybeDiscoverTranscript:
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
             ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_map_sync"
             ) as mock_sms,
@@ -1401,7 +1401,7 @@ class TestMaybeDiscoverTranscript:
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
             ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_map_sync"
             ) as mock_sms,
@@ -1452,8 +1452,8 @@ class TestMaybeDiscoverTranscript:
         with (
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
-            ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            ) as mock_sm,
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.get_provider_for_window",
                 return_value=mock_provider,
@@ -1500,7 +1500,7 @@ class TestMaybeDiscoverTranscript:
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
             ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_map_sync"
             ) as mock_sms,
@@ -1580,7 +1580,7 @@ class TestMaybeDiscoverTranscript:
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
             ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_map_sync"
             ) as mock_sms,
@@ -1661,7 +1661,7 @@ class TestMaybeDiscoverTranscript:
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
             ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_map_sync"
             ) as mock_sms,
@@ -1705,8 +1705,8 @@ class TestMaybeDiscoverTranscript:
         with (
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
-            ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            ) as mock_sm,
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.tmux_manager"
             ) as mock_tmux,
@@ -1734,7 +1734,7 @@ class TestMaybeDiscoverTranscript:
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
             ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.get_provider_for_window",
                 return_value=mock_provider,
@@ -1779,7 +1779,7 @@ class TestMaybeDiscoverTranscript:
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
             ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.get_provider_for_window",
                 return_value=mock_provider,
@@ -1813,7 +1813,10 @@ class TestMaybeDiscoverTranscript:
             discover_and_register_transcript,
         )
         from ccgram.providers.base import SessionStartEvent
-        from ccgram.providers.process_detection import _pgid_cache, clear_detection_cache
+        from ccgram.providers.process_detection import (
+            _pgid_cache,
+            clear_detection_cache,
+        )
 
         event = SessionStartEvent(
             session_id="new-codex-id",
@@ -1843,7 +1846,7 @@ class TestMaybeDiscoverTranscript:
                 ) as mock_sms,
                 patch(
                     "ccgram.window_state_ports.identity_state.window_store"
-                ) as mock_ws,  # noqa: F841
+                ) as mock_ws,
                 patch(
                     "ccgram.handlers.recovery.transcript_discovery.get_provider_for_window",
                     return_value=mock_provider,
@@ -1892,7 +1895,10 @@ class TestMaybeDiscoverTranscript:
             discover_and_register_transcript,
         )
         from ccgram.providers.base import SessionStartEvent
-        from ccgram.providers.process_detection import _pgid_cache, clear_detection_cache
+        from ccgram.providers.process_detection import (
+            _pgid_cache,
+            clear_detection_cache,
+        )
 
         event = SessionStartEvent(
             session_id="new-codex-id",
@@ -1922,7 +1928,7 @@ class TestMaybeDiscoverTranscript:
                 ) as mock_sms,
                 patch(
                     "ccgram.window_state_ports.identity_state.window_store"
-                ) as mock_ws,  # noqa: F841
+                ) as mock_ws,
                 patch(
                     "ccgram.handlers.recovery.transcript_discovery.get_provider_for_window",
                     return_value=mock_provider,
@@ -2004,8 +2010,8 @@ class TestMaybeDiscoverTranscript:
         with (
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
-            ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            ) as mock_sm,
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_map_sync"
             ) as mock_sms,
@@ -2099,8 +2105,8 @@ class TestMaybeDiscoverTranscript:
         with (
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_manager"
-            ) as mock_sm,  # noqa: F841
-            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,  # noqa: F841
+            ) as mock_sm,
+            patch("ccgram.window_state_ports.identity_state.window_store") as mock_ws,
             patch(
                 "ccgram.handlers.recovery.transcript_discovery.session_map_sync"
             ) as mock_sms,

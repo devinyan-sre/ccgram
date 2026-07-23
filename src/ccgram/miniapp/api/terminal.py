@@ -229,7 +229,7 @@ async def _terminal_handler(request: web.Request) -> web.StreamResponse:
     if pane_id is not None:
         try:
             panes = await pane_list(payload.window_id)
-        except Exception:  # noqa: BLE001 — surface as 403, never crash
+        except Exception:
             logger.exception(
                 "pane membership check failed for %s pane=%s",
                 payload.window_id,
@@ -288,7 +288,7 @@ async def _panes_handler(request: web.Request) -> web.Response:
 
     try:
         panes = await pane_list(payload.window_id)
-    except Exception:  # noqa: BLE001 — surface as 500, never crash the server
+    except Exception:
         logger.exception("pane list failed for %s", payload.window_id)
         return web.json_response({"error": "list failed"}, status=500)
 

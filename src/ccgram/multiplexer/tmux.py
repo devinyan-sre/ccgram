@@ -228,10 +228,7 @@ class TmuxManager:
         invalidate the snapshot so post-mutation reads are fresh.
         """
         cached = self._window_cache
-        if (
-            cached is not None
-            and time.monotonic() - cached[0] < self._window_cache_ttl
-        ):
+        if cached is not None and time.monotonic() - cached[0] < self._window_cache_ttl:
             return cached[1]
 
         result = await asyncio.to_thread(self._sync_list_windows)

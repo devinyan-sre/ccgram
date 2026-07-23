@@ -11,6 +11,8 @@ Covers:
 
 from __future__ import annotations
 
+import dataclasses
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -46,7 +48,7 @@ class TestTmuxCapabilities:
         assert caps.supports_event_stream is False
 
     def test_capabilities_is_frozen(self, mgr: TmuxManager) -> None:
-        with pytest.raises(Exception):  # frozen dataclass → FrozenInstanceError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             mgr.capabilities.name = "other"  # type: ignore[misc]
 
     def test_capabilities_full_snapshot(self, mgr: TmuxManager) -> None:

@@ -109,7 +109,7 @@ async def _handle_status_recall(
     try:
         idx = int(idx_raw)
         if idx < 0:
-            raise ValueError  # noqa: TRY301
+            raise ValueError
     except ValueError:
         await query.answer("Invalid data")
         return

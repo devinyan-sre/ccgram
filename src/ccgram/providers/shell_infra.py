@@ -31,7 +31,7 @@ _WARNED_INVALID_MODE = False
 
 def _get_prompt_mode() -> str:
     """Return the configured prompt mode (``wrap`` or ``replace``)."""
-    global _WARNED_INVALID_MODE  # noqa: PLW0603
+    global _WARNED_INVALID_MODE
     # Lazy: config singleton resolved at call time
     from ccgram.config import config
 

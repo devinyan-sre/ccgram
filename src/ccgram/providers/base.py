@@ -313,7 +313,7 @@ class AgentProvider(Protocol):
         """
         return None
 
-    async def seed_task_state(  # noqa: ARG002
+    async def seed_task_state(
         self,
         window_id: str,
         session_id: str,
@@ -326,7 +326,7 @@ class AgentProvider(Protocol):
         Only providers with ``supports_task_tracking=True`` implement this.
         """
 
-    def apply_task_entries(  # noqa: ARG002
+    def apply_task_entries(
         self,
         window_id: str,
         session_id: str,

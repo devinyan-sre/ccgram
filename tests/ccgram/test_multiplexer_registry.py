@@ -82,7 +82,7 @@ class TestProxy:
         fake = _FakeBackend()
         install_multiplexer(cast("Multiplexer", fake))
         assert multiplexer.capabilities == "fake-caps"
-        assert getattr(multiplexer, "ping")() == "pong"
+        assert multiplexer.ping() == "pong"  # pyright: ignore[reportAttributeAccessIssue] — proxy forwards unknown attrs
         assert get_active_multiplexer() is fake
 
     def test_repr_reflects_wiring_state(self) -> None:

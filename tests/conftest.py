@@ -131,7 +131,7 @@ def _cleanup_created_windows(request, monkeypatch) -> Iterator[None]:
         if orig is None:
             return
 
-        async def wrapper(self, *args, **kwargs):  # noqa: ANN001, ANN202
+        async def wrapper(self, *args, **kwargs):
             result = await orig(self, *args, **kwargs)
             if (
                 isinstance(result, tuple)

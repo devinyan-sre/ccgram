@@ -680,7 +680,7 @@ class TestVariableTerminalSizes:
         status = "✻ Working on task"
         sep = "─" * 30
         chrome = [sep, "❯ ", sep, "  ⎇ main  ✱ Opus 4.6"]
-        return "\n".join(content + [status] + chrome)
+        return "\n".join([*content, status, *chrome])
 
     @pytest.mark.parametrize("rows", [24, 50, 100], ids=["24row", "50row", "100row"])
     def test_status_detected_any_size(self, rows: int):
@@ -693,9 +693,9 @@ class TestVariableTerminalSizes:
         status = "✻ Working on task"
         sep = "─" * 30
         chrome = [sep, "❯ ", sep, "  ⎇ main  ✱ Opus 4.6"]
-        lines = content + [status] + chrome
+        lines = [*content, status, *chrome]
         result = strip_pane_chrome(lines)
-        assert result == content + [status]
+        assert result == [*content, status]
 
     def test_pane_rows_optimization(self):
         pane = self._build_pane(content_lines=80)

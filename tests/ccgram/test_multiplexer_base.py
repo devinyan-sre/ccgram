@@ -10,6 +10,7 @@ Covers:
 from __future__ import annotations
 
 import ast
+import dataclasses
 import importlib
 from pathlib import Path
 
@@ -167,7 +168,7 @@ class TestMultiplexerCapabilities:
 
     def test_immutable(self) -> None:
         caps = self._tmux_caps()
-        with pytest.raises(Exception):  # frozen dataclass raises FrozenInstanceError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             caps.name = "other"  # type: ignore[misc]
 
 

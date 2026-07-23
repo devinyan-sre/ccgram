@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any
 from unittest.mock import patch
 
@@ -44,7 +45,7 @@ def _banner(mode: RecoveryMode, **overrides: Any) -> RecoveryBanner:
 class TestRecoveryBannerDataclass:
     def test_is_frozen(self) -> None:
         banner = _banner("dead")
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError):
             banner.window_id = "@1"  # type: ignore[misc]
 
     def test_default_provider_and_display_optional(self) -> None:

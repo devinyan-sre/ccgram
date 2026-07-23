@@ -187,7 +187,7 @@ class WindowState:
         return d
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:  # noqa: C901
+    def from_dict(cls, data: dict[str, Any]) -> Self:
         raw_panes = data.get("panes") or {}
         panes: dict[str, PaneInfo] = {}
         if isinstance(raw_panes, dict):

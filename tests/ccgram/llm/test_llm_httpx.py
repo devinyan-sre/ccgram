@@ -198,7 +198,7 @@ class TestCompleterErrors:
         )
         with (
             _patch_httpx_client(mock_post),
-            pytest.raises(RuntimeError, match="LLM request failed.*429"),
+            pytest.raises(RuntimeError, match=r"LLM request failed.*429"),
         ):
             await completer.generate_command("test", os_info="Linux")
 

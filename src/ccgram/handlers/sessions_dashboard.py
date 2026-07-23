@@ -100,7 +100,7 @@ async def _build_dashboard(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
             action_rows.append(row)
 
     text = "Sessions\n\n" + "\n".join(lines)
-    rows = action_rows + [[_REFRESH_BTN, _NEW_BTN]]
+    rows = [*action_rows, [_REFRESH_BTN, _NEW_BTN]]
     return text, InlineKeyboardMarkup(rows)
 
 

@@ -594,7 +594,7 @@ def _uninstall_hook(provider_name: str = "claude") -> int:  # noqa: PLR0911
     return 0
 
 
-def _hook_status(provider_name: str = "claude") -> int:  # noqa: PLR0911
+def _hook_status(provider_name: str = "claude") -> int:
     """Show per-event hook installation status.
 
     Returns 0 if all installed, 1 if any missing.

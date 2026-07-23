@@ -1,6 +1,7 @@
 """Tests for SessionMonitor."""
 
 import json
+from typing import ClassVar
 import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -1080,11 +1081,11 @@ class TestScanProjects:
 class TestGeminiTranscriptReading:
     """Test _read_new_lines delegation for Gemini with supports_incremental_read=True."""
 
-    _GEMINI_META = {
+    _GEMINI_META: ClassVar[dict[str, str]] = {
         "sessionId": "g1",
         "projectHash": "h1",
     }
-    _GEMINI_MESSAGES = [
+    _GEMINI_MESSAGES: ClassVar[list[dict]] = [
         {"type": "user", "content": [{"text": "hello"}]},
         {"type": "gemini", "content": [{"text": "hi there"}]},
         {"type": "user", "content": [{"text": "thanks"}]},
