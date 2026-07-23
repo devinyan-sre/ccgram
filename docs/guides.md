@@ -405,6 +405,37 @@ CCGram 会在会话结束时自动关闭 Telegram 话题，减少杂乱：
 ccgram --autoclose-done 0 --autoclose-dead 0
 ```
 
+<a id="isolation-model"></a>
+
+## 隔离模型与硬性约束(部署前必读)
+
+CCGram 的一切隔离都建立在**三道边界**上。理解它们,就能明白什么可以随意放、什么必须遵守。
+
+### 三道隔离边界
+
+| 边界 | 配置 | 作用 |
+| ---- | ---- | ---- |
+| **tmux 会话名** | `TMUX_SESSION_NAME`(默认 `ccgram`) | 窗口发现、自动收养、状态轮询**严格限定在本会话内**。其他 tmux 会话里的窗口对 bot 完全不可见——这是实例之间的第一道墙 |
+| **状态目录** | `CCGRAM_DIR`(默认 `~/.ccgram`) | bot 与 hook 的共享总线(`session_map.json`、`events.jsonl`、`state.json`)。注意:**hook 是 agent 窗口里的独立子进程,按环境变量解析该目录**——想让某组窗口的 hook 写到别的实例,必须在窗口能继承到的环境里设置 `CCGRAM_DIR`(如 `tmux set-environment -t <会话> CCGRAM_DIR <路径>`) |
+| **session_map key 前缀** | 自动(`<tmux会话名>:<窗口id>`,herdr 为 `herdr:`) | 即使多个实例共用同一个状态文件,监控端也只处理带本会话前缀的条目(如 `ccgram:@5`),其余一律跳过 |
+
+### 窗口创建的硬性要求
+
+- **窗口必须位于 ccgram 自己的 tmux 会话内**。无论通过 Telegram 创建还是终端手动创建,自动收养只扫描本会话;其它会话里跑的 agent 不会变成话题。
+- **项目目录没有位置要求**。任何路径都能作为话题的工作目录,不需要放在特定目录下;同一目录也可以同时开多个窗口。
+- **worktree 话题有固定目录约定**:自动创建在 `<仓库>.worktrees/<分支slug>`(与仓库同级,不在仓库内部),例如 `~/code/myapp` 的 `fix/login` 分支 → `~/code/myapp.worktrees/fix-login`。
+- **1 话题 = 1 窗口 = 1 会话**。窗口 ID(`@N`)是内部主键,tmux 服务器重启后会重排(靠显示名重新匹配);窗口名只是显示标签,允许重复。
+- **agent CLI 必须在 bot 进程的 `PATH` 里**(systemd 部署时注意单元文件的 `Environment=PATH`)。
+
+### 文件访问边界
+
+- `/send` 只能发送**窗口工作目录内**的文件,且排除隐藏文件(`.` 开头的任何路径成分)和被 `.gitignore` 忽略的文件——目录之外的路径一律拒绝。
+- Telegram 上传的文件落在 `<工作目录>/.ccgram-uploads/`。
+
+### 测试与生产共存
+
+在生产 bot 运行的机器上跑 e2e 测试是安全的,因为测试套件同时启用了两道边界:独立 tmux 会话(`ccgram-e2e`)+ 会话级 `CCGRAM_DIR` 指向临时目录。**自建类似的旁路环境(staging、第二实例、CI)时,务必同时做到这两点**——只隔离其一,hook 写入或窗口收养就会串到生产实例(我们曾因此在生产群里差点收到一堆测试话题)。
+
 <a id="multi-instance-setup"></a>
 
 ## 多实例部署

@@ -60,6 +60,8 @@ graph LR
 
 Each Telegram topic maps to one multiplexer window. Type in Telegram → keystrokes to pane → agent output back to Telegram.
 
+**Isolation model (three boundaries)**: ① window discovery is strictly scoped to ccgram's own tmux session (`TMUX_SESSION_NAME`); ② the state directory `CCGRAM_DIR` is the shared bus between bot and hooks; ③ session-map entries are filtered by their `<session>:<window-id>` prefix. Project directories can live anywhere — only the tmux session a window lives in matters. Read [Isolation Model & Hard Constraints](docs/en/guides.md#isolation-model--hard-constraints-read-before-deploying) before deploying.
+
 ---
 
 ## What You Can Do

@@ -361,6 +361,35 @@ Set to `0` to disable:
 ccgram --autoclose-done 0 --autoclose-dead 0
 ```
 
+## Isolation Model & Hard Constraints (read before deploying)
+
+All of CCGram's isolation rests on **three boundaries**. Understanding them tells you what can go anywhere and what must follow the rules.
+
+### The three isolation boundaries
+
+| Boundary | Config | Role |
+| -------- | ------ | ---- |
+| **tmux session name** | `TMUX_SESSION_NAME` (default `ccgram`) | Window discovery, auto-adoption, and status polling are **strictly scoped to this session**. Windows in other tmux sessions are completely invisible to the bot — the first wall between instances |
+| **State directory** | `CCGRAM_DIR` (default `~/.ccgram`) | The shared bus between bot and hooks (`session_map.json`, `events.jsonl`, `state.json`). Note: **hooks are separate subprocesses inside agent windows and resolve this directory from their environment** — to point a group of windows at a different instance, set `CCGRAM_DIR` somewhere the windows inherit it (e.g. `tmux set-environment -t <session> CCGRAM_DIR <path>`) |
+| **session_map key prefix** | automatic (`<tmux-session>:<window-id>`; `herdr:` for herdr) | Even if multiple instances share one state file, the monitor only processes entries carrying its own session prefix (e.g. `ccgram:@5`) and skips everything else |
+
+### Hard requirements for window creation
+
+- **Windows must live in ccgram's own tmux session.** Whether created via Telegram or manually in the terminal, auto-adoption scans only that session; agents running in other sessions never become topics.
+- **Project directories have no location requirement.** Any path can back a topic; the same directory can host multiple windows simultaneously.
+- **Worktree topics follow a fixed directory convention**: created at `<repo>.worktrees/<branch-slug>` next to the repo (not inside it), e.g. branch `fix/login` of `~/code/myapp` → `~/code/myapp.worktrees/fix-login`.
+- **1 topic = 1 window = 1 session.** Window IDs (`@N`) are the internal primary key and get renumbered on tmux server restart (re-matched by display name); window names are display labels and may repeat.
+- **Agent CLIs must be on the bot process's `PATH`** (mind the unit file's `Environment=PATH` under systemd).
+
+### File access boundaries
+
+- `/send` only serves files **inside the window's working directory**, excluding hidden files (any `.`-prefixed path component) and `.gitignore`d files — paths outside the directory are rejected outright.
+- Files uploaded from Telegram land in `<workdir>/.ccgram-uploads/`.
+
+### Tests coexisting with production
+
+Running e2e tests on a machine with a live production bot is safe because the suite enables both boundaries at once: a dedicated tmux session (`ccgram-e2e`) plus a session-level `CCGRAM_DIR` pointing at a temp directory. **When you build a similar side environment (staging, second instance, CI), always do both** — isolating only one lets hook writes or window adoption bleed into the production instance (we once nearly flooded a real group with test topics this way).
+
 ## Multi-Instance Setup
 
 Run multiple ccgram instances on the same machine, each owning a different Telegram group. All instances can share a single bot token.

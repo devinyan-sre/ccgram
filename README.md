@@ -60,6 +60,8 @@ graph LR
 
 每个 Telegram 话题映射到一个复用器窗口。在 Telegram 输入 → 按键发送到 pane → agent 输出回传到 Telegram。
 
+**隔离模型(三道边界)**:① 窗口发现严格限定在 ccgram 自己的 tmux 会话内(`TMUX_SESSION_NAME`);② 状态目录 `CCGRAM_DIR` 是 bot 与 hook 的共享总线;③ 会话映射按 `<会话名>:<窗口id>` 前缀过滤。项目目录本身放哪都行——只有窗口所在的 tmux 会话有要求。部署前请读 [隔离模型与硬性约束](docs/guides.md#isolation-model)。
+
 ---
 
 ## 功能一览
