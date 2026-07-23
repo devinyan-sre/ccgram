@@ -109,7 +109,7 @@ def _check_herdr_hook_coexistence() -> tuple[str, str]:
     ``~/.claude/settings.json``; this confirms one did not clobber the other.
     """
     # Lazy: hook helpers reach back into bot wiring; defer until doctor runs.
-    from .hook import _claude_settings_file
+    from .hooks.install import _claude_settings_file
 
     settings_file = _claude_settings_file()
     if not settings_file.exists():
@@ -192,7 +192,7 @@ def _resolve_hook_check_config(
     events is empty — the caller uses get_installed_events directly.
     """
     # Lazy: hook helpers reach back into bot wiring; defer until doctor runs
-    from .hook import (
+    from .hooks.install import (
         _CODEX_HOOK_EVENTS,
         _GEMINI_HOOK_EVENTS,
         _HOOK_EVENT_TYPES,
@@ -260,7 +260,7 @@ def _check_hooks(provider_name: str = "claude") -> tuple[str, str, dict[str, boo
 
     if predicate is None:
         # Lazy: claude uses its own settings.json scanner
-        from .hook import get_installed_events
+        from .hooks.install import get_installed_events
 
         event_status = get_installed_events(settings)
     else:
@@ -422,7 +422,7 @@ def _fix_hooks(
     if not missing:
         return
     # Lazy: hook helpers reach back into bot wiring; defer until doctor runs
-    from .hook import _install_hook
+    from .hooks.install import _install_hook
 
     result = _install_hook(provider_name)
     if result == 0:

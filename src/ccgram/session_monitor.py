@@ -17,6 +17,8 @@ Re-exported from transcript_reader for backward-compatible imports.
 """
 
 import asyncio
+import time
+
 import structlog
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -210,10 +212,8 @@ class SessionMonitor:
         failure the session is skipped for an exponentially growing cooldown
         (capped at ``_SESSION_ERROR_BACKOFF_MAX``); any success resets it.
         """
-        import time as _time  # Lazy: keep module deps minimal for the hot loop
-
         breaker = self._session_error_breaker.get(session_id)
-        now = _time.monotonic()
+        now = time.monotonic()
         if breaker is not None and now < breaker[1]:
             return
 

@@ -108,7 +108,9 @@ class TestCheckHooks:
                 {"hooks": [{"type": "command", "command": "ccgram hook"}]}
             ]
         settings_file.write_text(json.dumps({"hooks": hooks}))
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         status, msg, event_status = _check_hooks()
         assert status == "pass"
@@ -124,7 +126,9 @@ class TestCheckHooks:
             }
         }
         settings_file.write_text(json.dumps(settings))
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         status, msg, event_status = _check_hooks()
         assert status == "warn"
@@ -134,7 +138,9 @@ class TestCheckHooks:
     def test_none_installed(self, tmp_path, monkeypatch) -> None:
         settings_file = tmp_path / "settings.json"
         settings_file.write_text(json.dumps({"hooks": {}}))
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         status, msg, event_status = _check_hooks()
         assert status == "fail"
@@ -142,7 +148,9 @@ class TestCheckHooks:
 
     def test_missing_settings_file(self, tmp_path, monkeypatch) -> None:
         settings_file = tmp_path / "nonexistent.json"
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         status, msg, event_status = _check_hooks()
         assert status == "fail"
@@ -230,7 +238,7 @@ class TestDoctorMain:
         # Isolate from the dev machine's real ~/.codex (codex hooks may be
         # installed there) so the "not installed" path is exercised.
         monkeypatch.setattr(
-            "ccgram.hook._codex_hooks_file",
+            "ccgram.hooks.install._codex_hooks_file",
             lambda: tmp_path / ".codex" / "hooks.json",
         )
 
@@ -244,7 +252,7 @@ class TestDoctorMain:
         )
         monkeypatch.setattr("ccgram.doctor_cmd._find_orphaned_windows", lambda: [])
         monkeypatch.setattr(
-            "ccgram.hook._codex_hooks_file",
+            "ccgram.hooks.install._codex_hooks_file",
             lambda: tmp_path / ".codex" / "hooks.json",
         )
 
@@ -365,7 +373,9 @@ class TestCheckHerdrHookCoexistence:
                 }
             )
         )
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
     def test_both_present(self, tmp_path, monkeypatch) -> None:
         self._write_claude_settings(
@@ -389,7 +399,7 @@ class TestCheckHerdrHookCoexistence:
 
     def test_settings_missing_warns(self, tmp_path, monkeypatch) -> None:
         monkeypatch.setattr(
-            "ccgram.hook._claude_settings_file",
+            "ccgram.hooks.install._claude_settings_file",
             lambda: tmp_path / "nonexistent.json",
         )
         status, msg = _check_herdr_hook_coexistence()

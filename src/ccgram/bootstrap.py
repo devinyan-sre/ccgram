@@ -117,7 +117,7 @@ def verify_hooks_installed() -> None:
     # importing it eagerly drags `utils`/IO costs into bootstrap even
     # when the active provider has no hooks.
     # Lazy: hook helpers used only during the hook-verify step
-    from .hook import _claude_settings_file, get_installed_events
+    from .hooks.install import _claude_settings_file, get_installed_events
 
     settings_file = _claude_settings_file()
     if not settings_file.exists():

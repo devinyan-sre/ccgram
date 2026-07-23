@@ -35,7 +35,9 @@ class TestInstallHook:
     def test_install_into_empty_settings(self, tmp_path, monkeypatch) -> None:
         settings_file = tmp_path / "settings.json"
         settings_file.parent.mkdir(parents=True, exist_ok=True)
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         result = _install_hook()
         assert result == 0
@@ -66,7 +68,9 @@ class TestInstallHook:
             }
         }
         settings_file.write_text(json.dumps(settings))
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         result = _install_hook()
         assert result == 0
@@ -98,7 +102,9 @@ class TestInstallHook:
             }
         }
         settings_file.write_text(json.dumps(settings))
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         result = _install_hook()
         assert result == 0
@@ -126,7 +132,9 @@ class TestInstallHook:
             }
         }
         settings_file.write_text(json.dumps(settings))
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         result = _install_hook()
         assert result == 0
@@ -141,7 +149,9 @@ class TestInstallHook:
     ) -> None:
         settings_file = tmp_path / "settings.json"
         settings_file.parent.mkdir(parents=True, exist_ok=True)
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         _install_hook()
 
@@ -156,7 +166,9 @@ class TestInstallMultipleEvents:
         from ccgram.hook import _HOOK_EVENT_TYPES
 
         settings_file = tmp_path / "settings.json"
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         result = _install_hook()
         assert result == 0
@@ -171,7 +183,9 @@ class TestInstallMultipleEvents:
 
     def test_async_flag_on_subagent_events(self, tmp_path, monkeypatch) -> None:
         settings_file = tmp_path / "settings.json"
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         _install_hook()
 
@@ -185,7 +199,9 @@ class TestInstallMultipleEvents:
 
     def test_idempotent_install(self, tmp_path, monkeypatch) -> None:
         settings_file = tmp_path / "settings.json"
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         _install_hook()
         _install_hook()  # Second install
@@ -209,7 +225,9 @@ class TestUninstallMultipleEvents:
         from ccgram.hook import _uninstall_hook, get_installed_events
 
         settings_file = tmp_path / "settings.json"
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         _install_hook()
         settings = json.loads(settings_file.read_text())
@@ -441,7 +459,9 @@ class TestUninstallHook:
             }
         }
         settings_file.write_text(json.dumps(settings))
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         result = _uninstall_hook()
         assert result == 0
@@ -451,7 +471,9 @@ class TestUninstallHook:
 
     def test_uninstall_no_settings_file(self, tmp_path, monkeypatch) -> None:
         settings_file = tmp_path / "nonexistent.json"
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         result = _uninstall_hook()
         assert result == 0
@@ -478,7 +500,9 @@ class TestUninstallHook:
             }
         }
         settings_file.write_text(json.dumps(settings))
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         result = _uninstall_hook()
         assert result == 0
@@ -508,7 +532,9 @@ class TestUninstallHook:
             }
         }
         settings_file.write_text(json.dumps(settings))
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         result = _uninstall_hook()
         assert result == 0
@@ -539,7 +565,9 @@ class TestUninstallHook:
             }
         }
         settings_file.write_text(json.dumps(settings))
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         result = _uninstall_hook()
         assert result == 0
@@ -551,7 +579,9 @@ class TestUninstallHook:
     def test_uninstall_not_installed(self, tmp_path, monkeypatch) -> None:
         settings_file = tmp_path / "settings.json"
         settings_file.write_text(json.dumps({"hooks": {}}))
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         result = _uninstall_hook()
         assert result == 0
@@ -630,7 +660,9 @@ class TestHookStatus:
     def test_all_installed(self, tmp_path, monkeypatch, capsys) -> None:
         settings_file = tmp_path / "settings.json"
         settings_file.write_text(json.dumps(self._all_events_settings()))
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         result = _hook_status()
         assert result == 0
@@ -646,7 +678,9 @@ class TestHookStatus:
             }
         }
         settings_file.write_text(json.dumps(settings))
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         result = _hook_status()
         assert result == 1
@@ -657,7 +691,9 @@ class TestHookStatus:
     def test_not_installed(self, tmp_path, monkeypatch, capsys) -> None:
         settings_file = tmp_path / "settings.json"
         settings_file.write_text(json.dumps({"hooks": {}}))
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         result = _hook_status()
         assert result == 1
@@ -665,7 +701,9 @@ class TestHookStatus:
 
     def test_no_settings_file(self, tmp_path, monkeypatch, capsys) -> None:
         settings_file = tmp_path / "nonexistent.json"
-        monkeypatch.setattr("ccgram.hook._claude_settings_file", lambda: settings_file)
+        monkeypatch.setattr(
+            "ccgram.hooks.install._claude_settings_file", lambda: settings_file
+        )
 
         result = _hook_status()
         assert result == 1

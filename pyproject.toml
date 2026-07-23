@@ -110,6 +110,8 @@ max-statements = 60
 "src/ccgram/bot.py" = ["C901", "PLR0912"]
 # Hook: CLI dispatch with multiple subcommands
 "src/ccgram/hook.py" = ["C901", "PLR0915"]
+# Hook installer: settings-schema traversal is inherently branchy
+"src/ccgram/hooks/install.py" = ["C901", "PLR0915"]
 # CC commands: filesystem scan with validation branches
 "src/ccgram/cc_commands.py" = ["C901", "PLR0912"]
 # History: paginated message formatting with many edge cases

@@ -408,7 +408,9 @@ def test_gemini_install_adds_provider_specific_hooks(
     tmp_path: Path, monkeypatch
 ) -> None:
     settings_file = tmp_path / "settings.json"
-    monkeypatch.setattr("ccgram.hook._gemini_settings_file", lambda: settings_file)
+    monkeypatch.setattr(
+        "ccgram.hooks.install._gemini_settings_file", lambda: settings_file
+    )
 
     assert _install_hook("gemini") == 0
     assert _install_hook("gemini") == 0

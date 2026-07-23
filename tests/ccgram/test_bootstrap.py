@@ -265,7 +265,7 @@ class TestVerifyHooksInstalled:
         with (
             patch("ccgram.bootstrap.get_provider", return_value=provider),
             patch("ccgram.bootstrap.logger") as logger,
-            patch("ccgram.hook._claude_settings_file", return_value=missing),
+            patch("ccgram.hooks.install._claude_settings_file", return_value=missing),
         ):
             bootstrap.verify_hooks_installed()
 
