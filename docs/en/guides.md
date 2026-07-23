@@ -654,34 +654,106 @@ All state files live in `$CCGRAM_DIR` (`~/.ccgram/` by default):
 
 Session transcripts are read from provider-specific locations (read-only): `~/.claude/projects/` (Claude), `~/.codex/sessions/` (Codex), `~/.gemini/tmp/` (Gemini), `~/.pi/agent/sessions/` (Pi). Shell has no transcript — output is captured directly from the tmux pane. The bot never writes to agent data directories.
 
-## Running as a Service
+## Running as a Service (Production Deployment)
 
-For persistent operation, run ccgram as a systemd service or under a process manager:
+For persistent operation, deploy ccgram as a **systemd user service**. The following is a production-verified setup.
+
+### 1. Install
 
 ```bash
-# systemd user service (~/.config/systemd/user/ccgram.service)
+uv tool install ccgram        # from PyPI (recommended)
+# or from a local checkout / fork:
+cd /path/to/ccgram && uv tool install --force --reinstall .
+```
+
+The executable lands in `~/.local/bin/ccgram`. Run `ccgram doctor` once manually to confirm configuration, hooks, multiplexer, and agent CLIs are ready.
+
+### 2. systemd unit
+
+`~/.config/systemd/user/ccgram.service`:
+
+```ini
 [Unit]
-Description=CCGram - Command & Control Bot for AI coding agents
-After=network.target
+Description=ccgram — Telegram <-> tmux bridge for Claude Code
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=notify
-ExecStart=%h/.local/bin/ccgram
+ExecStart=%h/.local/bin/ccgram run
+# PATH must include the directories of your agent CLIs (claude/codex/...) and tmux
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=on-failure
 RestartSec=5
 WatchdogSec=90
-Environment=CCGRAM_DIR=%h/.ccgram
 
 [Install]
 WantedBy=default.target
 ```
 
-```bash
-systemctl --user enable ccgram
-systemctl --user start ccgram
+`Type=notify` + `WatchdogSec` arm a health watchdog: the bot sends `READY=1` once bootstrapped, then a heartbeat every half watchdog interval — gated on internal health checks (session-monitor and status-polling loops alive). A wedged or dead core loop withholds the heartbeat and systemd restarts the service. Revert to `Type=simple` (and drop `WatchdogSec`) to disable, falling back to plain crash restarts.
+
+### 3. File logging (drop-in, optional but recommended)
+
+The per-user journal is permission-restricted on some distros; logging straight to a file avoids that.
+`~/.config/systemd/user/ccgram.service.d/logging.conf`:
+
+```ini
+[Service]
+StandardOutput=append:%h/.ccgram/ccgram.log
+StandardError=append:%h/.ccgram/ccgram.log
 ```
 
-`Type=notify` + `WatchdogSec` arm a health watchdog: the bot sends `READY=1` once bootstrapped, then a heartbeat every half watchdog interval — gated on internal health checks (session-monitor and status-polling loops alive). A wedged or dead core loop withholds the heartbeat and systemd restarts the service. Revert to `Type=simple` (and drop `WatchdogSec`) to disable, falling back to plain crash restarts.
+Note that `append:` mode has **no automatic rotation** — pair it with logrotate (user config + cron) or periodic manual cleanup.
+
+### 4. Enable and start
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now ccgram
+
+# On servers, lingering is required or the user service dies when SSH disconnects:
+loginctl enable-linger $USER
+```
+
+### 5. Verify
+
+```bash
+systemctl --user status ccgram          # Active: active (running)
+systemctl --user show ccgram -p NRestarts   # should be 0
+ccgram status                           # the bot's own status
+tail -f ~/.ccgram/ccgram.log            # watch the startup log
+```
+
+A healthy startup logs, in order: `Multiplexer backend wired` → `Session monitor started` → `Status polling started` → `systemd watchdog armed`.
+
+### 6. Upgrading / deploying a new version
+
+```bash
+# Installed from PyPI:
+uv tool upgrade ccgram && systemctl --user restart ccgram
+
+# Installed from a local checkout / fork (a PyPI upgrade would overwrite the
+# local build — always reinstall from the repo):
+cd /path/to/ccgram && git pull
+uv tool install --force --reinstall .
+systemctl --user restart ccgram
+
+# After restarting, confirm:
+systemctl --user show ccgram -p NRestarts   # still 0 means no crash loop
+```
+
+You can also send `/upgrade` in any bound topic — the bot runs `uv tool upgrade` and restarts itself.
+
+### 7. Troubleshooting
+
+| Symptom | Cause & fix |
+| ------- | ----------- |
+| Service dies after SSH disconnect | Lingering not enabled: `loginctl enable-linger $USER` |
+| `Not enough rights to create a topic` | Bot lacks the "Manage Topics" admin right (see BotFather setup) |
+| Agent fails to launch in windows / command not found | The unit's `Environment=PATH` is missing the agent CLI's directory |
+| Service restarts repeatedly (NRestarts grows) | Check the last traceback in `~/.ccgram/ccgram.log`; a broken `.env` is the most common cause |
+| Watchdog keeps triggering restarts | A core loop is wedged — upgrade to the latest version first; as a stopgap, revert to `Type=simple` |
 
 On macOS, you can use a launchd plist or simply run in a detached tmux session:
 

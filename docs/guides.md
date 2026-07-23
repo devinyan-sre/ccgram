@@ -744,34 +744,105 @@ CCGram 支持 Claude Code、Codex CLI、Gemini CLI、Pi 和 Shell。每个话题
 
 <a id="running-as-a-service"></a>
 
-## 作为服务运行
+## 作为服务运行(生产部署)
 
-如需长期运行，可将 ccgram 作为 systemd 服务或交由进程管理器运行：
+如需长期运行，推荐将 ccgram 部署为 **systemd 用户服务**。以下是一套经过生产验证的完整配置。
+
+### 1. 安装
 
 ```bash
-# systemd user service (~/.config/systemd/user/ccgram.service)
+uv tool install ccgram        # 从 PyPI 安装(推荐)
+# 或从本地源码 / fork 安装:
+cd /path/to/ccgram && uv tool install --force --reinstall .
+```
+
+可执行文件位于 `~/.local/bin/ccgram`。先手动跑一次 `ccgram doctor` 确认配置、hooks、复用器和 agent CLI 均就绪。
+
+### 2. systemd 单元
+
+`~/.config/systemd/user/ccgram.service`:
+
+```ini
 [Unit]
-Description=CCGram - Command & Control Bot for AI coding agents
-After=network.target
+Description=ccgram — Telegram <-> tmux bridge for Claude Code
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=notify
-ExecStart=%h/.local/bin/ccgram
+ExecStart=%h/.local/bin/ccgram run
+# PATH 必须包含 agent CLI(claude/codex/…)与 tmux 所在目录
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=on-failure
 RestartSec=5
 WatchdogSec=90
-Environment=CCGRAM_DIR=%h/.ccgram
 
 [Install]
 WantedBy=default.target
 ```
 
-```bash
-systemctl --user enable ccgram
-systemctl --user start ccgram
+`Type=notify` + `WatchdogSec` 启用健康看门狗:bot 启动完成后向 systemd 发送 `READY=1`,之后每半个看门狗周期发送一次心跳——心跳与内部健康检查(会话监控循环、状态轮询循环存活)绑定,任一核心循环卡死或退出即停止心跳,systemd 会自动重启服务。改回 `Type=simple`(并删除 `WatchdogSec`)即可禁用,行为退化为普通崩溃重启。
+
+### 3. 日志落盘(drop-in,可选但推荐)
+
+用户级 journal 在部分发行版上受权限限制,建议直接落文件。
+`~/.config/systemd/user/ccgram.service.d/logging.conf`:
+
+```ini
+[Service]
+StandardOutput=append:%h/.ccgram/ccgram.log
+StandardError=append:%h/.ccgram/ccgram.log
 ```
 
-`Type=notify` + `WatchdogSec` 启用健康看门狗:bot 启动完成后向 systemd 发送 `READY=1`,之后每半个看门狗周期发送一次心跳——心跳与内部健康检查(会话监控循环、状态轮询循环存活)绑定,任一核心循环卡死或退出即停止心跳,systemd 会自动重启服务。改回 `Type=simple`(并删除 `WatchdogSec`)即可禁用,行为退化为普通崩溃重启。
+注意 `append:` 模式**没有自动轮转**,建议配套 logrotate(`~/.config/logrotate.conf` + 用户 cron)或定期手动清理。
+
+### 4. 启用并启动
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now ccgram
+
+# 服务器上必须开启 linger,否则 SSH 断开后用户服务会被杀掉:
+loginctl enable-linger $USER
+```
+
+### 5. 验证
+
+```bash
+systemctl --user status ccgram          # Active: active (running)
+systemctl --user show ccgram -p NRestarts   # 应为 0
+ccgram status                           # bot 自身状态
+tail -f ~/.ccgram/ccgram.log            # 观察启动日志
+```
+
+启动日志应依次出现:`Multiplexer backend wired` → `Session monitor started` → `Status polling started` → `systemd watchdog armed`。
+
+### 6. 升级 / 发布新版本
+
+```bash
+# PyPI 安装的:
+uv tool upgrade ccgram && systemctl --user restart ccgram
+
+# 本地源码 / fork 安装的(PyPI 升级会覆盖本地构建,务必用本地重装):
+cd /path/to/ccgram && git pull
+uv tool install --force --reinstall .
+systemctl --user restart ccgram
+
+# 重启后确认:
+systemctl --user show ccgram -p NRestarts   # 仍为 0 说明没有崩溃循环
+```
+
+也可以直接在绑定的话题里发送 `/upgrade`,由 bot 自行执行 `uv tool upgrade` 并重启。
+
+### 7. 常见问题
+
+| 症状 | 原因与处理 |
+| ---- | ---------- |
+| SSH 断开后服务消失 | 未开 linger:`loginctl enable-linger $USER` |
+| `Not enough rights to create a topic` | 机器人缺「管理话题」管理员权限(见 BotFather 配置一节) |
+| 窗口里 agent 启动失败 / 找不到命令 | 单元的 `Environment=PATH` 没包含 agent CLI 所在目录 |
+| 服务反复重启(NRestarts 增长) | 看 `~/.ccgram/ccgram.log` 的最后一段 traceback;`.env` 配置错误最常见 |
+| 看门狗频繁触发重启 | 核心循环卡死,先升级到最新版;临时可改回 `Type=simple` |
 
 在 macOS 上，可以使用 launchd plist，或直接在分离的 tmux 会话中运行：
 

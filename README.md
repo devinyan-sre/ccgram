@@ -112,7 +112,7 @@ ccgram
 
 ## 文档
 
-- **[使用指南](docs/guides.md)** — CLI 参考、配置、语音转写、多实例部署、会话恢复、测试
+- **[使用指南](docs/guides.md)** — CLI 参考、配置、语音转写、多实例部署、会话恢复、测试、**生产部署(systemd + 看门狗 + 日志落盘)**
 - **[Provider 说明](docs/providers.md)** — Claude Code、Codex、Gemini、Pi、Shell;会话模式、LLM 配置、自定义命令、git worktree
 
 ---

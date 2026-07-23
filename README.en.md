@@ -112,7 +112,7 @@ Open your Telegram group, create a topic, send a message — directory browser a
 
 ## Documentation
 
-- **[Guides](docs/en/guides.md)** — CLI reference, configuration, voice transcription, multi-instance setup, session recovery, testing
+- **[Guides](docs/en/guides.md)** — CLI reference, configuration, voice transcription, multi-instance setup, session recovery, testing, **production deployment (systemd + watchdog + file logging)**
 - **[Providers](docs/en/providers.md)** — Claude Code, Codex, Gemini, Pi, Shell; session modes, LLM config, custom commands, git worktrees
 
 ---
