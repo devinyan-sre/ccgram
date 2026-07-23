@@ -37,3 +37,8 @@ PENDING_WORKTREE_DIRTY = "_pending_worktree_dirty"
 PENDING_WORKTREE_SUBDIR = "_pending_worktree_subdir"
 PENDING_WORKTREE_CREATING = "_pending_worktree_creating"
 AWAITING_WORKTREE_BRANCH_NAME = "_awaiting_worktree_branch_name"
+
+# Window-launch in-flight guard (provider/mode select → launch_window). Holds the
+# pending thread id while launch_window runs so a duplicate tap on the (already
+# cleared) picker shows "creating…" instead of a false "Selection expired".
+PENDING_LAUNCH_THREAD = "_pending_launch_thread"

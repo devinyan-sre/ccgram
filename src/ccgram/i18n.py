@@ -179,6 +179,7 @@ _ZH: dict[str, str] = {
     "Invalid mode": "无效模式",
     "Unknown mode": "未知模式",
     "❌ Selection expired. Tap Cancel and retry.": "❌ 选择已过期。请点击取消后重试。",
+    "⏳ Creating window, please wait…": "⏳ 窗口创建中,请稍候…",
     # Workspace picker (herdr)
     (
         "*Select Workspace*\n\nDirectory: `{path}`\n\n"

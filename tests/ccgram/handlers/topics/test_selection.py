@@ -18,7 +18,11 @@ from ccgram.handlers.topics.directory_callbacks import (
     _handle_mode_select,
     _handle_provider_select,
 )
-from ccgram.handlers.user_state import PENDING_THREAD_ID, PENDING_THREAD_TEXT
+from ccgram.handlers.user_state import (
+    PENDING_LAUNCH_THREAD,
+    PENDING_THREAD_ID,
+    PENDING_THREAD_TEXT,
+)
 
 
 class TestBuildProviderPicker:
@@ -455,6 +459,153 @@ class TestHandleModeSelect:
 
         mock_send_to_window.assert_called_once_with("@1", "hello world")
         assert PENDING_THREAD_TEXT not in user_data
+
+
+class TestDuplicateTapDuringLaunch:
+    """A second tap while launch_window runs must not misreport 'expired'."""
+
+    @patch(
+        "ccgram.handlers.topics.provider_mode_callbacks.safe_edit",
+        new_callable=AsyncMock,
+    )
+    @patch("ccgram.handlers.topics.window_launch_service.tmux_manager")
+    @patch("ccgram.handlers.topics.provider_mode_callbacks.provider_registry")
+    async def test_mode_select_duplicate_shows_creating_toast(
+        self, mock_registry: MagicMock, mock_tmux: MagicMock, mock_edit: AsyncMock
+    ) -> None:
+        mock_registry.is_valid.return_value = True
+        mock_tmux.create_window = AsyncMock()
+        # First tap cleared browse_path and marked the launch in-flight.
+        user_data = {PENDING_THREAD_ID: 42, PENDING_LAUNCH_THREAD: 42}
+        query = _make_query(data=f"{CB_MODE_SELECT}codex:normal")
+        update = _make_update(thread_id=42)
+        context = _make_context(user_data)
+
+        await _handle_mode_select(
+            query, 100, f"{CB_MODE_SELECT}codex:normal", update, context
+        )
+
+        query.answer.assert_any_call("⏳ Creating window, please wait…")
+        mock_edit.assert_not_called()
+        mock_tmux.create_window.assert_not_called()
+
+    @patch(
+        "ccgram.handlers.topics.provider_mode_callbacks.safe_edit",
+        new_callable=AsyncMock,
+    )
+    @patch("ccgram.handlers.topics.window_launch_service.tmux_manager")
+    @patch("ccgram.handlers.topics.provider_mode_callbacks.provider_registry")
+    async def test_provider_select_duplicate_shows_creating_toast(
+        self, mock_registry: MagicMock, mock_tmux: MagicMock, mock_edit: AsyncMock
+    ) -> None:
+        mock_registry.is_valid.return_value = True
+        mock_tmux.create_window = AsyncMock()
+        user_data = {PENDING_THREAD_ID: 42, PENDING_LAUNCH_THREAD: 42}
+        query = _make_query(data=f"{CB_PROV_SELECT}claude")
+        update = _make_update(thread_id=42)
+        context = _make_context(user_data)
+
+        await _handle_provider_select(
+            query, 100, f"{CB_PROV_SELECT}claude", update, context
+        )
+
+        query.answer.assert_any_call("⏳ Creating window, please wait…")
+        mock_edit.assert_not_called()
+        mock_tmux.create_window.assert_not_called()
+
+    @patch(
+        "ccgram.handlers.topics.provider_mode_callbacks.safe_edit",
+        new_callable=AsyncMock,
+    )
+    @patch("ccgram.handlers.topics.window_launch_service.tmux_manager")
+    @patch("ccgram.handlers.topics.provider_mode_callbacks.provider_registry")
+    async def test_launch_flag_for_other_topic_still_expired(
+        self, mock_registry: MagicMock, mock_tmux: MagicMock, mock_edit: AsyncMock
+    ) -> None:
+        mock_registry.is_valid.return_value = True
+        mock_tmux.create_window = AsyncMock()
+        # In-flight launch belongs to topic 99, tap arrived in topic 42.
+        user_data = {PENDING_THREAD_ID: 42, PENDING_LAUNCH_THREAD: 99}
+        query = _make_query(data=f"{CB_MODE_SELECT}codex:normal")
+        update = _make_update(thread_id=42)
+        context = _make_context(user_data)
+
+        await _handle_mode_select(
+            query, 100, f"{CB_MODE_SELECT}codex:normal", update, context
+        )
+
+        assert "expired" in mock_edit.call_args[0][1].lower()
+        mock_tmux.create_window.assert_not_called()
+
+    @patch(
+        "ccgram.handlers.topics.provider_mode_callbacks.launch_window",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "ccgram.handlers.topics.provider_mode_callbacks.safe_edit",
+        new_callable=AsyncMock,
+    )
+    @patch("ccgram.handlers.topics.provider_mode_callbacks.provider_registry")
+    @patch("ccgram.handlers.topics.provider_mode_callbacks.thread_router")
+    async def test_flag_set_during_launch_and_cleared_after(
+        self,
+        mock_tr: MagicMock,
+        mock_registry: MagicMock,
+        mock_edit: AsyncMock,
+        mock_launch: AsyncMock,
+    ) -> None:
+        mock_registry.is_valid.return_value = True
+        mock_tr.get_window_for_thread.return_value = None
+        user_data = {"browse_path": "/tmp/proj", PENDING_THREAD_ID: 42}
+        seen_flag: list[object] = []
+        mock_launch.side_effect = lambda *a, **k: seen_flag.append(
+            user_data.get(PENDING_LAUNCH_THREAD)
+        )
+
+        query = _make_query(data=f"{CB_MODE_SELECT}codex:normal")
+        update = _make_update(thread_id=42)
+        context = _make_context(user_data)
+
+        await _handle_mode_select(
+            query, 100, f"{CB_MODE_SELECT}codex:normal", update, context
+        )
+
+        mock_launch.assert_called_once()
+        assert seen_flag == [42]  # flag was set while launch_window ran
+        assert PENDING_LAUNCH_THREAD not in user_data  # released afterwards
+
+    @patch(
+        "ccgram.handlers.topics.provider_mode_callbacks.launch_window",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "ccgram.handlers.topics.provider_mode_callbacks.safe_edit",
+        new_callable=AsyncMock,
+    )
+    @patch("ccgram.handlers.topics.provider_mode_callbacks.provider_registry")
+    @patch("ccgram.handlers.topics.provider_mode_callbacks.thread_router")
+    async def test_flag_cleared_when_launch_raises(
+        self,
+        mock_tr: MagicMock,
+        mock_registry: MagicMock,
+        mock_edit: AsyncMock,
+        mock_launch: AsyncMock,
+    ) -> None:
+        mock_registry.is_valid.return_value = True
+        mock_tr.get_window_for_thread.return_value = None
+        mock_launch.side_effect = RuntimeError("boom")
+        user_data = {"browse_path": "/tmp/proj", PENDING_THREAD_ID: 42}
+
+        query = _make_query(data=f"{CB_MODE_SELECT}codex:normal")
+        update = _make_update(thread_id=42)
+        context = _make_context(user_data)
+
+        with pytest.raises(RuntimeError):
+            await _handle_mode_select(
+                query, 100, f"{CB_MODE_SELECT}codex:normal", update, context
+            )
+
+        assert PENDING_LAUNCH_THREAD not in user_data
 
 
 class TestAcceptYoloConfirmation:

@@ -26,7 +26,10 @@ from .directory_browser import (
 from .topic_creation_draft import (
     PENDING_THREAD_ID,
     PENDING_THREAD_TEXT,
+    _launch_in_progress,
     _required_selected_path,
+    clear_launch_in_progress,
+    mark_launch_in_progress,
 )
 from .window_launch_service import WindowLaunchRequest, launch_window
 
@@ -109,6 +112,11 @@ async def _handle_provider_select(
 
     selected_path = _required_selected_path(context)
     if selected_path is None:
+        if _launch_in_progress(update, context):
+            # Duplicate tap while launch_window is still running — the first
+            # tap cleared the browse state, but the flow is NOT expired.
+            await query.answer(t("⏳ Creating window, please wait…"))
+            return
         await query.answer()
         await safe_edit(query, t("❌ Selection expired. Tap Cancel and retry."))
         return
@@ -124,22 +132,27 @@ async def _handle_provider_select(
     if not has_yolo_mode(provider_name):
         # No mode picker needed — go directly to window creation
         clear_browse_state(context.user_data)
-        await launch_window(
-            query,
-            context,
-            WindowLaunchRequest(
-                user_id=user_id,
-                thread_id=pending_thread_id,
-                provider_name=provider_name,
-                cwd=selected_path,
-                mode="normal",
-                pending_text=(
-                    context.user_data.get(PENDING_THREAD_TEXT)
-                    if context.user_data
-                    else None
+        mark_launch_in_progress(context.user_data, pending_thread_id)
+        try:
+            await safe_edit(query, t("⏳ Creating window, please wait…"))
+            await launch_window(
+                query,
+                context,
+                WindowLaunchRequest(
+                    user_id=user_id,
+                    thread_id=pending_thread_id,
+                    provider_name=provider_name,
+                    cwd=selected_path,
+                    mode="normal",
+                    pending_text=(
+                        context.user_data.get(PENDING_THREAD_TEXT)
+                        if context.user_data
+                        else None
+                    ),
                 ),
-            ),
-        )
+            )
+        finally:
+            clear_launch_in_progress(context.user_data)
         return
 
     text, keyboard = build_mode_picker(selected_path, provider_name)
@@ -178,6 +191,11 @@ async def _handle_mode_select(
 
     selected_path = _required_selected_path(context)
     if selected_path is None:
+        if _launch_in_progress(update, context):
+            # Duplicate tap while launch_window is still running — the first
+            # tap cleared the browse state, but the flow is NOT expired.
+            await query.answer(t("⏳ Creating window, please wait…"))
+            return
         await query.answer()
         await safe_edit(query, t("❌ Selection expired. Tap Cancel and retry."))
         return
@@ -186,25 +204,29 @@ async def _handle_mode_select(
     )
 
     clear_browse_state(context.user_data)
+    mark_launch_in_progress(context.user_data, pending_thread_id)
+    try:
+        if not await _validate_provider_select(
+            query, user_id, update, context, pending_thread_id
+        ):
+            return
 
-    if not await _validate_provider_select(
-        query, user_id, update, context, pending_thread_id
-    ):
-        return
-
-    await launch_window(
-        query,
-        context,
-        WindowLaunchRequest(
-            user_id=user_id,
-            thread_id=pending_thread_id,
-            provider_name=provider_name,
-            cwd=selected_path,
-            mode=approval_mode,
-            pending_text=(
-                context.user_data.get(PENDING_THREAD_TEXT)
-                if context.user_data
-                else None
+        await safe_edit(query, t("⏳ Creating window, please wait…"))
+        await launch_window(
+            query,
+            context,
+            WindowLaunchRequest(
+                user_id=user_id,
+                thread_id=pending_thread_id,
+                provider_name=provider_name,
+                cwd=selected_path,
+                mode=approval_mode,
+                pending_text=(
+                    context.user_data.get(PENDING_THREAD_TEXT)
+                    if context.user_data
+                    else None
+                ),
             ),
-        ),
-    )
+        )
+    finally:
+        clear_launch_in_progress(context.user_data)
