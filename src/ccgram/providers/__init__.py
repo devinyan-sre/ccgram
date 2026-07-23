@@ -252,13 +252,11 @@ async def detect_provider_from_pane(
 
     # Lazy: process_detection pulls the providers internals; only worth
     # loading on the foreground fallback.
-    from .process_detection import detect_provider_cached
+    from .process_detection import detect_provider_cached, foreground_cached
 
-    # Lazy: multiplexer proxy resolves the active backend; foreground()
-    # reads the pane's foreground process via the seam.
-    from ..multiplexer import multiplexer
-
-    fg = await multiplexer.foreground(window_id)
+    # foreground_cached resolves via the multiplexer seam with a short TTL,
+    # so the 1s discovery tick doesn't fork ps/process-info every second.
+    fg = await foreground_cached(window_id)
     return await detect_provider_cached(window_id, fg)
 
 

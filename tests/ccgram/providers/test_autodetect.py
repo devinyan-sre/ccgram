@@ -10,7 +10,7 @@ from ccgram.providers import (
     detect_provider_from_runtime,
     should_probe_pane_title_for_provider_detection,
 )
-from ccgram.providers.process_detection import _pgid_cache
+from ccgram.providers.process_detection import clear_detection_cache
 from ccgram.session_monitor import SessionMonitor
 
 
@@ -20,9 +20,9 @@ class TestDetectProviderFromPane:
 
     @pytest.fixture(autouse=True)
     def _clear_cache(self):
-        _pgid_cache.clear()
+        clear_detection_cache()
         yield
-        _pgid_cache.clear()
+        clear_detection_cache()
 
     async def test_fast_path_skips_foreground(self) -> None:
         mock_mux = MagicMock()

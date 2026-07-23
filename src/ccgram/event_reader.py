@@ -27,7 +27,13 @@ async def read_new_events(
     Returns (events, new_offset). On error returns ([], current_offset).
     Detects file truncation and resets offset to 0 automatically.
     """
-    if not path.exists():
+    try:
+        file_size_stat = path.stat().st_size
+    except OSError:
+        return [], current_offset
+
+    # Fast path: nothing appended since the last read — skip the open entirely.
+    if file_size_stat == current_offset:
         return [], current_offset
 
     events: list[HookEvent] = []

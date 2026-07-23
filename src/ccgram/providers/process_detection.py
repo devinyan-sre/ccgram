@@ -25,6 +25,7 @@ Exposed entry points:
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
@@ -114,6 +115,35 @@ def classify_provider_from_args(args: str) -> str:
 # window_id → (foreground_pgid, detected_provider_name)
 _pgid_cache: dict[str, tuple[int, str]] = {}
 
+# window_id → (monotonic_ts, ForegroundInfo | None): short-TTL cache over
+# ``Multiplexer.foreground()``.  The per-tick discovery path otherwise forks
+# ``ps -t`` (tmux) or ``pane process-info`` (herdr) once per window per
+# second.  A restart of the CLI in a pane is still noticed within the TTL.
+_fg_cache: dict[str, tuple[float, "ForegroundInfo | None"]] = {}
+
+#: Seconds to reuse a foreground() answer before re-probing the backend.
+FOREGROUND_TTL = 5.0
+
+
+async def foreground_cached(window_id: str) -> ForegroundInfo | None:
+    """Resolve ``multiplexer.foreground(window_id)`` through a short-TTL cache.
+
+    Provider identity changes slowly (a pane runs one CLI for minutes), so a
+    ``FOREGROUND_TTL``-second-old answer is fine for classification; restart
+    detection degrades from ~1s to ≤``FOREGROUND_TTL`` s latency.
+    """
+    cached = _fg_cache.get(window_id)
+    if cached is not None and time.monotonic() - cached[0] < FOREGROUND_TTL:
+        return cached[1]
+
+    # Lazy: multiplexer proxy resolves the active backend at call time;
+    # importing at module load would wire-order-couple providers ↔ multiplexer.
+    from ..multiplexer import multiplexer
+
+    fg = await multiplexer.foreground(window_id)
+    _fg_cache[window_id] = (time.monotonic(), fg)
+    return fg
+
 
 def get_cached_foreground_pgid(window_id: str) -> int:
     """Return the cached foreground PGID for a window, or 0 if unknown."""
@@ -147,5 +177,7 @@ def clear_detection_cache(window_id: str | None = None) -> None:
     """Clear cached detection for a window, or all windows if None."""
     if window_id is None:
         _pgid_cache.clear()
+        _fg_cache.clear()
     else:
         _pgid_cache.pop(window_id, None)
+        _fg_cache.pop(window_id, None)

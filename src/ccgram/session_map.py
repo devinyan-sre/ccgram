@@ -429,15 +429,31 @@ class SessionMapSync:
     # Public: sync read/write methods
     # ------------------------------------------------------------------
 
-    def prune_session_map(self, live_window_ids: set[str]) -> None:
+    def prune_session_map(
+        self,
+        live_window_ids: set[str],
+        raw_hint: dict[str, Any] | None = None,
+    ) -> None:
         """Remove session_map.json entries for windows that no longer exist.
 
         Reads session_map.json, drops entries whose window_id is not in
         live_window_ids, and writes back only if changes were made.
         Also removes corresponding window_states.
+
+        ``raw_hint`` is an already-loaded session_map snapshot (e.g. from
+        ``read_session_map_raw``). When provided and it contains no dead
+        entries, the disk read is skipped entirely — the common no-op case
+        costs zero I/O. When dead entries are suspected, the file is
+        re-read fresh before the write to minimize the race window with
+        concurrent hook writes.
         """
         # Lazy: same cycle + wiring contract as _prefer_existing_primary.
         from .window_state_store import window_store
+
+        if raw_hint is not None and not self._find_dead_entries(
+            raw_hint, live_window_ids
+        ):
+            return
 
         if not config.session_map_file.exists():
             return
@@ -446,15 +462,7 @@ class SessionMapSync:
         except (json.JSONDecodeError, OSError):  # fmt: skip
             return
 
-        prefix = session_map_prefix()
-        dead_entries: list[tuple[str, str]] = []  # (map_key, window_id)
-        for key in raw:
-            if not key.startswith(prefix):
-                continue
-            window_id = key[len(prefix) :]
-            if is_backend_window_id(window_id) and window_id not in live_window_ids:
-                dead_entries.append((key, window_id))
-
+        dead_entries = self._find_dead_entries(raw, live_window_ids)
         if not dead_entries:
             return
 
@@ -472,6 +480,21 @@ class SessionMapSync:
         atomic_write_json(config.session_map_file, raw)
         if changed_state:
             self._schedule_save()
+
+    @staticmethod
+    def _find_dead_entries(
+        raw: dict[str, Any], live_window_ids: set[str]
+    ) -> list[tuple[str, str]]:
+        """Return (map_key, window_id) pairs whose window no longer exists."""
+        prefix = session_map_prefix()
+        dead_entries: list[tuple[str, str]] = []
+        for key in raw:
+            if not key.startswith(prefix):
+                continue
+            window_id = key[len(prefix) :]
+            if is_backend_window_id(window_id) and window_id not in live_window_ids:
+                dead_entries.append((key, window_id))
+        return dead_entries
 
     def register_hookless_session(
         self,

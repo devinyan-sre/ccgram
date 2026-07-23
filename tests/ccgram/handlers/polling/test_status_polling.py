@@ -1813,7 +1813,7 @@ class TestMaybeDiscoverTranscript:
             discover_and_register_transcript,
         )
         from ccgram.providers.base import SessionStartEvent
-        from ccgram.providers.process_detection import _pgid_cache
+        from ccgram.providers.process_detection import _pgid_cache, clear_detection_cache
 
         event = SessionStartEvent(
             session_id="new-codex-id",
@@ -1834,7 +1834,7 @@ class TestMaybeDiscoverTranscript:
             provider_name="codex",
         )
 
-        _pgid_cache.clear()
+        clear_detection_cache()
         _pgid_cache["@7"] = (111, "codex")
         try:
             with (
@@ -1873,7 +1873,7 @@ class TestMaybeDiscoverTranscript:
                     ),
                 )
         finally:
-            _pgid_cache.clear()
+            clear_detection_cache()
 
         mock_provider.discover_transcript.assert_called_once()
         assert mock_provider.discover_transcript.call_args.kwargs["max_age"] == 0
@@ -1892,7 +1892,7 @@ class TestMaybeDiscoverTranscript:
             discover_and_register_transcript,
         )
         from ccgram.providers.base import SessionStartEvent
-        from ccgram.providers.process_detection import _pgid_cache
+        from ccgram.providers.process_detection import _pgid_cache, clear_detection_cache
 
         event = SessionStartEvent(
             session_id="new-codex-id",
@@ -1913,7 +1913,7 @@ class TestMaybeDiscoverTranscript:
             provider_name="codex",
         )
 
-        _pgid_cache.clear()
+        clear_detection_cache()
         _pgid_cache["@7"] = (111, "codex")
         try:
             with (
@@ -1952,7 +1952,7 @@ class TestMaybeDiscoverTranscript:
                     ),
                 )
         finally:
-            _pgid_cache.clear()
+            clear_detection_cache()
 
         mock_provider.discover_transcript.assert_not_called()
         mock_sms.register_hookless_session.assert_not_called()

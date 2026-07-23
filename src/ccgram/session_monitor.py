@@ -180,7 +180,12 @@ class SessionMonitor:
 
         if fallback_session_ids:
             active_cwds = await self._get_active_cwds()
-            sessions = self._scan_projects_sync(active_cwds) if active_cwds else []
+            # Filesystem walk over ~/.claude/projects — keep it off the event loop.
+            sessions = (
+                await asyncio.to_thread(self._scan_projects_sync, active_cwds)
+                if active_cwds
+                else []
+            )
             for session_info in sessions:
                 if session_info.session_id not in fallback_session_ids:
                     continue
@@ -436,7 +441,9 @@ class SessionMonitor:
                     )
                 else:
                     live_window_ids = {w.window_id for w in all_windows}
-                    session_map_sync.prune_session_map(live_window_ids)
+                    session_map_sync.prune_session_map(
+                        live_window_ids, raw_hint=raw_session_map
+                    )
                     known_window_ids = set(current_map.keys())
                     await self._emit_unbound_window_events(
                         all_windows, known_window_ids

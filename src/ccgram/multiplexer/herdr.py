@@ -34,6 +34,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from collections.abc import (
     AsyncGenerator,
     AsyncIterator,
@@ -168,6 +169,13 @@ class HerdrManager:
                 the live unix-socket reader (``open_socket_stream``).
         """
         self._socket_path = socket_path or os.environ.get("HERDR_SOCKET_PATH", "")
+        # Short-TTL topology caches: the 1s status poll, the 2s session
+        # monitor, and every tab→active-pane resolution otherwise each fork
+        # their own ``herdr`` CLI calls. ``pane list`` and ``workspace list``
+        # answers are shared for a sub-second window; mutations invalidate.
+        self._pane_list_cache: tuple[float, dict | None] | None = None
+        self._workspace_labels_cache: tuple[float, dict[str, str]] | None = None
+        self._window_cache: tuple[float, list[WindowRef]] | None = None
         # Resolve to an absolute path: CPython only takes the fork-free
         # ``posix_spawn`` fast path when the executable has a dirname (see
         # subprocess.Popen._execute_child). Bare names force fork_exec, which
@@ -275,9 +283,31 @@ class HerdrManager:
         pane = result.get("pane")
         return pane if isinstance(pane, dict) else None
 
+    #: TTL for the shared ``pane list`` answer (seconds).
+    PANE_LIST_TTL = 0.5
+    #: TTL for workspace labels — they change rarely (rename only).
+    WORKSPACE_LABELS_TTL = 5.0
+    #: TTL for the ``list_windows`` snapshot shared by poll loops.
+    WINDOW_CACHE_TTL = 0.8
+
+    def _invalidate_topology_caches(self) -> None:
+        """Drop cached topology after any mutation (create/kill/rename/split)."""
+        self._pane_list_cache = None
+        self._workspace_labels_cache = None
+        self._window_cache = None
+
+    async def _pane_list(self) -> dict | None:
+        """Return the raw ``pane list`` result, served from a short-TTL cache."""
+        cached = self._pane_list_cache
+        if cached is not None and time.monotonic() - cached[0] < self.PANE_LIST_TTL:
+            return cached[1]
+        result = await self._call_json(["pane", "list"])
+        self._pane_list_cache = (time.monotonic(), result)
+        return result
+
     async def _panes_for_tab(self, tab_id: str) -> list[dict]:
         """Return all pane dicts belonging to *tab_id* (one ``pane list`` call)."""
-        pane_result = await self._call_json(["pane", "list"])
+        pane_result = await self._pane_list()
         if not pane_result:
             return []
         return [p for p in pane_result.get("panes", []) if p.get("tab_id") == tab_id]
@@ -317,15 +347,29 @@ class HerdrManager:
 
         Empty when herdr exposes no workspace addressing (older server) — the
         adaptive label then degrades to the agent name alone.
+
+        Cached for ``WORKSPACE_LABELS_TTL`` seconds: labels only change on an
+        explicit rename, so a rename re-labels bound topics within the TTL
+        instead of forking ``workspace list`` on every poll.
         """
+        cached = self._workspace_labels_cache
+        if (
+            cached is not None
+            and time.monotonic() - cached[0] < self.WORKSPACE_LABELS_TTL
+        ):
+            return cached[1]
         result = await self._call_json(["workspace", "list"])
-        if not result:
-            return {}
-        return {
-            w.get("workspace_id", ""): w.get("label", "")
-            for w in result.get("workspaces", [])
-            if w.get("workspace_id")
-        }
+        labels = (
+            {
+                w.get("workspace_id", ""): w.get("label", "")
+                for w in result.get("workspaces", [])
+                if w.get("workspace_id")
+            }
+            if result
+            else {}
+        )
+        self._workspace_labels_cache = (time.monotonic(), labels)
+        return labels
 
     @staticmethod
     def _to_window_ref(
@@ -411,8 +455,19 @@ class HerdrManager:
         return "", cwd
 
     async def list_windows(self) -> list[WindowRef]:
-        """List windows, degrading an unavailable herdr server to an empty list."""
-        return await self.list_windows_for_reconciliation() or []
+        """List windows, degrading an unavailable herdr server to an empty list.
+
+        Served from a short-TTL snapshot cache so the 1s status poll, live
+        views, and ad-hoc lookups share one CLI round-trip per TTL window.
+        ``list_windows_for_reconciliation`` (2s monitor) stays uncached as the
+        freshness anchor and refreshes this snapshot as a side effect.
+        """
+        cached = self._window_cache
+        if cached is not None and time.monotonic() - cached[0] < self.WINDOW_CACHE_TTL:
+            return cached[1]
+        result = await self.list_windows_for_reconciliation() or []
+        self._window_cache = (time.monotonic(), result)
+        return result
 
     async def list_windows_for_reconciliation(self) -> list[WindowRef] | None:
         """List one ``WindowRef`` per herdr tab with its adaptive topic label.
@@ -437,7 +492,7 @@ class HerdrManager:
         workspace_labels = await self._workspace_labels()
 
         # Build per-tab pane index from pane list (tab_id → list[pane]).
-        pane_result = await self._call_json(["pane", "list"])
+        pane_result = await self._pane_list()
         panes_by_tab: dict[str, list[dict]] = {}
         if pane_result:
             for pane in pane_result.get("panes", []):
@@ -485,7 +540,7 @@ class HerdrManager:
         window_name = format_agent_topic_prefix(workspace_label, tab_label)
 
         # Resolve cwd and agent from panes (tab get carries no pane detail).
-        pane_result = await self._call_json(["pane", "list"])
+        pane_result = await self._pane_list()
         rep_agent = ""
         rep_cwd = tab.get("cwd", "")
         if pane_result:
@@ -673,6 +728,7 @@ class HerdrManager:
         ok = await self._call_ok(["tab", "close", window_id])
         if ok:
             logger.info("Closed herdr tab %s", window_id)
+            self._invalidate_topology_caches()
         return ok
 
     async def rename_window(self, window_id: str, new_name: str) -> bool:
@@ -680,7 +736,10 @@ class HerdrManager:
 
         ``window_id`` is a tab id (tab identity — Task 1).
         """
-        return await self._call_ok(["tab", "rename", window_id, new_name])
+        ok = await self._call_ok(["tab", "rename", window_id, new_name])
+        if ok:
+            self._invalidate_topology_caches()
+        return ok
 
     async def list_panes(self, window_id: str) -> list[PaneInfo]:
         """Return ALL panes in a herdr tab (team awareness).
@@ -846,6 +905,7 @@ class HerdrManager:
                 await self._call_ok(["pane", "run", pane_id, cmd])
 
         logger.info("Created herdr tab %r (id=%s) at %s", label, tab_id, path)
+        self._invalidate_topology_caches()
         return True, f"Created herdr tab '{label}' at {path}", label, tab_id
 
     async def create_worktree_window(
@@ -888,6 +948,10 @@ class HerdrManager:
         result = await self._call_json(args)
         if not result:
             return False, f"Failed to create herdr worktree at {worktree_path}", "", ""
+
+        # New workspace/tab/pane exist now — drop stale topology before the
+        # ``_active_pane`` fallback below resolves against the pane list.
+        self._invalidate_topology_caches()
 
         tab = result.get("tab") or {}
         root_pane = result.get("root_pane") or {}
@@ -993,7 +1057,10 @@ class HerdrManager:
         if not isinstance(pane, dict):
             return None
         new_id = pane.get("pane_id")
-        return new_id if isinstance(new_id, str) and new_id else None
+        if isinstance(new_id, str) and new_id:
+            self._invalidate_topology_caches()
+            return new_id
+        return None
 
     async def _resolve_panes(self, window_ids: Sequence[str]) -> dict[str, str]:
         """Map each tab *window_id* to its active pane id (skip empty tabs)."""

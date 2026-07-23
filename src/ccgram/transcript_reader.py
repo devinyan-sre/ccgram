@@ -199,7 +199,9 @@ class TranscriptReader:
             if current_mtime <= last_mtime:
                 return
 
-        new_entries = await self._read_new_lines(tracked, file_path, window_id)
+        new_entries = await self._read_new_lines(
+            tracked, file_path, window_id, provider=provider
+        )
         self._file_mtimes[session_id] = current_mtime
 
         if new_entries:
@@ -245,10 +247,19 @@ class TranscriptReader:
         self._state.update_session(tracked)
 
     async def _read_new_lines(
-        self, session: TrackedSession, file_path: Path, window_id: str = ""
+        self,
+        session: TrackedSession,
+        file_path: Path,
+        window_id: str = "",
+        provider: Any = None,
     ) -> list[dict]:
-        """Read new lines from a session file using byte offset."""
-        provider = _resolve_provider_for_file(window_id, file_path)
+        """Read new lines from a session file using byte offset.
+
+        ``provider`` may be passed by callers that already resolved it
+        (avoids a second resolution per file per poll cycle).
+        """
+        if provider is None:
+            provider = _resolve_provider_for_file(window_id, file_path)
 
         if not provider.capabilities.supports_incremental_read:
             return await self._read_whole_file(session, file_path, provider)
