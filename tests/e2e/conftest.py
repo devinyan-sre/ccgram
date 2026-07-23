@@ -79,7 +79,7 @@ E2E_TMUX_SESSION = "ccgram-e2e"
 
 
 @pytest.fixture
-def e2e_tmux(monkeypatch):
+def e2e_tmux(e2e_state_dir, monkeypatch):
     """Create a dedicated tmux session for E2E tests."""
     import libtmux
 
@@ -103,13 +103,25 @@ def e2e_tmux(monkeypatch):
     if session.windows:
         session.windows[0].rename_window("__main__")
 
+    # Isolate agent hooks: panes in this session inherit CCGRAM_DIR, so
+    # `ccgram hook` subprocesses spawned by agent CLIs write session_map.json /
+    # events.jsonl into the isolated state dir — NOT the operator's real
+    # ~/.ccgram (which a concurrently running production bot would adopt from).
+    session.cmd("set-environment", "CCGRAM_DIR", str(e2e_state_dir))
+
     # Replace the global tmux_manager singleton in every importing module, and
     # wire the multiplexer proxy so proxy/lazy callers resolve to it too.
     manager = TmuxManager(session_name=E2E_TMUX_SESSION)
 
-    from ccgram.multiplexer import install_multiplexer
+    from ccgram.multiplexer import install_multiplexer, registry
 
     install_multiplexer(manager)
+    # Seed the registry cache: bootstrap's wire_multiplexer step re-installs
+    # get_multiplexer("tmux") during app.post_init — without seeding, that
+    # returns a cached/new manager bound to the PRODUCTION session name and
+    # silently un-does install_multiplexer above, making the app-under-test
+    # create windows inside the operator's real tmux session.
+    monkeypatch.setitem(registry._instances, "tmux", manager)
 
     _tm_modules = [
         "ccgram.bot",

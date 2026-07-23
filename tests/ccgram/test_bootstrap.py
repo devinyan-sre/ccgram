@@ -70,6 +70,29 @@ class TestEnsureMultiplexerSession:
         assert isinstance(exc_info.value.__cause__, RuntimeError)
 
 
+class TestWireMultiplexer:
+    def test_resolves_backend_through_registry_cache(self, monkeypatch):
+        """wire_multiplexer must honor a seeded registry cache.
+
+        The e2e conftest seeds ``registry._instances`` with a manager bound to
+        the isolated test session; bootstrap re-wiring during ``post_init``
+        must return that seeded instance. If wire_multiplexer ever constructs
+        a backend directly (bypassing get_multiplexer), the app-under-test
+        silently reverts to the production session name and e2e runs create
+        windows inside the operator's real tmux session.
+        """
+        from ccgram.multiplexer import get_active_multiplexer, registry
+
+        sentinel = MagicMock()
+        sentinel.capabilities.name = "tmux"
+        monkeypatch.setitem(registry._instances, "tmux", sentinel)
+        monkeypatch.setattr(bootstrap.config, "multiplexer_name", "tmux")
+
+        bootstrap.wire_multiplexer()
+
+        assert get_active_multiplexer() is sentinel
+
+
 class TestWireRuntimeCallbacks:
     def test_wires_approval_callback(self):
         from ccgram.handlers.shell import shell_capture
