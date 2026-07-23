@@ -23,8 +23,10 @@ from ccgram.cc_commands import (
 def _reset_cache():
     """Reset module-level cache before each test."""
     cc_mod._name_map = {}
+    cc_mod._reset_registration_cache_for_testing()
     yield
     cc_mod._name_map = {}
+    cc_mod._reset_registration_cache_for_testing()
 
 
 class TestSanitizeTelegramName:
@@ -259,6 +261,30 @@ class TestRegisterCommands:
         assert names[0] == "start"
         assert "clear" in names
         assert "compact" in names
+
+    async def test_skips_reregistration_when_unchanged(self, tmp_path: Path) -> None:
+        bot = AsyncMock()
+        await register_commands(bot, claude_dir=tmp_path)
+        assert bot.set_my_commands.call_count == 1
+
+        # Second identical call must NOT hit the Telegram API again.
+        await register_commands(bot, claude_dir=tmp_path)
+        assert bot.set_my_commands.call_count == 1
+        assert bot.delete_my_commands.call_count == 1
+
+    async def test_reregisters_when_command_set_changes(self, tmp_path: Path) -> None:
+        from ccgram.providers.claude import ClaudeProvider
+        from ccgram.providers.codex import CodexProvider
+
+        bot = AsyncMock()
+        await register_commands(bot, claude_dir=tmp_path, providers=[ClaudeProvider()])
+        assert bot.set_my_commands.call_count == 1
+
+        # A different provider set yields a different menu → must re-register.
+        await register_commands(
+            bot, claude_dir=tmp_path, providers=[ClaudeProvider(), CodexProvider()]
+        )
+        assert bot.set_my_commands.call_count == 2
 
     async def test_registers_commands_from_multiple_providers(
         self, tmp_path: Path

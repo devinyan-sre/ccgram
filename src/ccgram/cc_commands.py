@@ -178,6 +178,27 @@ def discover_cc_commands(claude_dir: Path | None = None) -> list[CCCommand]:
 # Module-level cache (telegram_name → cc_name, first-wins to match registration)
 _name_map: dict[str, str] = {}
 
+# Last successfully-registered command set per scope. The 10-min menu-refresh
+# job re-runs register_commands even when nothing changed; comparing against
+# this signature lets us skip the delete/set Telegram API round-trip (and the
+# INFO log) when the menu is identical. Keyed by a stable scope key.
+_last_registered: dict[str, tuple[tuple[str, str], ...]] = {}
+
+
+def _scope_key(scope: BotCommandScope | None) -> str:
+    """Stable dict key for a command scope (None = the default scope)."""
+    if scope is None:
+        return "__default__"
+    to_dict = getattr(scope, "to_dict", None)
+    if callable(to_dict):
+        return repr(sorted(to_dict().items()))
+    return repr(scope)
+
+
+def _reset_registration_cache_for_testing() -> None:
+    """Clear the per-scope registration signature cache."""
+    _last_registered.clear()
+
 
 def _provider_base_dir(claude_dir: Path | None = None) -> str:
     """Resolve base dir for provider command discovery."""
@@ -317,6 +338,18 @@ async def register_commands(
         bot_commands.append(BotCommand(cmd.telegram_name, desc))
         cc_count += 1
 
+    # Skip the Telegram round-trip when the menu is byte-identical to what we
+    # last registered for this scope — the 10-min refresh job otherwise re-sends
+    # an unchanged menu (and logs) every cycle.
+    scope_key = _scope_key(scope)
+    signature = tuple((c.command, c.description) for c in bot_commands)
+    if _last_registered.get(scope_key) == signature:
+        logger.debug(
+            "Bot command menu unchanged for scope %s; skipping re-registration",
+            scope_key,
+        )
+        return
+
     # Lazy: only needed when scheduling the menu-refresh task
     import asyncio
 
@@ -356,4 +389,5 @@ async def register_commands(
         else:
             await bot.delete_my_commands(scope=scope)
             await bot.set_my_commands(bot_commands, scope=scope)
+    _last_registered[scope_key] = signature
     logger.info("Registered %d bot commands (%d CC)", len(bot_commands), cc_count)
