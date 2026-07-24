@@ -903,6 +903,26 @@ scrape_configs:
       - targets: ["127.0.0.1:9095"]
 ```
 
+### 5.2 状态文件备份与恢复
+
+`state.json`(全部话题↔窗口绑定)与 `session_map.json` 现在带**滚动快照**:每次成功加载都会在 `~/.ccgram/backups/` 留一份已知良好副本(保留最近 5 份)。
+
+文件损坏时不再静默归零(旧行为会把空状态写回去、永久丢失所有绑定),而是:
+
+1. 把损坏文件原样保全为 `backups/state.json.corrupt.N`(**从不删除**,可供事后分析);
+2. 自动从最近的良好快照恢复,并以 `error` 级别记录日志;
+3. 仅当完全没有快照时才退回空状态。
+
+手动恢复(**先停机**,避免运行中的实例把内存状态写回去):
+
+```bash
+systemctl --user stop ccgram
+ccgram doctor --restore     # 列出快照并恢复最近一份;恢复前会先给当前文件也打快照
+systemctl --user start ccgram
+```
+
+`--restore` 在恢复前会对当前文件先打一份快照,所以这个操作本身也是可逆的。
+
 ### 6. 升级 / 发布新版本
 
 ```bash

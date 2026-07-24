@@ -448,6 +448,56 @@ def _fix_orphans(orphans: list[tuple[str, str]], fix: bool) -> None:
             _print_check(_FAIL, f"failed to kill window {wid}")
 
 
+def _state_files(config_dir: Path) -> list[Path]:
+    """State files that carry a snapshot history."""
+    return [config_dir / "state.json", config_dir / "session_map.json"]
+
+
+def restore_main() -> int:
+    """Entry point for ``ccgram doctor --restore``.
+
+    Lists each state file's snapshot history and restores the newest one,
+    snapshotting the current file first so the restore itself is reversible.
+    Returns a process exit code.
+    """
+    load_ccgram_env()
+    # Lazy: state_backup is only needed by this subcommand.
+    from . import state_backup
+
+    config_dir = ccgram_dir()
+    restored = 0
+    for path in _state_files(config_dir):
+        snapshots = state_backup.list_snapshots(path)
+        corrupt = state_backup.list_corrupt(path)
+        print(f"\n{path}")
+        if corrupt:
+            print(
+                f"  preserved corrupt copies: {len(corrupt)} (newest: {corrupt[0].name})"
+            )
+        if not snapshots:
+            _print_check("warn", "no snapshots available")
+            continue
+        for snap in snapshots:
+            print(f"  snapshot: {snap.name} ({snap.stat().st_size} bytes)")
+        newest = snapshots[0]
+        # Snapshot the live file first so this restore can itself be undone.
+        if path.is_file():
+            state_backup.snapshot(path)
+        if state_backup.restore_from(newest, path):
+            _print_check("ok", f"restored from {newest.name}")
+            restored += 1
+        else:
+            _print_check("fail", f"could not restore from {newest.name}")
+
+    if restored:
+        print(
+            "\nRestart the bot to load the restored state: systemctl --user restart ccgram"
+        )
+        return 0
+    print("\nNothing restored.")
+    return 1
+
+
 def doctor_main(fix: bool = False) -> None:
     """Entry point for `ccgram doctor [--fix]`."""
     # Honor CCGRAM_* (e.g. CCGRAM_MULTIPLEXER) set only in ~/.ccgram/.env,

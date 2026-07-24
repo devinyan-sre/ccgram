@@ -271,14 +271,18 @@ def status_cmd() -> None:
 # --- doctor command --------------------------------------------------------
 
 
-# --- doctor command --------------------------------------------------------
-
-
 @cli.command("doctor")
 @click.option("--fix", is_flag=True, help="Auto-fix issues where possible.")
-def doctor_cmd(fix: bool) -> None:
+@click.option(
+    "--restore",
+    is_flag=True,
+    help="Restore state files from their newest snapshot (stop the bot first).",
+)
+def doctor_cmd(fix: bool, restore: bool) -> None:
     """Validate setup and diagnose issues."""
     # Lazy: defer subcommand import until that command is invoked, keeping `ccgram --help` fast
-    from .doctor_cmd import doctor_main
+    from .doctor_cmd import doctor_main, restore_main
 
+    if restore:
+        raise SystemExit(restore_main())
     doctor_main(fix=fix)

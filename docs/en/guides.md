@@ -813,6 +813,33 @@ scrape_configs:
       - targets: ["127.0.0.1:9095"]
 ```
 
+### 5.2 State file backup and recovery
+
+`state.json` (every topic↔window binding) and `session_map.json` now carry a
+**rotating snapshot history**: each successful load leaves a known-good copy in
+`~/.ccgram/backups/` (the last 5 are kept).
+
+A corrupt file no longer degrades silently to empty state — the old behaviour
+wrote that empty state straight back, permanently losing every binding.
+Instead:
+
+1. the damaged file is preserved as `backups/state.json.corrupt.N` (**never
+   deleted**, so it stays available for analysis);
+2. the newest known-good snapshot is restored automatically, logged at `error`;
+3. only when no snapshot exists at all does it fall back to empty state.
+
+Manual restore (**stop the bot first**, so a running instance cannot write its
+in-memory state back over the restore):
+
+```bash
+systemctl --user stop ccgram
+ccgram doctor --restore     # lists snapshots and restores the newest
+systemctl --user start ccgram
+```
+
+`--restore` snapshots the current file before overwriting it, so the restore
+itself is reversible.
+
 ### 6. Upgrading / deploying a new version
 
 ```bash

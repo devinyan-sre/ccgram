@@ -15,6 +15,7 @@ from typing import Any
 
 import structlog
 
+from . import state_backup
 from .utils import atomic_write_json
 
 logger = structlog.get_logger()
@@ -61,11 +62,54 @@ class StatePersistence:
             self._do_save()
 
     def load(self) -> dict[str, Any]:
-        """Read JSON file and return raw dict. Returns empty dict if missing/invalid."""
+        """Read the state file, recovering from corruption where possible.
+
+        A damaged file used to degrade to ``{}``, after which the next
+        debounced save overwrote it — turning recoverable corruption into
+        permanent loss of every topic binding. Now the damaged file is
+        preserved and the newest known-good snapshot is restored in its place;
+        only if there is no snapshot do we fall back to empty state.
+
+        A successful load takes a snapshot, so the next run always has a
+        known-good copy to fall back to.
+        """
         if not self._path.exists():
             return {}
         try:
-            return json.loads(self._path.read_text())
+            state = json.loads(self._path.read_text())
         except (json.JSONDecodeError, ValueError, OSError) as e:
-            logger.warning("Failed to load state: %s", e)
-            return {}
+            return self._recover(e)
+        state_backup.snapshot(self._path)
+        return state
+
+    def _recover(self, error: Exception) -> dict[str, Any]:
+        """Preserve the damaged file and restore the newest snapshot."""
+        preserved = state_backup.preserve_corrupt(self._path)
+        snapshot = state_backup.newest_snapshot(self._path)
+        if snapshot is not None and state_backup.restore_from(snapshot, self._path):
+            try:
+                state = json.loads(self._path.read_text())
+            except json.JSONDecodeError, ValueError, OSError:
+                logger.error(
+                    "State snapshot is also unreadable; starting empty",
+                    path=str(self._path),
+                    snapshot=str(snapshot),
+                    preserved=str(preserved),
+                )
+                return {}
+            logger.error(
+                "State file was corrupt — restored from snapshot",
+                path=str(self._path),
+                error=str(error),
+                snapshot=str(snapshot),
+                preserved=str(preserved),
+            )
+            return state
+        logger.error(
+            "State file was corrupt and no snapshot was available; "
+            "starting with empty state",
+            path=str(self._path),
+            error=str(error),
+            preserved=str(preserved),
+        )
+        return {}
