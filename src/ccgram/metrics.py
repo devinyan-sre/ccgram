@@ -350,7 +350,7 @@ LLM_REQUESTS = registry.counter(
 # Topic/window lifecycle (P0-3 observability).
 TOPIC_CREATE = registry.counter(
     "ccgram_topic_create",
-    "Topic/window creation attempts by outcome (ok/error)",
+    "Forum-topic creation attempts by outcome (ok/flood/permission/bad_request/error)",
     ("outcome",),
 )
 

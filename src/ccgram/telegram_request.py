@@ -8,11 +8,26 @@ import structlog
 from telegram.error import NetworkError, TimedOut
 from telegram.request import HTTPXRequest
 
+from .metrics import TELEGRAM_API
+
 logger = structlog.get_logger()
 
 # Minimum interval between reset warnings during a sustained outage.
 # Without this, every failed poll (~5s apart) emits a warning, flooding logs.
 _RESET_WARN_INTERVAL_S: float = 30.0
+
+
+def _api_method_name(args: tuple, kwargs: dict) -> str:
+    """Extract the Bot API method name from a request URL, for metric labels.
+
+    The URL's trailing path segment is the method (``.../bot<TOKEN>/getUpdates``).
+    Only that segment is returned — the bot token is an earlier segment and
+    must never reach a label value.
+    """
+    url = kwargs.get("url") or (args[0] if args else "")
+    if not isinstance(url, str) or not url:
+        return "unknown"
+    return url.rsplit("/", 1)[-1] or "unknown"
 
 
 class ResilientPollingHTTPXRequest(HTTPXRequest):
@@ -56,9 +71,11 @@ class ResilientPollingHTTPXRequest(HTTPXRequest):
         return False
 
     async def do_request(self, *args, **kwargs):  # type: ignore[override]
+        method = _api_method_name(args, kwargs)
         try:
             result = await super().do_request(*args, **kwargs)
         except (TimedOut, NetworkError) as exc:
+            TELEGRAM_API.inc(method=method, outcome=exc.__class__.__name__)
             await self._reset_client(reason=exc.__class__.__name__)
             log = (
                 logger.warning
@@ -74,4 +91,5 @@ class ResilientPollingHTTPXRequest(HTTPXRequest):
         else:
             # Successful request — next reset gets to warn again.
             self._last_reset_warn_ts = 0.0
+            TELEGRAM_API.inc(method=method, outcome="ok")
             return result

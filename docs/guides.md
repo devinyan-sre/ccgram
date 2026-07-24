@@ -891,7 +891,7 @@ curl -so /dev/null -w '%{http_code}\n' localhost:9095/healthz
 | `ccgram_monitor_bytes_read`      | counter   | 增量读取的 transcript 字节数               |
 | `ccgram_llm_requests`            | counter   | LLM/转写请求,按 `kind`+`provider`+`outcome` |
 | `ccgram_llm_request_seconds`     | histogram | LLM/转写请求耗时                           |
-| `ccgram_topic_create`            | counter   | 话题/窗口创建结果(ok/error)               |
+| `ccgram_topic_create`            | counter   | 话题创建结果:`ok`/`flood`/`permission`/`bad_request`/`error`,可直接定位失败根因 |
 | `ccgram_operator_alerts`         | counter   | 运营者告警,按 `severity`+`outcome`         |
 
 Prometheus 抓取配置示例:

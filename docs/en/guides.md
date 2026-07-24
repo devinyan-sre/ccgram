@@ -801,7 +801,7 @@ Exported metrics (names are a public contract — renaming breaks dashboards and
 | `ccgram_monitor_bytes_read`      | counter   | Transcript bytes read incrementally              |
 | `ccgram_llm_requests`            | counter   | LLM/transcription requests by `kind` + `provider` + `outcome` |
 | `ccgram_llm_request_seconds`     | histogram | LLM/transcription request duration               |
-| `ccgram_topic_create`            | counter   | Topic/window creation outcome (ok/error)         |
+| `ccgram_topic_create`            | counter   | Topic creation outcome: `ok`/`flood`/`permission`/`bad_request`/`error` — pinpoints the failure cause |
 | `ccgram_operator_alerts`         | counter   | Operator alerts by `severity` + `outcome`        |
 
 Example Prometheus scrape config:

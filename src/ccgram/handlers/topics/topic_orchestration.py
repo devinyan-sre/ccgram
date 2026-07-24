@@ -27,6 +27,7 @@ from telegram.error import (
 
 from ... import window_query
 from ...config import config
+from ...metrics import TELEGRAM_API, TELEGRAM_FLOOD, TOPIC_CREATE
 from ...providers import (
     detect_provider_from_pane,
     detect_provider_from_runtime,
@@ -75,6 +76,7 @@ async def _create_forum_topic_with_retry(
             if isinstance(exc, BadRequest):
                 raise
             last_exc = exc
+            TELEGRAM_API.inc(method="create_forum_topic", outcome="transient")
             if attempt < _TOPIC_CREATE_TRANSIENT_RETRIES:
                 logger.debug("create_forum_topic transient error, retrying: %s", exc)
                 await asyncio.sleep(_TOPIC_CREATE_TRANSIENT_BACKOFF_S)
@@ -264,6 +266,7 @@ async def create_topic_in_chat(
     try:
         topic = await _create_forum_topic_with_retry(client, chat_id, topic_name)
         _topic_create_retry_until.pop(chat_id, None)
+        TOPIC_CREATE.inc(outcome="ok")
         logger.info(
             "Auto-created topic '%s' (thread=%d) in chat %d for window %s",
             topic_name,
@@ -282,6 +285,8 @@ async def create_topic_in_chat(
         _topic_create_retry_until[chat_id] = (
             time.monotonic() + retry_after_seconds + _TOPIC_CREATE_RETRY_BUFFER_SECONDS
         )
+        TOPIC_CREATE.inc(outcome="flood")
+        TELEGRAM_FLOOD.inc(method="create_forum_topic")
         logger.warning(
             "Flood control creating topic for window %s in chat %d, backing off %ss",
             window_id,
@@ -295,6 +300,7 @@ async def create_topic_in_chat(
         )
         message = str(e)
         if any(m in message.lower() for m in _PERMISSION_ERROR_MARKERS):
+            TOPIC_CREATE.inc(outcome="permission")
             logger.error(
                 "Cannot create topic for window %s in chat %d: %s — "
                 "grant the bot the 'Manage Topics' admin right in this chat. "
@@ -305,6 +311,7 @@ async def create_topic_in_chat(
                 _TOPIC_CREATE_BAD_REQUEST_BACKOFF_S,
             )
         else:
+            TOPIC_CREATE.inc(outcome="bad_request")
             logger.error(
                 "Failed to create topic for window %s in chat %d: %s — retrying in %ds",
                 window_id,
@@ -313,6 +320,7 @@ async def create_topic_in_chat(
                 _TOPIC_CREATE_BAD_REQUEST_BACKOFF_S,
             )
     except TelegramError:
+        TOPIC_CREATE.inc(outcome="error")
         logger.exception(
             "Failed to create topic for window %s in chat %d",
             window_id,
