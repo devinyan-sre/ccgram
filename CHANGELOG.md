@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.7.0] - 2026-07-24
+
+SRE hardening batch — observability, health, state resilience, alerting,
+config validation, backpressure, and a health-gated deploy flow. All opt-in
+or backward-compatible; no existing behavior changes without a new env switch.
+
+### Added
+
+- Prometheus `/metrics` + `/healthz` endpoint — a dependency-free
+  OpenMetrics registry (`metrics.py`) served on `CCGRAM_METRICS_PORT`
+  (default `0` = off), independent of the Mini App. Instruments the outbound
+  queue (task counts/outcomes, depth gauge, Telegram flood-control),
+  the polling loop (cycle timing/outcomes), sessions-tracked, and Telegram
+  API call outcomes.
+- Progress-aware health (`health.py`) — the polling and monitor loops call
+  `record_progress` each cycle; the watchdog heartbeat is withheld when the
+  core loop is wedged (no forward progress for `CCGRAM_HEALTH_STALL_SEC`,
+  default 120), so systemd restarts a stuck process instead of only a dead one.
+- State-file snapshots + recovery (`state_backup.py`) — rolling snapshots of
+  `state.json` / `session_map.json` under `~/.ccgram/backups/` (last 5); on
+  corruption the bad file is preserved and the newest good snapshot restored
+  instead of resetting to empty. `ccgram doctor --restore` restores manually.
+- End-to-end correlation IDs (`correlation.py`) — outbound messages carry a
+  `cid` that survives the queue-worker task boundary (rebound via contextvars)
+  for traceable logs across the message path.
+- Severity-classified operator alerts — `notify_operator(severity=...)` with a
+  `ccgram_operator_alerts{severity,outcome}` counter that records every
+  outcome, including `no_sink`.
+- Startup config validation — `Config.validate()` returns (fatal, warnings);
+  `bootstrap` runs it at boot and refuses to start on fatal misconfiguration.
+  A fitness test locks every `CCGRAM_*` var into the zh + en config tables.
+- Outbound queue backpressure — `CCGRAM_QUEUE_MAX_DEPTH` (default 500): status
+  updates shed above a soft limit, content is dropped only past a 2× hard limit
+  (with an error log), preventing unbounded memory growth under flood.
+- `scripts/deploy.sh` — health-gated deploy with automatic rollback via a
+  temporary worktree (`--no-rollback`, `--timeout`).
+- `ccgram doctor` now audits secrets-file permissions (`.env` should be `600`)
+  and `--fix` tightens them; key-management guidance documented.
+
+### Docs
+
+- Resource guardrails and a wedge-recovery runbook added to the ops guide
+  (zh first, en mirror), plus a no-`make` command cheat sheet. Note: tmux/agent
+  panes run under `claude-ops.service`, a separate cgroup from `ccgram.service`,
+  so a `MemoryMax` on ccgram will not kill agents.
+
 ## [4.6.1] - 2026-07-24
 
 ### Fixed
