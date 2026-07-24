@@ -330,8 +330,28 @@ def start_event_stream(application: Application) -> object | None:
     return monitor
 
 
+def verify_config() -> None:
+    """Surface bad env values before anything else starts.
+
+    Fatal problems (unbindable port, unknown multiplexer) abort the boot —
+    running with a mis-routed backend is worse than not running. Everything
+    else is logged loudly: silently-corrected values previously left no trace
+    at all, so a typo produced the wrong behaviour with nothing to grep for.
+    """
+    fatal, warnings = config.validate()
+    for problem in warnings:
+        logger.warning("Configuration problem", problem=problem)
+    if fatal:
+        for problem in fatal:
+            logger.error("Invalid configuration", problem=problem)
+        raise SystemExit(
+            "Refusing to start with invalid configuration:\n  - " + "\n  - ".join(fatal)
+        )
+
+
 async def bootstrap_application(application: Application) -> None:
     """Run the full post_init sequence in the prescribed order."""
+    verify_config()
     install_global_exception_handler()
     wire_multiplexer()
     await ensure_multiplexer_session()

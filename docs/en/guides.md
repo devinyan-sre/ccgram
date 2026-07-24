@@ -200,6 +200,8 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_METRICS_PORT`                                | `0` (off)                      | Prometheus metrics / health listener port; set non-zero to enable `GET /metrics` and `GET /healthz`   |
 | `CCGRAM_METRICS_HOST`                                | `127.0.0.1`                    | Bind address for the metrics listener; loopback-only by default, expose via a reverse proxy           |
 | `CCGRAM_HEALTH_STALL_SEC`                            | `120`                          | Forward-progress stall threshold in seconds; a poll loop that completes no cycle within it is unhealthy (watchdog restarts). `0` disables the check |
+| `CCGRAM_ACK_REACTION`                                | _(disabled)_                   | Emoji reaction applied to forwarded messages (e.g. `👀`); empty disables it                          |
+| `CCGRAM_EPHEMERAL_TOOLS`                             | `0`                            | Clean up tool-call messages once they complete; `/verbose` overrides per topic                       |
 | `CCGRAM_LANG`                                        | `en`                           | Bot UI language; set `zh` for Simplified Chinese                                                     |
 | `CCGRAM_QUIET_HOURS`                                 | _(disabled)_                   | Do-not-disturb window `HH:MM-HH:MM` (server local time, wraps midnight); automated messages arrive silently |
 | `CCGRAM_DAILY_DIGEST`                                | _(disabled)_                   | Daily digest time `HH:MM` (server local time); posts a per-topic 24h activity summary to General      |

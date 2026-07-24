@@ -30,6 +30,35 @@ def _parse_int_env(name: str, default: int) -> int:
         raise ValueError(f"{name} must be a valid integer: {exc}") from exc
 
 
+_MAX_PORT = 65535
+_MAX_PERCENT = 100
+_VALID_MULTIPLEXERS = frozenset({"tmux", "herdr"})
+_VALID_STATUS_MODES = frozenset({"system", "user"})
+_VALID_LANG_PREFIXES = frozenset({"en", "zh"})
+
+
+def _looks_like_time_spec(raw: str, expected: str) -> bool:
+    """Shape-check an ``HH:MM`` or ``HH:MM-HH:MM`` value.
+
+    Deliberately a shape check, not a parse: the owning feature still does its
+    own strict parsing. This exists so an obviously malformed value surfaces at
+    startup instead of silently disabling the feature.
+    """
+    parts = raw.split("-") if "-" in expected else [raw]
+    if len(parts) != len(expected.split("-")):
+        return False
+    for part in parts:
+        hhmm = part.strip().split(":")
+        if len(hhmm) != 2:  # noqa: PLR2004 — HH and MM
+            return False
+        hours, minutes = hhmm
+        if not (hours.isdigit() and minutes.isdigit()):
+            return False
+        if not (0 <= int(hours) <= 23 and 0 <= int(minutes) <= 59):  # noqa: PLR2004
+            return False
+    return True
+
+
 def _resolve_toolbar_path() -> str:
     """Resolve the toolbar TOML config path: env var → ~/.ccgram → empty.
 
@@ -325,6 +354,68 @@ class Config:
     def is_user_allowed(self, user_id: int) -> bool:
         """Check if a user is in the allowed list."""
         return user_id in self.allowed_users
+
+    def validate(self) -> tuple[list[str], list[str]]:
+        """Check env values, returning ``(fatal, warnings)`` problem descriptions.
+
+        Split by blast radius rather than treating every bad value the same:
+
+        - *fatal* — values that would break the service or silently mis-route
+          it (an unbindable port, an unknown multiplexer backend). Refusing to
+          start is better than running wrong.
+        - *warnings* — values that were silently corrected to a default. These
+          used to vanish without trace, so a typo in e.g. ``CCGRAM_STATUS_MODE``
+          produced the wrong behaviour with no signal at all. Refusing to boot
+          over a cosmetic typo would be worse than the typo.
+
+        Pure: returns problems for the caller to act on, never exits or logs.
+        """
+        fatal: list[str] = []
+        warnings: list[str] = []
+
+        for name, port in (
+            ("CCGRAM_METRICS_PORT", self.metrics_port),
+            ("CCGRAM_MINIAPP_PORT", self.miniapp_port),
+        ):
+            if not 0 <= port <= _MAX_PORT:
+                fatal.append(f"{name}={port} is not a valid TCP port (0-{_MAX_PORT})")
+
+        if self.multiplexer_name not in _VALID_MULTIPLEXERS:
+            fatal.append(
+                f"CCGRAM_MULTIPLEXER={self.multiplexer_name!r} is unknown "
+                f"(expected one of: {', '.join(sorted(_VALID_MULTIPLEXERS))})"
+            )
+
+        raw_status_mode = os.getenv("CCGRAM_STATUS_MODE", "").strip().lower()
+        if raw_status_mode and raw_status_mode not in _VALID_STATUS_MODES:
+            warnings.append(
+                f"CCGRAM_STATUS_MODE={raw_status_mode!r} is not recognised; "
+                f"using {self.status_mode!r} "
+                f"(expected one of: {', '.join(sorted(_VALID_STATUS_MODES))})"
+            )
+
+        raw_lang = os.getenv("CCGRAM_LANG", "").strip().lower()
+        if raw_lang and not any(raw_lang.startswith(p) for p in _VALID_LANG_PREFIXES):
+            warnings.append(
+                f"CCGRAM_LANG={raw_lang!r} is not recognised; falling back to English "
+                f"(expected one of: {', '.join(sorted(_VALID_LANG_PREFIXES))})"
+            )
+
+        if not 0 <= self.context_warn_pct <= _MAX_PERCENT:
+            warnings.append(
+                f"CCGRAM_CONTEXT_WARN={self.context_warn_pct} is outside 0-100"
+            )
+
+        for name, raw, expected in (
+            ("CCGRAM_QUIET_HOURS", self.quiet_hours, "HH:MM-HH:MM"),
+            ("CCGRAM_DAILY_DIGEST", self.daily_digest_time, "HH:MM"),
+        ):
+            if raw and not _looks_like_time_spec(raw, expected):
+                warnings.append(
+                    f"{name}={raw!r} does not look like {expected}; feature disabled"
+                )
+
+        return fatal, warnings
 
 
 config = Config()
