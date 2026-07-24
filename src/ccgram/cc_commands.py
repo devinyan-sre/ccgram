@@ -191,7 +191,11 @@ def _scope_key(scope: BotCommandScope | None) -> str:
         return "__default__"
     to_dict = getattr(scope, "to_dict", None)
     if callable(to_dict):
-        return repr(sorted(to_dict().items()))
+        # getattr() erases the return type, so confirm the shape before use
+        # rather than assuming PTB always hands back a dict.
+        data = to_dict()
+        if isinstance(data, dict):
+            return repr(sorted(data.items()))
     return repr(scope)
 
 
