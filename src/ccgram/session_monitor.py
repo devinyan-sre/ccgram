@@ -33,6 +33,7 @@ from .event_reader import (
     read_new_events,
 )
 from .fs_watcher import TranscriptWatcher
+from .health import SESSION_MONITOR, record_progress
 from .idle_tracker import IdleTracker
 from .metrics import SESSIONS_TRACKED
 from .monitor_state import MonitorState
@@ -536,6 +537,10 @@ class SessionMonitor:
                 )
                 new_messages = await self.check_for_updates(current_map)
                 SESSIONS_TRACKED.set(len(self.state.tracked_sessions))
+                # Forward-progress stamp for the health gate: reaching here
+                # means a full poll cycle completed, not merely that the task
+                # object is still alive.
+                record_progress(SESSION_MONITOR)
 
                 for msg in new_messages:
                     structlog.contextvars.clear_contextvars()

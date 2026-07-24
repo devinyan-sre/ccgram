@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 import structlog
 from telegram.error import TelegramError
 
+from . import health
 from .cc_commands import register_commands
 from .config import config
 from .handlers.commands import setup_menu_refresh_job
@@ -368,14 +369,38 @@ async def bootstrap_application(application: Application) -> None:
 def _runtime_healthy() -> bool:
     """Health gate for the systemd watchdog heartbeat.
 
-    Healthy means the two core background loops are actually running: the
-    session monitor task and the status-polling task. Either one dead or
-    finished withholds the heartbeat so systemd restarts the service.
+    Two layers:
+
+    1. *Liveness* — the session-monitor and status-polling tasks exist and
+       have not finished. Catches a crashed loop.
+    2. *Forward progress* — each loop stamped a completed cycle within
+       ``CCGRAM_HEALTH_STALL_SEC``. Catches a loop that is wedged but alive
+       (blocked on a hung syscall, or spinning without completing a cycle),
+       which layer 1 cannot see.
+
+    Either check failing withholds the heartbeat so systemd restarts the
+    service. A component that has never reported progress is treated as
+    healthy so startup does not trip the gate before the first cycle lands.
     """
     monitor = get_active_monitor()
     if monitor is None or monitor._task is None or monitor._task.done():
         return False
-    return _status_poll_task is not None and not _status_poll_task.done()
+    if _status_poll_task is None or _status_poll_task.done():
+        return False
+
+    threshold = config.health_stall_seconds
+    if threshold <= 0:  # progress check disabled — liveness only
+        return True
+    for component in (health.SESSION_MONITOR, health.STATUS_POLL):
+        if health.is_stalled(component, threshold):
+            logger.warning(
+                "Runtime stalled — no forward progress",
+                component=component,
+                seconds=health.seconds_since_progress(component),
+                threshold=threshold,
+            )
+            return False
+    return True
 
 
 async def start_metrics_if_enabled() -> None:
@@ -496,6 +521,7 @@ def reset_for_testing() -> None:
     session_monitor = None
     _status_poll_task = None
     _metrics_runner = None
+    health.reset_for_testing()
     clear_active_monitor()
     sd_notify.stop_watchdog()
 

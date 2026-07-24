@@ -267,9 +267,11 @@ class TestImportsAreMinimal:
             "..multiplexer",
             "..utils",
             "..config",
-            # Pure, dependency-free core module (like ..utils): the loop
-            # records cycle duration/outcome via one context manager.
+            # Pure, dependency-free core modules (like ..utils): the loop
+            # records cycle duration/outcome and stamps forward progress for
+            # the systemd health gate.
             "..metrics",
+            "..health",
             ".window_tick",
             ".polling_runtime",
             ".periodic_tasks",

@@ -306,6 +306,13 @@ class Config:
         # default so nothing is public without an explicit reverse proxy.
         self.metrics_host: str = os.getenv("CCGRAM_METRICS_HOST", "127.0.0.1")
         self.metrics_port: int = max(0, _parse_int_env("CCGRAM_METRICS_PORT", 0))
+        # Forward-progress stall threshold for the health gate. A false
+        # "unhealthy" costs a production restart, so the default is far above
+        # any normal cycle (poll loops run every 1-2s). 0 disables the
+        # progress check and falls back to liveness-only.
+        self.health_stall_seconds: int = max(
+            0, _parse_int_env("CCGRAM_HEALTH_STALL_SEC", 120)
+        )
 
     def _init_miniapp(self) -> None:
         # Mini App backend (Phase 3 / Theme 6) — disabled when base URL is empty.

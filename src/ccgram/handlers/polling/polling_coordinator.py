@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import structlog
 from telegram.error import TelegramError
 
+from ...health import STATUS_POLL, record_progress
 from ...metrics import track_poll_cycle
 from ...thread_router import thread_router
 from ...multiplexer import multiplexer as tmux_manager
@@ -107,6 +108,7 @@ async def status_poll_loop(bot: "Bot") -> None:
                 await run_periodic_tasks(client, all_windows, timers)
                 await _tick_bound_windows(bot, window_lookup, adaptive=adaptive)
                 await run_lifecycle_tasks(client, all_windows)
+            record_progress(STATUS_POLL)
         except Exception as e:
             if isinstance(e, _LoopError):
                 logger.exception("Status poll loop error")

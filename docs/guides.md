@@ -221,6 +221,7 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_MINIAPP_PORT`                                | `8765`                         | Mini App aiohttp 服务的本地绑定端口                                                                  |
 | `CCGRAM_METRICS_PORT`                                | `0`（关闭）                    | Prometheus 指标 / 健康探针监听端口；设为非 0 端口启用 `GET /metrics` 与 `GET /healthz`               |
 | `CCGRAM_METRICS_HOST`                                | `127.0.0.1`                    | 指标监听绑定地址；默认仅回环，对外暴露需显式配置反向代理                                             |
+| `CCGRAM_HEALTH_STALL_SEC`                            | `120`                          | 健康判据的“无进展”阈值(秒);轮询循环超过该时长未完成一轮即判不健康,触发 watchdog 重启;`0` 关闭该检查 |
 | `CCGRAM_LANG`                                        | `en`                           | 机器人界面语言;设为 `zh` 切换为简体中文                                                             |
 | `CCGRAM_QUIET_HOURS`                                 | _(关闭)_                       | 免打扰时段 `HH:MM-HH:MM`(服务器本地时间,支持跨午夜);时段内自动消息静默送达                        |
 | `CCGRAM_DAILY_DIGEST`                                | _(关闭)_                       | 每日摘要时间 `HH:MM`(服务器本地时间);向 General 话题发送各话题过去 24 小时的活动汇总               |
