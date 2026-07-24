@@ -23,6 +23,9 @@ class ContentTask:
     tool_use_id: str | None = None
     tool_name: str | None = None
     thread_id: int | None = None
+    # Correlation id, carried so the queue worker (a different task) can rebind
+    # it into the log context and keep a message traceable end to end.
+    cid: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +35,7 @@ class StatusUpdateTask:
     window_id: str
     text: str | None
     thread_id: int | None = None
+    cid: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +44,7 @@ class StatusClearTask:
 
     window_id: str | None
     thread_id: int | None = None
+    cid: str | None = None
 
 
 MessageTask: TypeAlias = ContentTask | StatusUpdateTask | StatusClearTask

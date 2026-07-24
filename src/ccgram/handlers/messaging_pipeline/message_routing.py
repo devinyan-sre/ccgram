@@ -12,6 +12,7 @@ import structlog
 
 from ... import session_query
 from ...session_monitor import NewMessage
+from ...correlation import new_cid
 from ...telegram_client import TelegramClient
 from ...user_preferences import user_preferences
 from ..interactive import (
@@ -51,9 +52,10 @@ async def handle_new_message(msg: NewMessage, client: TelegramClient) -> None:  
         return
 
     for user_id, window_id, thread_id in active_users:
+        cid = new_cid()
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(
-            window_id=window_id, session_id=msg.session_id
+            window_id=window_id, session_id=msg.session_id, cid=cid
         )
 
         if msg.content_type == "thinking":

@@ -15,6 +15,7 @@ import structlog
 from telegram.error import RetryAfter, TelegramError
 
 from ...config import config
+from ...correlation import bind_cid, current_cid
 from ...telegram_client import TelegramClient
 from ...thread_router import thread_router
 from ...topic_state_registry import topic_state
@@ -397,6 +398,10 @@ async def _message_queue_worker(client: TelegramClient, user_id: int) -> None:
     while True:
         try:
             task = await queue.get()
+            # Rebind the routing coroutine's correlation id: the worker runs in
+            # a different task, so contextvars set at enqueue time don't reach
+            # here. This keeps a single message traceable end to end.
+            bind_cid(getattr(task, "cid", None))
             try:
                 while True:
                     try:
@@ -568,6 +573,7 @@ async def enqueue_content_message(
         content_type=content_type,
         role=role,
         thread_id=thread_id,
+        cid=current_cid(),
     )
     queue.put_nowait(task)
 
@@ -584,16 +590,19 @@ async def enqueue_status_update(
     if _shed(queue, user_id, "status"):
         return
 
+    cid = current_cid()
     if status_text is not None:
         task: MessageTask = StatusUpdateTask(
             window_id=window_id,
             text=status_text,
             thread_id=thread_id,
+            cid=cid,
         )
     else:
         task = StatusClearTask(
             window_id=window_id,
             thread_id=thread_id,
+            cid=cid,
         )
 
     queue.put_nowait(task)
