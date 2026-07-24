@@ -125,6 +125,34 @@ ccgram
 
 ---
 
+## 推荐 Skills(运维 / SRE)
+
+维护 ccgram 与日常运维时值得安装的 Claude Code skills。**新增或移除 skill 时同步本表。**
+
+**事故处理 / On-call** — 来自 [wshobson/agents](https://github.com/wshobson/agents) 的 `incident-response` 插件:
+
+| Skill / 命令 | 作用 |
+| --- | --- |
+| `incident-runbook-templates` | 生成结构化事故 runbook(步骤、升级路径、恢复动作) |
+| `on-call-handoff-patterns` | On-call 交接:上下文转移、升级流程、值班摘要 |
+| `postmortem-writing` | 无指责复盘(根因、时间线、行动项) |
+| `/incident-response` | 多 agent 事故编排,支持 P0–P3 分级 |
+| `/smart-fix` | 多 agent 根因定位 + 验证式修复 |
+
+**安全 / 工程** — 从 [trailofbits/skills](https://github.com/trailofbits/skills) 精选(该库多为区块链审计,仅取通用项):
+
+| Skill | 作用 |
+| --- | --- |
+| `insecure-defaults` | 检测 fail-open 不安全默认(硬编码密钥、弱鉴权、过宽权限) |
+| `supply-chain-risk-auditor` | 依赖供应链攻击面 / 依赖健康度评估 |
+| `fp-check` | 核验安全发现真伪,消除误报(TRUE / FALSE POSITIVE 判定) |
+| `modern-python` | uv / ruff / ty 现代 Python 工具链配置(ccgram 用 uv) |
+| `git-cleanup` | 安全清理本地已合并分支与 worktree |
+
+安装方式:个人 skill 放 `~/.claude/skills/<name>/`,命令放 `~/.claude/commands/`;或用 `/plugin marketplace add <repo>` 走托管安装(可 `/plugin` 管理更新)。
+
+---
+
 ## 开发
 
 ```bash

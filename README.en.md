@@ -125,6 +125,34 @@ Open your Telegram group, create a topic, send a message — directory browser a
 
 ---
 
+## Recommended Skills (Ops / SRE)
+
+Claude Code skills worth installing for maintaining ccgram and day-to-day ops. **Keep this table in sync whenever a skill is added or removed.**
+
+**Incident response / on-call** — from the `incident-response` plugin in [wshobson/agents](https://github.com/wshobson/agents):
+
+| Skill / command | Purpose |
+| --- | --- |
+| `incident-runbook-templates` | Build structured incident runbooks (steps, escalation paths, recovery actions) |
+| `on-call-handoff-patterns` | On-call handoffs: context transfer, escalation, shift summaries |
+| `postmortem-writing` | Blameless postmortems (root cause, timeline, action items) |
+| `/incident-response` | Multi-agent incident orchestration with P0–P3 severity |
+| `/smart-fix` | Multi-agent root-cause analysis + verified fix |
+
+**Security / engineering** — cherry-picked from [trailofbits/skills](https://github.com/trailofbits/skills) (mostly a blockchain-audit library; only the general-purpose ones):
+
+| Skill | Purpose |
+| --- | --- |
+| `insecure-defaults` | Detect fail-open insecure defaults (hardcoded secrets, weak auth, permissive perms) |
+| `supply-chain-risk-auditor` | Assess dependency supply-chain attack surface / dependency health |
+| `fp-check` | Verify whether a security finding is real, eliminating false positives (TRUE / FALSE POSITIVE) |
+| `modern-python` | Configure uv / ruff / ty modern Python tooling (ccgram uses uv) |
+| `git-cleanup` | Safely clean up merged local branches and worktrees |
+
+Install: drop personal skills in `~/.claude/skills/<name>/` and commands in `~/.claude/commands/`, or use `/plugin marketplace add <repo>` for managed installs (updatable via `/plugin`).
+
+---
+
 ## Development
 
 ```bash
