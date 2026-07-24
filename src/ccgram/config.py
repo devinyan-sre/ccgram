@@ -251,6 +251,18 @@ class Config:
             "yes",
         )
 
+        # Telegram "typing…" chat action. When on, the action is refreshed only
+        # while the agent is genuinely producing output (recent transcript
+        # activity), so a long think/spinner phase no longer shows a misleading
+        # perpetual "typing" with no message arriving. Set CCGRAM_TYPING=0 to
+        # suppress the typing indicator entirely (the 🟢 topic emoji + status
+        # bubble still convey a busy agent).
+        self.typing_enabled: bool = os.getenv("CCGRAM_TYPING", "1").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+
         # Operator DM target for startup self-checks and error alerts. Empty
         # falls back to the lowest allowed-user id (the primary operator).
         operator_chat_str = os.getenv("CCGRAM_OPERATOR_CHAT_ID", "").strip()

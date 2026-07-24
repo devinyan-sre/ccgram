@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.7.1] - 2026-07-24
+
+### Fixed
+
+- Misleading perpetual "typing…" indicator. Telegram's typing action was
+  refreshed every 4s for the entire time a window was "active", including long
+  think/spinner phases where the agent produces no message — so a topic could
+  show "typing…" for many minutes with nothing arriving. Typing is now gated on
+  genuine output: it refreshes only while there is transcript activity within
+  the last `TYPING_MAX_QUIET` (60s), and lapses during a long silent think (the
+  🟢 topic emoji + status bubble still convey a busy agent). New `CCGRAM_TYPING`
+  switch (`0` suppresses the indicator entirely). The gate is computed in the
+  pure decision kernel (`decide_tick` → `TickDecision.send_typing`); the status
+  emoji and status-bubble behavior are unchanged.
+
 ## [4.7.0] - 2026-07-24
 
 SRE hardening batch — observability, health, state resilience, alerting,

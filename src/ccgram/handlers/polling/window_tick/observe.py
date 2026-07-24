@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from .... import window_query
+from ....config import config
 from ....providers import get_provider_for_window
 from ....providers.base import StatusUpdate
 from ....session_monitor import get_active_monitor
@@ -161,6 +162,8 @@ def build_context(
         startup_time=ws.startup_time if ws else None,
         is_dead_window=False,
         supports_hook=provider.capabilities.supports_hook,
+        last_activity_ts=last_activity_ts,
+        typing_enabled=config.typing_enabled,
     )
 
 

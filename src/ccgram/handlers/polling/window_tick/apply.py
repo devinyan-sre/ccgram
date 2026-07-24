@@ -407,7 +407,8 @@ async def _apply_active_transition(
         claude_task_state.clear_wait_header(window_id)
         claude_task_state.set_last_status(window_id, decision.status_text or "")
         ps.mark_seen_status(window_id)
-        await _send_typing_throttled(bot, user_id, thread_id, runtime=runtime)
+        if decision.send_typing:
+            await _send_typing_throttled(bot, user_id, thread_id, runtime=runtime)
         subagent_names = get_subagent_names(window_id)
         display_status = decision.status_text or ""
         if subagent_names:
@@ -422,7 +423,8 @@ async def _apply_active_transition(
         )
     else:
         claude_task_state.clear_wait_header(window_id)
-        await _send_typing_throttled(bot, user_id, thread_id, runtime=runtime)
+        if decision.send_typing:
+            await _send_typing_throttled(bot, user_id, thread_id, runtime=runtime)
     if thread_id is not None:
         chat_id = thread_router.resolve_chat_id(user_id, thread_id)
         display = thread_router.get_display_name(window_id)
@@ -460,6 +462,7 @@ async def _apply_starting_transition(
     user_id: int,
     window_id: str,
     thread_id: int | None,
+    decision: TickDecision,
     runtime: "PollingRuntime | None" = None,
 ) -> None:
     ps = runtime.poll_state if runtime is not None else terminal_poll_state
@@ -467,7 +470,8 @@ async def _apply_starting_transition(
     ws = ps.peek_state(window_id)
     if ws is None or ws.startup_time is None:
         ps.begin_startup_timer(window_id, time.monotonic())
-    await _send_typing_throttled(bot, user_id, thread_id, runtime=runtime)
+    if decision.send_typing:
+        await _send_typing_throttled(bot, user_id, thread_id, runtime=runtime)
     if thread_id is not None:
         chat_id = thread_router.resolve_chat_id(user_id, thread_id)
         display = thread_router.get_display_name(window_id)
@@ -509,7 +513,7 @@ async def _apply_tick_decision(
         )
     elif decision.transition == "starting":
         await _apply_starting_transition(
-            bot, user_id, window_id, thread_id, runtime=runtime
+            bot, user_id, window_id, thread_id, decision, runtime=runtime
         )
 
 

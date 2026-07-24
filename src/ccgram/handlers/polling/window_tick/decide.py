@@ -13,10 +13,27 @@ from ....providers.base import StatusUpdate
 from ....terminal_parser import status_emoji_prefix
 from ..polling_types import (
     STARTUP_TIMEOUT,
+    TYPING_MAX_QUIET,
     TickContext,
     TickDecision,
     is_shell_prompt,
 )
+
+
+def _typing_ok(ctx: TickContext) -> bool:
+    """Whether to refresh the "typing…" action for an active/starting tick.
+
+    Honest-typing gate: only while the agent is genuinely producing output —
+    transcript activity within ``TYPING_MAX_QUIET``. A long think/spinner phase
+    (the seconds counter ticking, no new transcript writes) stops refreshing so
+    the indicator lapses instead of showing a perpetual, misleading "typing".
+    ``CCGRAM_TYPING=0`` (``typing_enabled=False``) suppresses it entirely.
+    """
+    if not ctx.typing_enabled:
+        return False
+    if ctx.last_activity_ts is None:
+        return False
+    return (time.monotonic() - ctx.last_activity_ts) < TYPING_MAX_QUIET
 
 
 def build_status_line(status: StatusUpdate | None) -> str | None:
@@ -44,10 +61,11 @@ def decide_tick(ctx: TickContext) -> TickDecision:
             send_status=True,
             status_text=ctx.resolved_status_text,
             transition="active",
+            send_typing=_typing_ok(ctx),
         )
 
     if ctx.is_recently_active:
-        return TickDecision(transition="active")
+        return TickDecision(transition="active", send_typing=_typing_ok(ctx))
 
     if ctx.is_shell_prompt:
         if ctx.supports_hook:
@@ -64,7 +82,10 @@ def decide_tick(ctx: TickContext) -> TickDecision:
     if startup_expired:
         return TickDecision(transition="idle")
 
-    return TickDecision(transition="starting")
+    # Startup grace (bounded by STARTUP_TIMEOUT) — the user just launched/sent,
+    # so show typing immediately even before the first transcript write; only
+    # the CCGRAM_TYPING switch gates it here.
+    return TickDecision(transition="starting", send_typing=ctx.typing_enabled)
 
 
 __all__ = ["build_status_line", "decide_tick", "is_shell_prompt"]

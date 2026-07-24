@@ -4,6 +4,7 @@ import pytest
 
 from ccgram.handlers.polling.polling_types import (
     STARTUP_TIMEOUT,
+    TYPING_MAX_QUIET,
     TickContext,
 )
 from ccgram.handlers.polling.window_tick.decide import (
@@ -24,6 +25,8 @@ def _make_ctx(
     startup_time: float | None = None,
     is_dead_window: bool = False,
     supports_hook: bool = True,
+    last_activity_ts: float | None = None,
+    typing_enabled: bool = True,
 ) -> TickContext:
     return TickContext(
         window_id=window_id,
@@ -34,6 +37,8 @@ def _make_ctx(
         startup_time=startup_time,
         is_dead_window=is_dead_window,
         supports_hook=supports_hook,
+        last_activity_ts=last_activity_ts,
+        typing_enabled=typing_enabled,
     )
 
 
@@ -110,6 +115,74 @@ class TestDecideTickIdleAndStarting:
         ctx = _make_ctx(startup_time=old_start)
         decision = decide_tick(ctx)
         assert decision.transition == "idle"
+
+
+class TestDecideTickTypingGate:
+    """Typing is refreshed only while output is genuinely flowing."""
+
+    def test_active_status_with_fresh_activity_types(self):
+        ctx = _make_ctx(
+            resolved_status_text="Working...", last_activity_ts=time.monotonic()
+        )
+        decision = decide_tick(ctx)
+        assert decision.transition == "active"
+        assert decision.send_typing is True
+
+    def test_active_status_with_stale_activity_does_not_type(self):
+        # A long think/spinner phase: status line present, but no transcript
+        # write for >60s. This is the reported "perpetual typing" bug.
+        ctx = _make_ctx(
+            resolved_status_text="Brewing…",
+            last_activity_ts=time.monotonic() - (TYPING_MAX_QUIET + 5.0),
+        )
+        decision = decide_tick(ctx)
+        assert decision.transition == "active"
+        assert decision.send_status is True  # emoji + status bubble still update
+        assert decision.send_typing is False  # but no misleading typing
+
+    def test_active_status_with_no_activity_does_not_type(self):
+        ctx = _make_ctx(resolved_status_text="Working...", last_activity_ts=None)
+        decision = decide_tick(ctx)
+        assert decision.transition == "active"
+        assert decision.send_typing is False
+
+    def test_typing_disabled_never_types(self):
+        ctx = _make_ctx(
+            resolved_status_text="Working...",
+            last_activity_ts=time.monotonic(),
+            typing_enabled=False,
+        )
+        decision = decide_tick(ctx)
+        assert decision.send_typing is False
+
+    def test_recently_active_branch_types_when_fresh(self):
+        ctx = _make_ctx(is_recently_active=True, last_activity_ts=time.monotonic())
+        decision = decide_tick(ctx)
+        assert decision.transition == "active"
+        assert decision.send_status is False
+        assert decision.send_typing is True
+
+    def test_starting_types_regardless_of_activity(self):
+        # Startup grace is bounded by STARTUP_TIMEOUT; show typing immediately
+        # even before the first transcript write.
+        ctx = _make_ctx(startup_time=None, last_activity_ts=None)
+        decision = decide_tick(ctx)
+        assert decision.transition == "starting"
+        assert decision.send_typing is True
+
+    def test_starting_respects_disable_switch(self):
+        ctx = _make_ctx(startup_time=None, typing_enabled=False)
+        decision = decide_tick(ctx)
+        assert decision.transition == "starting"
+        assert decision.send_typing is False
+
+    def test_idle_and_done_never_type(self):
+        idle = decide_tick(_make_ctx(has_seen_status=True))
+        assert idle.transition == "idle"
+        assert idle.send_typing is False
+        done = decide_tick(_make_ctx(is_shell_prompt=True, supports_hook=True))
+        assert done.transition == "done"
+        assert done.send_typing is False
 
 
 class TestBuildStatusLine:

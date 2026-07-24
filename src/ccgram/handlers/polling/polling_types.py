@@ -49,6 +49,12 @@ MAX_PROBE_FAILURES = 3
 # Typing indicator throttle interval (seconds).
 TYPING_INTERVAL = 4.0
 
+# Stop refreshing the "typing…" action once the agent has produced no new
+# transcript output for this long, even while the window is still "active"
+# (e.g. a long think/spinner phase). Keeps typing honest: it means "a message
+# is flowing", not "a timer is ticking".
+TYPING_MAX_QUIET = 60.0
+
 # Pane count cache TTL for multi-pane scanning (seconds).
 PANE_COUNT_TTL = 5.0
 
@@ -147,6 +153,10 @@ class TickContext:
     startup_time: float | None  # None if no startup grace period is running
     is_dead_window: bool  # tmux window no longer exists
     supports_hook: bool  # provider emits hook events (Claude)
+    # Monotonic timestamp of the last transcript activity, or None. Drives the
+    # typing gate: typing is honest only while output is actually flowing.
+    last_activity_ts: float | None = None
+    typing_enabled: bool = True  # CCGRAM_TYPING; False suppresses "typing…"
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +170,7 @@ class TickDecision:
     status_text: str | None = None
     transition: Literal["idle", "done", "active", "starting"] | None = None
     show_recovery: bool = False
+    send_typing: bool = False  # refresh the Telegram "typing…" action this tick
 
 
 # ── Pane state types ─────────────────────────────────────────────────────
