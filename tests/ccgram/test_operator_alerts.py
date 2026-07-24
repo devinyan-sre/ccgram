@@ -6,6 +6,9 @@ import pytest
 
 from ccgram.config import config
 from ccgram.operator_alerts import (
+    SEVERITY_CRITICAL,
+    SEVERITY_INFO,
+    SEVERITY_WARNING,
     ErrorRateTracker,
     PermissionCheckResult,
     _can_manage_topics,
@@ -20,6 +23,59 @@ from ccgram.operator_alerts import (
     resolve_operator_fallback_chat_id,
 )
 from ccgram.telegram_client import FakeTelegramClient
+
+
+class TestAlertSeverityMetrics:
+    """Every alert outcome must be countable, including 'nobody to alert'."""
+
+    def _rendered(self):
+        from ccgram import metrics
+
+        return metrics.registry.render()
+
+    async def test_successful_alert_counts_as_sent(self, _restore_config):
+        config.operator_chat_id = 777
+        config.allowed_users = {777}
+        config.operator_fallback_chat_id = None
+        config.group_id = None
+        client = FakeTelegramClient()
+
+        assert await notify_operator(client, "hi", severity=SEVERITY_CRITICAL) is True
+        assert 'severity="critical",outcome="sent"' in self._rendered()
+
+    async def test_unconfigured_sink_is_counted_not_silent(self, _restore_config):
+        """A deployment that can't alert anyone must not look like 'no alerts'."""
+        config.operator_chat_id = None
+        config.allowed_users = set()
+        config.operator_fallback_chat_id = None
+        config.group_id = None
+        client = FakeTelegramClient()
+
+        assert await notify_operator(client, "hi", severity=SEVERITY_WARNING) is False
+        assert 'severity="warning",outcome="no_sink"' in self._rendered()
+
+    async def test_fallback_delivery_is_distinguishable_from_primary(
+        self, _restore_config
+    ):
+        config.operator_chat_id = 777
+        config.allowed_users = {777}
+        config.operator_fallback_chat_id = -100
+        config.group_id = -100
+        client = FakeTelegramClient()
+        client.set_side_effect("send_message", [RuntimeError("can't initiate"), None])
+
+        assert await notify_operator(client, "hi", severity=SEVERITY_INFO) is True
+        assert 'severity="info",outcome="sent_fallback"' in self._rendered()
+
+    async def test_default_severity_is_warning(self, _restore_config):
+        config.operator_chat_id = 777
+        config.allowed_users = {777}
+        config.operator_fallback_chat_id = None
+        config.group_id = None
+        client = FakeTelegramClient()
+
+        await notify_operator(client, "hi")
+        assert 'severity="warning",outcome="sent"' in self._rendered()
 
 
 @pytest.fixture

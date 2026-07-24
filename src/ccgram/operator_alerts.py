@@ -30,7 +30,15 @@ from structlog.typing import EventDict
 
 from .config import config
 from .i18n import t
+from .metrics import OPERATOR_ALERTS
 from .telegram_client import TelegramClient
+
+# Alert severity. Deliberately a plain string constant set rather than an enum:
+# these values are metric label values (ccgram_operator_alerts{severity=...}),
+# so their wire form is an operational contract that dashboards key on.
+SEVERITY_CRITICAL = "critical"
+SEVERITY_WARNING = "warning"
+SEVERITY_INFO = "info"
 
 logger = structlog.get_logger()
 
@@ -75,7 +83,12 @@ def _operator_sinks() -> list[int]:
     return sinks
 
 
-async def notify_operator(client: TelegramClient, text: str) -> bool:
+async def notify_operator(
+    client: TelegramClient,
+    text: str,
+    *,
+    severity: str = SEVERITY_WARNING,
+) -> bool:
     """Deliver an operator alert, falling back from DM to the group sink.
 
     Tries the primary operator DM first; on any failure (e.g. the operator
@@ -83,15 +96,25 @@ async def notify_operator(client: TelegramClient, text: str) -> bool:
     conversation``) it tries the fallback sink so the alert still lands.
     Best-effort: returns True on first success, False if every sink fails or
     none is configured. Never propagates — alerting must not crash the caller.
+
+    ``severity`` classifies the alert for metrics and log correlation; it does
+    not change delivery. Every outcome — including "no sink configured" — is
+    counted, so a silently unalertable deployment is visible on /metrics rather
+    than looking identical to "no alerts fired".
     """
     sinks = _operator_sinks()
     if not sinks:
         logger.debug("No operator chat id resolved; skipping alert")
+        OPERATOR_ALERTS.inc(severity=severity, outcome="no_sink")
         return False
     for index, chat_id in enumerate(sinks):
         is_last = index == len(sinks) - 1
         try:
             await client.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
+            OPERATOR_ALERTS.inc(
+                severity=severity,
+                outcome="sent" if index == 0 else "sent_fallback",
+            )
             return True
         except Exception:  # noqa: BLE001 — alerting must never raise
             logger.warning(
@@ -99,7 +122,9 @@ async def notify_operator(client: TelegramClient, text: str) -> bool:
                 chat_id,
                 "" if is_last else "; trying fallback sink",
                 exc_info=is_last,
+                severity=severity,
             )
+    OPERATOR_ALERTS.inc(severity=severity, outcome="failed")
     return False
 
 
@@ -183,7 +208,13 @@ async def check_group_permissions(
                 chat_id,
                 f" ({result.reason})" if result.reason else "",
             )
-            await notify_operator(client, format_missing_permission_alert(result))
+            # Missing 'Manage Topics' blocks topic creation outright — the bot
+            # keeps running but cannot do its job, so this is critical.
+            await notify_operator(
+                client,
+                format_missing_permission_alert(result),
+                severity=SEVERITY_CRITICAL,
+            )
     return results
 
 
@@ -354,7 +385,9 @@ def _schedule_operator_dm(text: str) -> None:
     except RuntimeError:
         return
     loop.call_soon_threadsafe(
-        lambda: asyncio.ensure_future(notify_operator(client, text))
+        lambda: asyncio.ensure_future(
+            notify_operator(client, text, severity=SEVERITY_CRITICAL)
+        )
     )
 
 
