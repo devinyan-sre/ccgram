@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.6.1] - 2026-07-24
+
+### Fixed
+
+- Operator alerts could be silently dropped when the operator had never opened
+  a private chat with the bot (Telegram refuses "can't initiate conversation"),
+  so error alerts and the daily digest were lost with only a warning.
+  `notify_operator` now falls back from the primary DM to a group sink
+  (`CCGRAM_OPERATOR_FALLBACK_CHAT_ID`, empty → `CCGRAM_GROUP_ID`) so alerts
+  still land, and a new startup self-check (`check_operator_reachable`, folded
+  into the existing permission self-check) probes the operator target with
+  `get_chat` and logs an actionable fix hint at boot instead of failing
+  silently at alert time. No chat id is hardcoded.
+
+### Docs
+
+- Documented `CCGRAM_OPERATOR_CHAT_ID`, `CCGRAM_OPERATOR_FALLBACK_CHAT_ID`, and
+  `CCGRAM_ERROR_ALERTS` in the configuration guide (zh + en).
+- Added a "Recommended Skills (Ops/SRE)" section to the README.
+
 ## [4.6.0] - 2026-07-23
 
 ### Added
