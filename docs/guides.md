@@ -56,8 +56,13 @@ ccgram -v                     # Run with debug logging
      - **管理话题（Manage Topics）**——最关键的一项，创建、重命名、关闭话题都靠它
      - 置顶消息（Pin Messages）
      - 读取消息 / 查看聊天（Read Messages / View The Chat）
+   - **⚠️ 不要把机器人设为「匿名管理员（Remain Anonymous）」**——这是一个隐蔽的坑：匿名管理员**即使「管理话题」显示为已授予**，创建话题仍会被 Telegram 拒绝并报 `Not enough rights to create a topic`。在群管理员设置里把该机器人的**匿名**开关关掉（编辑管理员 → 关闭「匿名」）。
 
-   > **缺少「管理话题」权限的症状**：从终端手动开的 agent 窗口无法自动创建话题（日志出现 `Not enough rights to create a topic`，且该群会进入 10 分钟退避）；话题名前的状态表情（🟢/🟡/✅/💥）也无法更新——它是通过 `editForumTopic` 重命名实现的。补上权限后下一个轮询周期即自动恢复，无需重启。
+   > **建话题失败（`Not enough rights to create a topic`）的两种成因**：
+   > 1. **缺少「管理话题」权限** —— 补上即可。
+   > 2. **机器人是匿名管理员** —— 权限看着是对的、却照样失败;关掉匿名即可。用 Bot API 自查:`getChatMember` 返回 `is_anonymous=true` 就是这个坑(`can_manage_topics=true` 也不管用)。
+   >
+   > 症状:从终端手动开的 agent 窗口无法自动创建话题(日志出现该错误,该群进入 10 分钟退避);话题名前的状态表情(🟢/🟡/✅/💥)也无法更新——它通过 `editForumTopic` 重命名实现。修好权限/关掉匿名后下一个轮询周期即自动恢复,无需重启。
 5. **获取你的用户 ID：** 打开 [@userinfobot](https://t.me/userinfobot)，它会显示你的数字用户 ID。保存下来，用于 `ALLOWED_USERS`
 6. **获取群组 ID：** 在群里打开 [@RawDataBot](https://t.me/RawDataBot)，在 **Peer ID** 下记录该数字（去掉前缀 `-100` 或保留均可，两种格式都支持）
    - 保存下来，用于 `CCGRAM_GROUP_ID`（如有需要请加上 `-100` 前缀）
@@ -530,7 +535,7 @@ claude     # or: codex, gemini, pi
 
 **前提与排查：**
 
-- 机器人必须在群里具备**「管理话题」管理员权限**，否则自动建话题会失败：日志（`~/.ccgram/ccgram.log`）出现 `Not enough rights to create a topic`，且该群进入 10 分钟退避（避免刷 API）。补上权限后无需重启，等下一次尝试即可；也可以直接重启 `ccgram` 立即触发。
+- 机器人必须在群里具备**「管理话题」管理员权限**,并且**不能是匿名管理员**,否则自动建话题会失败:日志(`~/.ccgram/ccgram.log`)出现 `Not enough rights to create a topic`,且该群进入 10 分钟退避(避免刷 API)。**踩坑记录**:匿名管理员即使「管理话题」显示已授予也会报同样的错——用 `getChatMember` 查到 `is_anonymous=true` 就把匿名关掉。修好后无需重启,等下一次尝试即可;也可以直接重启 `ccgram` 立即触发。
 - 窗口必须位于 ccgram 自己的复用器会话中（tmux 默认会话名 `ccgram`，可用 `TMUX_SESSION_NAME` 配置）——其他 tmux 会话里的窗口不会被发现。
 - 运行 `ccgram doctor` 可检查 hook 是否安装、复用器与 agent CLI 是否就绪。
 
@@ -986,7 +991,7 @@ scripts/deploy.sh --no-rollback   # 只门控不回滚(排障时用)
 | 症状 | 原因与处理 |
 | ---- | ---------- |
 | SSH 断开后服务消失 | 未开 linger:`loginctl enable-linger $USER` |
-| `Not enough rights to create a topic` | 机器人缺「管理话题」管理员权限(见 BotFather 配置一节) |
+| `Not enough rights to create a topic` | 两种成因:①机器人缺「管理话题」管理员权限;②机器人被设为**匿名管理员**——权限对了也建不了话题,须关掉匿名。`getChatMember` 查 `is_anonymous`(见 BotFather 配置一节) |
 | 窗口里 agent 启动失败 / 找不到命令 | 单元的 `Environment=PATH` 没包含 agent CLI 所在目录 |
 | 服务反复重启(NRestarts 增长) | 看 `~/.ccgram/ccgram.log` 的最后一段 traceback;`.env` 配置错误最常见 |
 | 看门狗频繁触发重启 | 核心循环卡死。日志里搜 `Runtime stalled` 可看到是哪个组件、停滞多久;必要时调大 `CCGRAM_HEALTH_STALL_SEC` |

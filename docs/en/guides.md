@@ -46,8 +46,13 @@ You need a Telegram bot token to run CCGram. Create one via [@BotFather](https:/
      - **Manage Topics** — the critical one: creating, renaming, and closing topics all require it
      - Pin Messages
      - Read Messages / View The Chat
+   - **⚠️ Do NOT make the bot an anonymous admin ("Remain Anonymous")** — this is a subtle trap: an anonymous admin is **refused topic creation even when "Manage Topics" shows as granted**, failing with `Not enough rights to create a topic`. Turn the bot's **anonymous** toggle off in the group admin settings (Edit admin → disable "Remain Anonymous").
 
-   > **Symptoms of a missing "Manage Topics" right**: agent windows opened manually in the terminal fail to auto-create topics (`Not enough rights to create a topic` in the log, and the chat enters a 10-minute backoff); topic status emojis (🟢/🟡/✅/💥) also stop updating — they are implemented via `editForumTopic` renames. Once the right is granted, everything recovers on the next polling cycle without a restart.
+   > **`Not enough rights to create a topic` has two causes**:
+   > 1. **Missing the "Manage Topics" right** — grant it.
+   > 2. **The bot is an anonymous admin** — the right looks correct yet creation still fails; turn anonymous off. Self-check via the Bot API: `getChatMember` returning `is_anonymous=true` is this trap (`can_manage_topics=true` doesn't help).
+   >
+   > Symptoms: agent windows opened manually in the terminal fail to auto-create topics (the error in the log; the chat enters a 10-minute backoff); topic status emojis (🟢/🟡/✅/💥) also stop updating — they are implemented via `editForumTopic` renames. After fixing the right / disabling anonymous, everything recovers on the next polling cycle without a restart.
 5. **Get your user ID:** Open [@userinfobot](https://t.me/userinfobot) → it shows your numeric user ID. Save this for `ALLOWED_USERS`
 6. **Get your group ID:** Open [@RawDataBot](https://t.me/RawDataBot) in the group → under **Peer ID**, note the number (remove leading `-100`, or keep it — both formats work)
    - Save this for `CCGRAM_GROUP_ID` (prefix with `-100` if needed)
@@ -472,7 +477,7 @@ This works even on a fresh instance with no existing topic bindings (cold-start)
 
 **Prerequisites & troubleshooting:**
 
-- The bot needs the **"Manage Topics" admin right** in the group, or auto-topic-creation fails: the log (`~/.ccgram/ccgram.log`) shows `Not enough rights to create a topic` and the chat enters a 10-minute backoff (to avoid hammering the API). After granting the right, no restart is needed — the next attempt succeeds; restarting `ccgram` triggers it immediately.
+- The bot needs the **"Manage Topics" admin right** in the group **and must NOT be an anonymous admin**, or auto-topic-creation fails: the log (`~/.ccgram/ccgram.log`) shows `Not enough rights to create a topic` and the chat enters a 10-minute backoff (to avoid hammering the API). **Gotcha**: an anonymous admin hits the same error even when "Manage Topics" shows as granted — if `getChatMember` reports `is_anonymous=true`, turn anonymous off. After fixing, no restart is needed — the next attempt succeeds; restarting `ccgram` triggers it immediately.
 - The window must live in ccgram's own multiplexer session (tmux session name `ccgram` by default, configurable via `TMUX_SESSION_NAME`) — windows in other tmux sessions are not discovered.
 - Run `ccgram doctor` to check hook installation, multiplexer, and agent CLI readiness.
 
@@ -916,7 +921,7 @@ or left in place with `--no-rollback`). Rollback builds the previous commit in a
 | Symptom | Cause & fix |
 | ------- | ----------- |
 | Service dies after SSH disconnect | Lingering not enabled: `loginctl enable-linger $USER` |
-| `Not enough rights to create a topic` | Bot lacks the "Manage Topics" admin right (see BotFather setup) |
+| `Not enough rights to create a topic` | Two causes: (1) bot lacks the "Manage Topics" admin right; (2) bot is an **anonymous admin** — the right is correct but topic creation still fails, so turn anonymous off. Check `is_anonymous` via `getChatMember` (see BotFather setup) |
 | Agent fails to launch in windows / command not found | The unit's `Environment=PATH` is missing the agent CLI's directory |
 | Service restarts repeatedly (NRestarts grows) | Check the last traceback in `~/.ccgram/ccgram.log`; a broken `.env` is the most common cause |
 | Watchdog keeps triggering restarts | A core loop is wedged. Grep the log for `Runtime stalled` to see which component stalled and for how long; raise `CCGRAM_HEALTH_STALL_SEC` if needed |
