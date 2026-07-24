@@ -724,11 +724,23 @@ Restart=on-failure
 RestartSec=5
 WatchdogSec=90
 
+# Resource guardrails so a leak can't take the host down with it.
+# Typical steady state is ~100MB across ~10 threads; these leave ~5x headroom.
+MemoryHigh=384M
+MemoryMax=512M
+TasksMax=128
+
 [Install]
 WantedBy=default.target
 ```
 
-`Type=notify` + `WatchdogSec` arm a health watchdog: the bot sends `READY=1` once bootstrapped, then a heartbeat every half watchdog interval — gated on internal health checks (session-monitor and status-polling loops alive). A wedged or dead core loop withholds the heartbeat and systemd restarts the service. Revert to `Type=simple` (and drop `WatchdogSec`) to disable, falling back to plain crash restarts.
+`Type=notify` + `WatchdogSec` arm a health watchdog: the bot sends `READY=1` once bootstrapped, then a heartbeat every half watchdog interval — gated on internal health checks. Health has two layers: **liveness** (the session-monitor and status-polling loops have not exited) and **forward progress** (both completed a cycle within `CCGRAM_HEALTH_STALL_SEC`). The second layer catches a loop that is wedged but still alive, which liveness alone cannot see. Either layer failing withholds the heartbeat and systemd restarts the service. Revert to `Type=simple` (and drop `WatchdogSec`) to disable.
+
+> **Time to restart** after a wedge is roughly `CCGRAM_HEALTH_STALL_SEC + WatchdogSec` (120 + 90 ≈ 210s by default). Lower both to detect faster.
+
+> **Do not** add `PrivateTmp=yes` to this unit: tmux sockets live in `/tmp/tmux-<uid>/`, and a private /tmp leaves the bot unable to reach tmux at all. `ProtectHome` likewise cuts off `~/.ccgram/` and `~/.claude/`.
+>
+> These limits apply to the bot only. Agents run under the tmux server's process tree in a **different cgroup**, so `MemoryMax` here never constrains them — confirm with the CGroup section of `systemctl --user status ccgram`.
 
 ### 3. File logging (drop-in, optional but recommended)
 
@@ -868,7 +880,36 @@ You can also send `/upgrade` in any bound topic — the bot runs `uv tool upgrad
 | `Not enough rights to create a topic` | Bot lacks the "Manage Topics" admin right (see BotFather setup) |
 | Agent fails to launch in windows / command not found | The unit's `Environment=PATH` is missing the agent CLI's directory |
 | Service restarts repeatedly (NRestarts grows) | Check the last traceback in `~/.ccgram/ccgram.log`; a broken `.env` is the most common cause |
-| Watchdog keeps triggering restarts | A core loop is wedged — upgrade to the latest version first; as a stopgap, revert to `Type=simple` |
+| Watchdog keeps triggering restarts | A core loop is wedged. Grep the log for `Runtime stalled` to see which component stalled and for how long; raise `CCGRAM_HEALTH_STALL_SEC` if needed |
+| Exits at startup with `Refusing to start with invalid configuration` | An invalid config value (out-of-range port, unknown multiplexer). The error lists each problem; fix `.env` and restart |
+| Topic creation keeps failing | Scrape `/metrics` and check `ccgram_topic_create` by outcome: `permission` = missing admin right, `flood` = rate-limit backoff, `bad_request` = see the log detail |
+| All topic bindings lost | `ccgram doctor --restore` (stop the service first) — see "State file backup and recovery" |
+
+### 7.1 Operations cheat sheet (no `make` required)
+
+`make` is a development convenience and is usually absent on production hosts.
+Day-to-day operations need only these:
+
+```bash
+# Status and health
+systemctl --user status ccgram
+systemctl --user show ccgram -p NRestarts -p MemoryCurrent -p TasksCurrent
+curl -so /dev/null -w '%{http_code}\n' localhost:9095/healthz   # needs CCGRAM_METRICS_PORT
+ccgram status
+ccgram doctor
+
+# Logs
+tail -f ~/.ccgram/ccgram.log
+journalctl --user -u ccgram -f --since "10 min ago"
+grep -E "Runtime stalled|Invalid configuration|error" ~/.ccgram/ccgram.log | tail -30
+
+# Lifecycle
+systemctl --user restart ccgram
+systemctl --user stop ccgram && ccgram doctor --restore && systemctl --user start ccgram
+
+# Upgrade (local fork)
+uv tool install --force --reinstall /path/to/ccgram && systemctl --user restart ccgram
+```
 
 On macOS, you can use a launchd plist or simply run in a detached tmux session:
 

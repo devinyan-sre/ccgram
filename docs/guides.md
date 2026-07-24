@@ -816,11 +816,23 @@ Restart=on-failure
 RestartSec=5
 WatchdogSec=90
 
+# 资源护栏:防止内存泄漏拖垮整台机器。
+# 典型稳态占用约 100MB / 10 个线程,以下取值留了约 5 倍余量。
+MemoryHigh=384M
+MemoryMax=512M
+TasksMax=128
+
 [Install]
 WantedBy=default.target
 ```
 
-`Type=notify` + `WatchdogSec` 启用健康看门狗:bot 启动完成后向 systemd 发送 `READY=1`,之后每半个看门狗周期发送一次心跳——心跳与内部健康检查(会话监控循环、状态轮询循环存活)绑定,任一核心循环卡死或退出即停止心跳,systemd 会自动重启服务。改回 `Type=simple`(并删除 `WatchdogSec`)即可禁用,行为退化为普通崩溃重启。
+`Type=notify` + `WatchdogSec` 启用健康看门狗:bot 启动完成后向 systemd 发送 `READY=1`,之后每半个看门狗周期发送一次心跳——心跳与内部健康检查绑定。健康判据有两层:**存活**(会话监控循环、状态轮询循环未退出)与**有进展**(两个循环都在 `CCGRAM_HEALTH_STALL_SEC` 内完成过一轮)。第二层能抓住"进程还在但卡死"的情形,这正是只看存活抓不到的。任一层不满足即停止心跳,systemd 自动重启。改回 `Type=simple`(并删除 `WatchdogSec`)即可禁用。
+
+> **重启时延**:卡死后的实际重启时间约为 `CCGRAM_HEALTH_STALL_SEC + WatchdogSec`(默认 120+90 ≈ 210 秒)。要更快发现,同时调小这两个值。
+
+> **不要**给这个单元加 `PrivateTmp=yes`:tmux 的套接字在 `/tmp/tmux-<uid>/`,私有 /tmp 会让 bot 完全连不上 tmux。同理 `ProtectHome` 也会切断 `~/.ccgram/` 与 `~/.claude/`。
+>
+> 资源限制只作用于 bot 自身:agent 跑在 tmux server 的进程树里,属于**另一个 cgroup**,不受这里的 `MemoryMax` 影响(可用 `systemctl --user status ccgram` 查看 CGroup 一节自行确认)。
 
 ### 3. 日志落盘(drop-in,可选但推荐)
 
@@ -950,7 +962,35 @@ systemctl --user show ccgram -p NRestarts   # 仍为 0 说明没有崩溃循环
 | `Not enough rights to create a topic` | 机器人缺「管理话题」管理员权限(见 BotFather 配置一节) |
 | 窗口里 agent 启动失败 / 找不到命令 | 单元的 `Environment=PATH` 没包含 agent CLI 所在目录 |
 | 服务反复重启(NRestarts 增长) | 看 `~/.ccgram/ccgram.log` 的最后一段 traceback;`.env` 配置错误最常见 |
-| 看门狗频繁触发重启 | 核心循环卡死,先升级到最新版;临时可改回 `Type=simple` |
+| 看门狗频繁触发重启 | 核心循环卡死。日志里搜 `Runtime stalled` 可看到是哪个组件、停滞多久;必要时调大 `CCGRAM_HEALTH_STALL_SEC` |
+| 启动即退出并提示 `Refusing to start with invalid configuration` | 配置值非法(端口越界、未知 multiplexer)。错误信息会逐条列出;改 `.env` 后重启 |
+| 话题创建一直失败 | 抓取 `/metrics` 看 `ccgram_topic_create` 的 outcome:`permission` 缺管理员权限、`flood` 是限流退避、`bad_request` 看日志详情 |
+| 所有话题绑定丢失 | `ccgram doctor --restore`(先停服务),见「状态文件备份与恢复」一节 |
+
+### 7.1 运维速查(不依赖 make)
+
+`make` 是开发用的;生产机上通常没有。日常运维只需要这些:
+
+```bash
+# 状态与健康
+systemctl --user status ccgram
+systemctl --user show ccgram -p NRestarts -p MemoryCurrent -p TasksCurrent
+curl -so /dev/null -w '%{http_code}\n' localhost:9095/healthz   # 需开启 CCGRAM_METRICS_PORT
+ccgram status
+ccgram doctor
+
+# 日志
+tail -f ~/.ccgram/ccgram.log
+journalctl --user -u ccgram -f --since "10 min ago"
+grep -E "Runtime stalled|Invalid configuration|error" ~/.ccgram/ccgram.log | tail -30
+
+# 生命周期
+systemctl --user restart ccgram
+systemctl --user stop ccgram && ccgram doctor --restore && systemctl --user start ccgram
+
+# 升级(本地 fork)
+uv tool install --force --reinstall /path/to/ccgram && systemctl --user restart ccgram
+```
 
 在 macOS 上，可以使用 launchd plist，或直接在分离的 tmux 会话中运行：
 
