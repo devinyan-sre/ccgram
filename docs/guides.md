@@ -222,6 +222,9 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_LANG`                                        | `en`                           | 机器人界面语言;设为 `zh` 切换为简体中文                                                             |
 | `CCGRAM_QUIET_HOURS`                                 | _(关闭)_                       | 免打扰时段 `HH:MM-HH:MM`(服务器本地时间,支持跨午夜);时段内自动消息静默送达                        |
 | `CCGRAM_DAILY_DIGEST`                                | _(关闭)_                       | 每日摘要时间 `HH:MM`(服务器本地时间);向 General 话题发送各话题过去 24 小时的活动汇总               |
+| `CCGRAM_OPERATOR_CHAT_ID`                            | _(最小 allowed-user)_          | 运营者告警/启动自检的私信目标;留空则取 allowed-users 中最小的 id                                    |
+| `CCGRAM_OPERATOR_FALLBACK_CHAT_ID`                   | _(回落到 `CCGRAM_GROUP_ID`)_   | 私信投递失败时的降级目标(机器人已加入的群/话题),避免运营者未开私聊导致告警静默丢失                |
+| `CCGRAM_ERROR_ALERTS`                                | `1`                            | 同类错误短时间内多次出现时向运营者发告警;设为 `0` 关闭                                              |
 | `CCGRAM_TTS_PROVIDER`                                | _（禁用）_                     | 语音回复的 TTS 后端：`edge`（免费）或 `openai`                                                       |
 | `CCGRAM_TTS_VOICE`                                   | `en-US-EmmaMultilingualNeural` | 语音名称                                                                                             |
 | `CCGRAM_TTS_MODEL`                                   | `gpt-4o-mini-tts`              | OpenAI TTS 模型（仅当 `CCGRAM_TTS_PROVIDER=openai` 时使用）                                          |

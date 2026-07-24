@@ -235,6 +235,21 @@ class Config:
         else:
             self.operator_chat_id = None
 
+        # Fallback sink when the operator DM can't be delivered (e.g. the
+        # operator never opened a private chat, so the bot "can't initiate
+        # conversation"). A group/topic chat the bot can already post to. Empty
+        # falls back to CCGRAM_GROUP_ID.
+        fallback_chat_str = os.getenv("CCGRAM_OPERATOR_FALLBACK_CHAT_ID", "").strip()
+        if fallback_chat_str:
+            try:
+                self.operator_fallback_chat_id: int | None = int(fallback_chat_str)
+            except ValueError as e:
+                raise ValueError(
+                    f"CCGRAM_OPERATOR_FALLBACK_CHAT_ID must be a valid integer: {e}"
+                ) from e
+        else:
+            self.operator_fallback_chat_id = None
+
         # Error-rate alerting: DM the operator when the same error signature
         # fires repeatedly in a short window. Set CCGRAM_ERROR_ALERTS=0 to
         # disable.

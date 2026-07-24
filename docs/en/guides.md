@@ -200,6 +200,9 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_LANG`                                        | `en`                           | Bot UI language; set `zh` for Simplified Chinese                                                     |
 | `CCGRAM_QUIET_HOURS`                                 | _(disabled)_                   | Do-not-disturb window `HH:MM-HH:MM` (server local time, wraps midnight); automated messages arrive silently |
 | `CCGRAM_DAILY_DIGEST`                                | _(disabled)_                   | Daily digest time `HH:MM` (server local time); posts a per-topic 24h activity summary to General      |
+| `CCGRAM_OPERATOR_CHAT_ID`                            | _(lowest allowed-user)_        | DM target for operator alerts / startup self-checks; empty uses the lowest allowed-user id            |
+| `CCGRAM_OPERATOR_FALLBACK_CHAT_ID`                   | _(falls back to `CCGRAM_GROUP_ID`)_ | Fallback sink when the operator DM can't be delivered (a group/topic the bot is in), so alerts aren't silently lost when the operator never opened a private chat |
+| `CCGRAM_ERROR_ALERTS`                                | `1`                            | Alert the operator when the same error fires repeatedly in a short window; set `0` to disable         |
 | `CCGRAM_TTS_PROVIDER`                                | _(disabled)_                   | TTS backend for voice replies: `edge` (free) or `openai`                                             |
 | `CCGRAM_TTS_VOICE`                                   | `en-US-EmmaMultilingualNeural` | Voice name                                                                                           |
 | `CCGRAM_TTS_MODEL`                                   | `gpt-4o-mini-tts`              | OpenAI TTS model (only used when `CCGRAM_TTS_PROVIDER=openai`)                                       |

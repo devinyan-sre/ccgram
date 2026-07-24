@@ -112,11 +112,22 @@ async def run_startup_permission_check(application: Application) -> None:
     logged and swallowed so it can never block startup.
     """
     # Lazy: operator_alerts pulls telegram_client + i18n; only needed here.
-    from .operator_alerts import check_group_permissions
+    from .operator_alerts import check_group_permissions, check_operator_reachable
 
     # Lazy: thread_router proxy, read only for extra bound group chats.
     from .thread_router import thread_router
 
+    client = PTBTelegramClient(application.bot)
+
+    # 1. Operator DM reachability — independent of any bound group topics, so
+    #    it runs even when no group is configured. Surfaces the "can't initiate
+    #    conversation" case at boot instead of silently failing at alert time.
+    try:
+        await check_operator_reachable(client)
+    except Exception:  # noqa: BLE001 — advisory step, never fatal
+        logger.warning("Operator reachability check failed", exc_info=True)
+
+    # 2. Manage-Topics right in each target group chat.
     chat_ids: set[int] = set()
     if config.group_id is not None:
         chat_ids.add(config.group_id)
@@ -128,7 +139,6 @@ async def run_startup_permission_check(application: Application) -> None:
     except RuntimeError, AttributeError:
         logger.debug("Bot id unavailable; skipping startup permission check")
         return
-    client = PTBTelegramClient(application.bot)
     try:
         await check_group_permissions(client, sorted(chat_ids), bot_id)
     except Exception:  # noqa: BLE001 — advisory step, never fatal

@@ -545,4 +545,9 @@ _ZH: dict[str, str] = {
     "Grant it in the group's admin settings, then it recovers automatically.": "请在群组管理员设置中授予,之后会自动恢复。",
     "🚨 *CCGram error alert*": "🚨 *CCGram 错误告警*",
     "`{count}×` in {window}s: {message}": "`{count}×` 于 {window} 秒内:{message}",
+    "Can't DM the operator (`{chat_id}`): alerts are undeliverable.": "无法私信运营者(`{chat_id}`):告警无法送达。",
+    "Have that account send the bot `/start`, or point "
+    "`CCGRAM_OPERATOR_CHAT_ID` at a chat the bot can post to.": "请让该账号先私聊机器人发送 `/start`,或把 "
+    "`CCGRAM_OPERATOR_CHAT_ID` 指向机器人可发言的会话。",
+    "Until then, alerts are routed here (`{fallback}`).": "在此之前,告警将改投到这里(`{fallback}`)。",
 }

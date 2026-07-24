@@ -54,22 +54,53 @@ def resolve_operator_chat_id() -> int | None:
     return None
 
 
-async def notify_operator(client: TelegramClient, text: str) -> bool:
-    """DM the primary operator. Returns True if a message was sent.
+def resolve_operator_fallback_chat_id() -> int | None:
+    """Resolve the fallback sink used when the primary DM can't be delivered.
 
-    Best-effort: a missing operator or a send failure logs and returns False
-    rather than propagating — alerts must never crash the caller.
+    ``CCGRAM_OPERATOR_FALLBACK_CHAT_ID`` wins; otherwise the configured group
+    (``CCGRAM_GROUP_ID``), where the bot is already a member. Returns None when
+    neither is set. Config-driven — no chat id is ever hardcoded.
     """
-    chat_id = resolve_operator_chat_id()
-    if chat_id is None:
+    if config.operator_fallback_chat_id is not None:
+        return config.operator_fallback_chat_id
+    return config.group_id
+
+
+def _operator_sinks() -> list[int]:
+    """Ordered, de-duplicated delivery targets: primary DM, then fallback."""
+    sinks: list[int] = []
+    for chat_id in (resolve_operator_chat_id(), resolve_operator_fallback_chat_id()):
+        if chat_id is not None and chat_id not in sinks:
+            sinks.append(chat_id)
+    return sinks
+
+
+async def notify_operator(client: TelegramClient, text: str) -> bool:
+    """Deliver an operator alert, falling back from DM to the group sink.
+
+    Tries the primary operator DM first; on any failure (e.g. the operator
+    never opened a private chat, so Telegram refuses ``can't initiate
+    conversation``) it tries the fallback sink so the alert still lands.
+    Best-effort: returns True on first success, False if every sink fails or
+    none is configured. Never propagates — alerting must not crash the caller.
+    """
+    sinks = _operator_sinks()
+    if not sinks:
         logger.debug("No operator chat id resolved; skipping alert")
         return False
-    try:
-        await client.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
-    except Exception:  # noqa: BLE001 — alerting must never raise
-        logger.warning("Failed to DM operator alert", exc_info=True)
-        return False
-    return True
+    for index, chat_id in enumerate(sinks):
+        is_last = index == len(sinks) - 1
+        try:
+            await client.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
+            return True
+        except Exception:  # noqa: BLE001 — alerting must never raise
+            logger.warning(
+                "Failed to deliver operator alert to %d%s",
+                chat_id,
+                "" if is_last else "; trying fallback sink",
+                exc_info=is_last,
+            )
+    return False
 
 
 # --------------------------------------------------------------------------
@@ -154,6 +185,69 @@ async def check_group_permissions(
             )
             await notify_operator(client, format_missing_permission_alert(result))
     return results
+
+
+def format_operator_unreachable_alert(chat_id: int, fallback_chat_id: int) -> str:
+    """Render the fallback-sink notice that the operator DM is undeliverable."""
+    lines = [
+        t("⚠️ *CCGram startup check*"),
+        "",
+        t("Can't DM the operator (`{chat_id}`): alerts are undeliverable.").format(
+            chat_id=chat_id
+        ),
+        t(
+            "Have that account send the bot `/start`, or point "
+            "`CCGRAM_OPERATOR_CHAT_ID` at a chat the bot can post to."
+        ),
+        "",
+        t("Until then, alerts are routed here (`{fallback}`).").format(
+            fallback=fallback_chat_id
+        ),
+    ]
+    return "\n".join(lines)
+
+
+async def check_operator_reachable(client: TelegramClient) -> bool:
+    """Startup self-check: verify the operator DM target is reachable.
+
+    Probes with ``get_chat`` (no message sent). When the primary target is
+    unreachable — the classic "bot can't initiate conversation" case, seen when
+    the operator never opened a private chat — it logs an actionable hint and,
+    if a distinct fallback sink exists, posts the notice there so the operator
+    still learns their alert channel is broken. Never raises; returns True only
+    when the primary target is confirmed reachable.
+    """
+    chat_id = resolve_operator_chat_id()
+    if chat_id is None:
+        logger.debug("No operator chat id configured; skipping reachability check")
+        return False
+    try:
+        await client.get_chat(chat_id=chat_id)
+        return True
+    except Exception as exc:  # noqa: BLE001 — advisory check, never fatal
+        fallback = resolve_operator_fallback_chat_id()
+        logger.warning(
+            "Operator alert target %d is unreachable (%s); DM alerts won't be "
+            "delivered. Have that account send /start, or set "
+            "CCGRAM_OPERATOR_CHAT_ID / CCGRAM_OPERATOR_FALLBACK_CHAT_ID to a "
+            "chat the bot can post to.",
+            chat_id,
+            exc,
+        )
+        if fallback is not None and fallback != chat_id:
+            try:
+                await client.send_message(
+                    chat_id=fallback,
+                    text=format_operator_unreachable_alert(chat_id, fallback),
+                    parse_mode="Markdown",
+                )
+            except Exception:  # noqa: BLE001 — advisory, never fatal
+                logger.warning(
+                    "Failed to post operator-unreachable notice to fallback %d",
+                    fallback,
+                    exc_info=True,
+                )
+        return False
 
 
 # --------------------------------------------------------------------------

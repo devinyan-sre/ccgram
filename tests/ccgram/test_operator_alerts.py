@@ -11,20 +11,32 @@ from ccgram.operator_alerts import (
     _can_manage_topics,
     check_group_permission,
     check_group_permissions,
+    check_operator_reachable,
     error_signature,
     format_error_alert,
     format_missing_permission_alert,
     notify_operator,
     resolve_operator_chat_id,
+    resolve_operator_fallback_chat_id,
 )
 from ccgram.telegram_client import FakeTelegramClient
 
 
 @pytest.fixture
 def _restore_config():
-    saved = (config.operator_chat_id, set(config.allowed_users))
+    saved = (
+        config.operator_chat_id,
+        set(config.allowed_users),
+        config.operator_fallback_chat_id,
+        config.group_id,
+    )
     yield
-    config.operator_chat_id, config.allowed_users = saved[0], saved[1]
+    (
+        config.operator_chat_id,
+        config.allowed_users,
+        config.operator_fallback_chat_id,
+        config.group_id,
+    ) = (saved[0], saved[1], saved[2], saved[3])
 
 
 class TestResolveOperatorChatId:
@@ -120,9 +132,108 @@ class TestNotifyOperator:
     async def test_send_failure_returns_false(self, _restore_config):
         config.operator_chat_id = 5
         config.allowed_users = {5}
+        config.operator_fallback_chat_id = None
+        config.group_id = None
         client = FakeTelegramClient()
         client.set_side_effect("send_message", [RuntimeError("boom")])
         assert await notify_operator(client, "hi") is False
+
+
+class TestResolveOperatorFallbackChatId:
+    def test_explicit_fallback_wins(self, _restore_config):
+        config.operator_fallback_chat_id = -100
+        config.group_id = -200
+        assert resolve_operator_fallback_chat_id() == -100
+
+    def test_falls_back_to_group_id(self, _restore_config):
+        config.operator_fallback_chat_id = None
+        config.group_id = -200
+        assert resolve_operator_fallback_chat_id() == -200
+
+    def test_none_when_neither_set(self, _restore_config):
+        config.operator_fallback_chat_id = None
+        config.group_id = None
+        assert resolve_operator_fallback_chat_id() is None
+
+
+class TestNotifyOperatorFallback:
+    async def test_falls_back_to_group_when_dm_fails(self, _restore_config):
+        config.operator_chat_id = 5
+        config.allowed_users = {5}
+        config.operator_fallback_chat_id = None
+        config.group_id = -200
+        client = FakeTelegramClient()
+        # Primary DM (chat 5) fails; fallback group (-200) succeeds (None).
+        client.set_side_effect(
+            "send_message", [RuntimeError("can't initiate conversation"), None]
+        )
+        assert await notify_operator(client, "hi") is True
+        assert client.call_count("send_message") == 2
+        sent = client.last_call("send_message")
+        assert sent is not None
+        assert sent.kwargs["chat_id"] == -200
+
+    async def test_returns_false_when_all_sinks_fail(self, _restore_config):
+        config.operator_chat_id = 5
+        config.allowed_users = {5}
+        config.operator_fallback_chat_id = -200
+        config.group_id = None
+        client = FakeTelegramClient()
+        client.set_side_effect(
+            "send_message", [RuntimeError("boom"), RuntimeError("boom")]
+        )
+        assert await notify_operator(client, "hi") is False
+        assert client.call_count("send_message") == 2
+
+    async def test_no_duplicate_sink_when_primary_equals_fallback(
+        self, _restore_config
+    ):
+        config.operator_chat_id = -200
+        config.allowed_users = {-200}
+        config.operator_fallback_chat_id = -200
+        config.group_id = -200
+        client = FakeTelegramClient()
+        client.set_side_effect("send_message", [RuntimeError("boom")])
+        assert await notify_operator(client, "hi") is False
+        # Same id de-duplicated: only one send attempt, no pointless retry.
+        assert client.call_count("send_message") == 1
+
+
+class TestCheckOperatorReachable:
+    async def test_true_when_get_chat_succeeds(self, _restore_config):
+        config.operator_chat_id = 5
+        config.allowed_users = {5}
+        client = FakeTelegramClient()
+        assert await check_operator_reachable(client) is True
+
+    async def test_false_and_skips_when_no_operator(self, _restore_config):
+        config.operator_chat_id = None
+        config.allowed_users = set()
+        client = FakeTelegramClient()
+        assert await check_operator_reachable(client) is False
+        assert client.call_count("get_chat") == 0
+
+    async def test_posts_notice_to_fallback_when_unreachable(self, _restore_config):
+        config.operator_chat_id = 5
+        config.allowed_users = {5}
+        config.operator_fallback_chat_id = None
+        config.group_id = -200
+        client = FakeTelegramClient()
+        client.set_side_effect("get_chat", [RuntimeError("chat not found")])
+        assert await check_operator_reachable(client) is False
+        sent = client.last_call("send_message")
+        assert sent is not None
+        assert sent.kwargs["chat_id"] == -200
+
+    async def test_no_notice_when_no_distinct_fallback(self, _restore_config):
+        config.operator_chat_id = 5
+        config.allowed_users = {5}
+        config.operator_fallback_chat_id = None
+        config.group_id = None
+        client = FakeTelegramClient()
+        client.set_side_effect("get_chat", [RuntimeError("chat not found")])
+        assert await check_operator_reachable(client) is False
+        assert client.call_count("send_message") == 0
 
 
 class TestFormatters:
