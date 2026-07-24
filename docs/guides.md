@@ -222,6 +222,7 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_METRICS_PORT`                                | `0`（关闭）                    | Prometheus 指标 / 健康探针监听端口；设为非 0 端口启用 `GET /metrics` 与 `GET /healthz`               |
 | `CCGRAM_METRICS_HOST`                                | `127.0.0.1`                    | 指标监听绑定地址；默认仅回环，对外暴露需显式配置反向代理                                             |
 | `CCGRAM_HEALTH_STALL_SEC`                            | `120`                          | 健康判据的“无进展”阈值(秒);轮询循环超过该时长未完成一轮即判不健康,触发 watchdog 重启;`0` 关闭该检查 |
+| `CCGRAM_QUEUE_MAX_DEPTH`                             | `500`                          | 出站队列背压阈值:超过即丢弃瞬时状态更新,达到 2 倍才丢弃 agent 输出(并告警);`0` 表示不限制         |
 | `CCGRAM_ACK_REACTION`                                | _(关闭)_                      | 转发消息后回贴的表情(如 `👀`);留空关闭                                                             |
 | `CCGRAM_EPHEMERAL_TOOLS`                             | `0`                            | 工具调用消息在完成后自动清理;每话题可用 `/verbose` 覆盖                                             |
 | `CCGRAM_LANG`                                        | `en`                           | 机器人界面语言;设为 `zh` 切换为简体中文                                                             |

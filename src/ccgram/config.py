@@ -342,6 +342,11 @@ class Config:
         self.health_stall_seconds: int = max(
             0, _parse_int_env("CCGRAM_HEALTH_STALL_SEC", 120)
         )
+        # Outbound queue backpressure. Past this depth transient status updates
+        # are shed; agent output is only shed at twice this. 0 = unbounded.
+        self.queue_max_depth: int = max(
+            0, _parse_int_env("CCGRAM_QUEUE_MAX_DEPTH", 500)
+        )
 
     def _init_miniapp(self) -> None:
         # Mini App backend (Phase 3 / Theme 6) — disabled when base URL is empty.

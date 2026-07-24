@@ -18,7 +18,7 @@ from ...config import config
 from ...telegram_client import TelegramClient
 from ...thread_router import thread_router
 from ...topic_state_registry import topic_state
-from ...metrics import QUEUE_DEPTH, QUEUE_TASKS, TELEGRAM_FLOOD
+from ...metrics import QUEUE_DEPTH, QUEUE_SHED, QUEUE_TASKS, TELEGRAM_FLOOD
 from ...utils import task_done_callback
 from ...tts import TtsSynthesisError, get_synthesizer, prepare_tts_text
 from ...window_query import is_tool_calls_hidden
@@ -58,6 +58,10 @@ logger = structlog.get_logger()
 MERGE_MAX_LENGTH = 3800  # Leave room within Telegram's 4096 char message limit
 
 # Per-user message queues and worker tasks
+# Content is only shed past this multiple of the soft cap — losing agent
+# output is far more costly than losing a transient status bubble.
+_HARD_CAP_MULTIPLIER = 2
+
 _message_queues: dict[int, asyncio.Queue[MessageTask]] = {}
 _queue_workers: dict[int, asyncio.Task[None]] = {}
 _queue_locks: dict[int, asyncio.Lock] = {}  # Protect drain/refill operations
@@ -498,6 +502,46 @@ async def _process_content_task(
         _tool_msg_ids[(task.tool_use_id, user_id, tkey)] = last_msg_id
 
 
+def _shed(queue: "asyncio.Queue[MessageTask]", user_id: int, kind: str) -> bool:
+    """Decide whether to drop an inbound task under backpressure.
+
+    Two tiers, because not all tasks cost the same to lose:
+
+    - At the soft cap, *status* updates are dropped. A status bubble is
+      transient and superseded by the next poll within ~1s, so shedding one
+      loses nothing and is usually enough to relieve a slow-Telegram backlog.
+    - Only past the hard cap (2x) are *content* tasks dropped, and loudly:
+      that is real agent output disappearing, so it is the last resort before
+      unbounded growth.
+
+    Returns True when the caller should drop the task.
+    """
+    limit = config.queue_max_depth
+    if limit <= 0:  # unbounded — opt-out
+        return False
+    depth = queue.qsize()
+    if kind == "status":
+        if depth < limit:
+            return False
+        logger.warning(
+            "Shedding status update under backpressure",
+            user_id=user_id,
+            depth=depth,
+            limit=limit,
+        )
+    else:
+        if depth < limit * _HARD_CAP_MULTIPLIER:
+            return False
+        logger.error(
+            "Shedding agent output under backpressure — messages are being lost",
+            user_id=user_id,
+            depth=depth,
+            hard_cap=limit * _HARD_CAP_MULTIPLIER,
+        )
+    QUEUE_SHED.inc(user=str(user_id))
+    return True
+
+
 async def enqueue_content_message(
     client: TelegramClient,
     user_id: int,
@@ -513,6 +557,8 @@ async def enqueue_content_message(
     if _is_ghost_window_task_at_enqueue(window_id):
         return
     queue = get_or_create_queue(client, user_id)
+    if _shed(queue, user_id, "content"):
+        return
 
     task = ContentTask(
         window_id=window_id,
@@ -535,6 +581,8 @@ async def enqueue_status_update(
 ) -> None:
     """Enqueue status update or clear."""
     queue = get_or_create_queue(client, user_id)
+    if _shed(queue, user_id, "status"):
+        return
 
     if status_text is not None:
         task: MessageTask = StatusUpdateTask(
