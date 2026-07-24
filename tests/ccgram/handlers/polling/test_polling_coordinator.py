@@ -267,6 +267,9 @@ class TestImportsAreMinimal:
             "..multiplexer",
             "..utils",
             "..config",
+            # Pure, dependency-free core module (like ..utils): the loop
+            # records cycle duration/outcome via one context manager.
+            "..metrics",
             ".window_tick",
             ".polling_runtime",
             ".periodic_tasks",
@@ -320,10 +323,18 @@ class TestDoesNotImportPerWindowModules:
 
 
 class TestModuleLineCountUnderCeiling:
-    def test_under_120_lines(self):
+    def test_under_125_lines(self):
+        """Keep the coordinator a thin orchestrator.
+
+        Raised 120 → 125 when poll-cycle metrics landed: the module sat exactly
+        at 120, so the ceiling admitted no cross-cutting instrumentation at all.
+        The timing/counter bookkeeping itself lives in ``metrics``
+        (``track_poll_cycle``) precisely so this module stays thin — the
+        headroom is for the ``with`` statement, not for per-window logic.
+        """
         lines = SRC_FILE.read_text().splitlines()
-        assert len(lines) <= 120, (
-            f"polling_coordinator.py is {len(lines)} lines, ceiling is 120"
+        assert len(lines) <= 125, (
+            f"polling_coordinator.py is {len(lines)} lines, ceiling is 125"
         )
 
 

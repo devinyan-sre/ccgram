@@ -297,6 +297,15 @@ class Config:
             "CCGRAM_PANE_LIFECYCLE_NOTIFY", ""
         ).lower() in ("1", "true", "yes")
         self._init_miniapp()
+        self._init_metrics()
+
+    def _init_metrics(self) -> None:
+        # Metrics/health listener — off by default (port 0). Independent of the
+        # Mini App: operators need /metrics and /healthz whenever the bot runs,
+        # not only when the optional dashboard is enabled. Binds to loopback by
+        # default so nothing is public without an explicit reverse proxy.
+        self.metrics_host: str = os.getenv("CCGRAM_METRICS_HOST", "127.0.0.1")
+        self.metrics_port: int = max(0, _parse_int_env("CCGRAM_METRICS_PORT", 0))
 
     def _init_miniapp(self) -> None:
         # Mini App backend (Phase 3 / Theme 6) — disabled when base URL is empty.

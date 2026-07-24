@@ -219,6 +219,8 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_MINIAPP_BASE_URL`                            | _（禁用）_                     | Mini App 仪表盘的外部可达 HTTPS URL                                                                  |
 | `CCGRAM_MINIAPP_HOST`                                | `127.0.0.1`                    | Mini App aiohttp 服务的本地绑定主机                                                                  |
 | `CCGRAM_MINIAPP_PORT`                                | `8765`                         | Mini App aiohttp 服务的本地绑定端口                                                                  |
+| `CCGRAM_METRICS_PORT`                                | `0`（关闭）                    | Prometheus 指标 / 健康探针监听端口；设为非 0 端口启用 `GET /metrics` 与 `GET /healthz`               |
+| `CCGRAM_METRICS_HOST`                                | `127.0.0.1`                    | 指标监听绑定地址；默认仅回环，对外暴露需显式配置反向代理                                             |
 | `CCGRAM_LANG`                                        | `en`                           | 机器人界面语言;设为 `zh` 切换为简体中文                                                             |
 | `CCGRAM_QUIET_HOURS`                                 | _(关闭)_                       | 免打扰时段 `HH:MM-HH:MM`(服务器本地时间,支持跨午夜);时段内自动消息静默送达                        |
 | `CCGRAM_DAILY_DIGEST`                                | _(关闭)_                       | 每日摘要时间 `HH:MM`(服务器本地时间);向 General 话题发送各话题过去 24 小时的活动汇总               |
@@ -850,6 +852,55 @@ tail -f ~/.ccgram/ccgram.log            # 观察启动日志
 ```
 
 启动日志应依次出现:`Multiplexer backend wired` → `Session monitor started` → `Status polling started` → `systemd watchdog armed`。
+
+### 5.1 指标与健康探针(Prometheus)
+
+设置 `CCGRAM_METRICS_PORT` 即启用监听(默认 `0` = 关闭),与 Mini App 相互独立——运维需要的指标不应依赖可选的仪表盘功能:
+
+```bash
+# ~/.ccgram/.env
+CCGRAM_METRICS_PORT=9095
+CCGRAM_METRICS_HOST=127.0.0.1   # 默认仅回环;对外暴露请走反向代理
+```
+
+两个端点(均无鉴权,默认仅监听回环):
+
+| 端点       | 用途                                                                              |
+| ---------- | --------------------------------------------------------------------------------- |
+| `/metrics` | Prometheus 文本格式指标                                                           |
+| `/healthz` | `200 ok` / `503 unhealthy`,与 systemd watchdog 使用**同一个**健康判据,便于黑盒探测和部署门控与 systemd 保持一致 |
+
+```bash
+curl -s localhost:9095/metrics | head
+curl -so /dev/null -w '%{http_code}\n' localhost:9095/healthz
+```
+
+当前导出的指标(名称为对外契约,改名会破坏面板/告警):
+
+| 指标                             | 类型      | 含义                                       |
+| -------------------------------- | --------- | ------------------------------------------ |
+| `ccgram_telegram_api_requests`   | counter   | Telegram API 调用,按 `method`+`outcome`    |
+| `ccgram_telegram_flood_control`  | counter   | 命中 429 flood-control 次数,按 `method`    |
+| `ccgram_queue_depth`             | gauge     | 每用户出站队列深度                         |
+| `ccgram_queue_tasks`             | counter   | 队列任务处理结果(sent/failed)             |
+| `ccgram_queue_shed`              | counter   | 背压泄洪丢弃的任务数                       |
+| `ccgram_poll_cycles`             | counter   | 状态轮询整轮次数(done/error)              |
+| `ccgram_poll_cycle_seconds`      | histogram | 状态轮询整轮耗时                           |
+| `ccgram_sessions_tracked`        | gauge     | 当前被 SessionMonitor 跟踪的会话数         |
+| `ccgram_monitor_bytes_read`      | counter   | 增量读取的 transcript 字节数               |
+| `ccgram_llm_requests`            | counter   | LLM/转写请求,按 `kind`+`provider`+`outcome` |
+| `ccgram_llm_request_seconds`     | histogram | LLM/转写请求耗时                           |
+| `ccgram_topic_create`            | counter   | 话题/窗口创建结果(ok/error)               |
+| `ccgram_operator_alerts`         | counter   | 运营者告警,按 `severity`+`outcome`         |
+
+Prometheus 抓取配置示例:
+
+```yaml
+scrape_configs:
+  - job_name: ccgram
+    static_configs:
+      - targets: ["127.0.0.1:9095"]
+```
 
 ### 6. 升级 / 发布新版本
 

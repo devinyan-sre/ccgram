@@ -67,6 +67,7 @@ logger = structlog.get_logger()
 session_monitor: SessionMonitor | None = None
 _status_poll_task: asyncio.Task[None] | None = None
 _callbacks_wired = False
+_metrics_runner: object | None = None
 
 
 def install_global_exception_handler() -> None:
@@ -349,6 +350,7 @@ async def bootstrap_application(application: Application) -> None:
     from .main import start_miniapp_if_enabled
 
     await start_miniapp_if_enabled()
+    await start_metrics_if_enabled()
 
     # Arm error-rate alerting now that the bot can DM the operator.
     if config.error_alerts_enabled:
@@ -374,6 +376,59 @@ def _runtime_healthy() -> bool:
     if monitor is None or monitor._task is None or monitor._task.done():
         return False
     return _status_poll_task is not None and not _status_poll_task.done()
+
+
+async def start_metrics_if_enabled() -> None:
+    """Start the metrics/health listener when ``CCGRAM_METRICS_PORT`` is set.
+
+    Idempotent. Failures are logged and swallowed — an unbindable metrics port
+    must never take the bot down. ``/healthz`` is backed by the same
+    :func:`_runtime_healthy` gate the systemd watchdog uses, so blackbox probes
+    and deploy health gates agree with systemd.
+    """
+    global _metrics_runner
+
+    if _metrics_runner is not None:
+        return
+    if config.metrics_port <= 0:
+        return
+
+    try:
+        # Lazy: metrics_server pulls aiohttp; keep it off the import path for
+        # deployments that leave the listener disabled.
+        from .metrics_server import start_server
+
+        _metrics_runner = await start_server(
+            host=config.metrics_host,
+            port=config.metrics_port,
+            health_check=_runtime_healthy,
+        )
+        logger.info(
+            "Metrics server started",
+            host=config.metrics_host,
+            port=config.metrics_port,
+        )
+    except OSError as exc:
+        logger.error("Metrics server failed to bind", error=str(exc))
+        _metrics_runner = None
+
+
+async def stop_metrics_if_enabled() -> None:
+    """Tear down the metrics listener if this process started one."""
+    global _metrics_runner
+
+    if _metrics_runner is None:
+        return
+    try:
+        # Lazy: mirrors the start path — aiohttp stays off the cold import path.
+        from .metrics_server import stop_server
+
+        await stop_server(_metrics_runner)  # type: ignore[arg-type]
+        logger.info("Metrics server stopped")
+    except Exception as exc:  # noqa: BLE001 — teardown must never mask shutdown
+        logger.warning("Metrics server teardown failed", error=str(exc))
+    finally:
+        _metrics_runner = None
 
 
 async def shutdown_runtime() -> None:
@@ -416,6 +471,7 @@ async def shutdown_runtime() -> None:
     from .main import stop_miniapp_if_enabled
 
     await stop_miniapp_if_enabled()
+    await stop_metrics_if_enabled()
 
     session_manager.flush_state()
 
@@ -428,7 +484,7 @@ def reset_for_testing() -> None:
     loud on double registration, and bootstrap caches its own
     ``_callbacks_wired`` flag too.
     """
-    global _callbacks_wired, session_monitor, _status_poll_task
+    global _callbacks_wired, session_monitor, _status_poll_task, _metrics_runner
 
     # Lazy: each module's _reset_*_for_testing hook is only needed by the
     # test harness; production callers never reach reset_for_testing().
@@ -439,6 +495,7 @@ def reset_for_testing() -> None:
     _callbacks_wired = False
     session_monitor = None
     _status_poll_task = None
+    _metrics_runner = None
     clear_active_monitor()
     sd_notify.stop_watchdog()
 

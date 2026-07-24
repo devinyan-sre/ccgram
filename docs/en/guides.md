@@ -197,6 +197,8 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_MINIAPP_BASE_URL`                            | _(disabled)_                   | Externally reachable HTTPS URL for the Mini App dashboard                                            |
 | `CCGRAM_MINIAPP_HOST`                                | `127.0.0.1`                    | Local bind host for the Mini App aiohttp server                                                      |
 | `CCGRAM_MINIAPP_PORT`                                | `8765`                         | Local bind port for the Mini App aiohttp server                                                      |
+| `CCGRAM_METRICS_PORT`                                | `0` (off)                      | Prometheus metrics / health listener port; set non-zero to enable `GET /metrics` and `GET /healthz`   |
+| `CCGRAM_METRICS_HOST`                                | `127.0.0.1`                    | Bind address for the metrics listener; loopback-only by default, expose via a reverse proxy           |
 | `CCGRAM_LANG`                                        | `en`                           | Bot UI language; set `zh` for Simplified Chinese                                                     |
 | `CCGRAM_QUIET_HOURS`                                 | _(disabled)_                   | Do-not-disturb window `HH:MM-HH:MM` (server local time, wraps midnight); automated messages arrive silently |
 | `CCGRAM_DAILY_DIGEST`                                | _(disabled)_                   | Daily digest time `HH:MM` (server local time); posts a per-topic 24h activity summary to General      |
@@ -758,6 +760,57 @@ tail -f ~/.ccgram/ccgram.log            # watch the startup log
 ```
 
 A healthy startup logs, in order: `Multiplexer backend wired` → `Session monitor started` → `Status polling started` → `systemd watchdog armed`.
+
+### 5.1 Metrics and health probes (Prometheus)
+
+Set `CCGRAM_METRICS_PORT` to enable the listener (default `0` = off). It is
+independent of the Mini App on purpose — operational metrics should not depend
+on an optional dashboard feature:
+
+```bash
+# ~/.ccgram/.env
+CCGRAM_METRICS_PORT=9095
+CCGRAM_METRICS_HOST=127.0.0.1   # loopback by default; front it with a reverse proxy to expose
+```
+
+Two endpoints (both unauthenticated, loopback-only by default):
+
+| Endpoint   | Purpose                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------ |
+| `/metrics` | Prometheus text exposition                                                                 |
+| `/healthz` | `200 ok` / `503 unhealthy`, backed by the **same** gate the systemd watchdog uses, so blackbox probes and deploy health gates agree with systemd |
+
+```bash
+curl -s localhost:9095/metrics | head
+curl -so /dev/null -w '%{http_code}\n' localhost:9095/healthz
+```
+
+Exported metrics (names are a public contract — renaming breaks dashboards and alerts):
+
+| Metric                           | Type      | Meaning                                          |
+| -------------------------------- | --------- | ------------------------------------------------ |
+| `ccgram_telegram_api_requests`   | counter   | Telegram API calls by `method` + `outcome`       |
+| `ccgram_telegram_flood_control`  | counter   | 429 flood-control hits by `method`               |
+| `ccgram_queue_depth`             | gauge     | Per-user outbound queue depth                    |
+| `ccgram_queue_tasks`             | counter   | Queue tasks processed (sent/failed)              |
+| `ccgram_queue_shed`              | counter   | Tasks shed under backpressure                    |
+| `ccgram_poll_cycles`             | counter   | Status-poll loop cycles (done/error)             |
+| `ccgram_poll_cycle_seconds`      | histogram | Status-poll loop cycle duration                  |
+| `ccgram_sessions_tracked`        | gauge     | Sessions currently tracked by the SessionMonitor |
+| `ccgram_monitor_bytes_read`      | counter   | Transcript bytes read incrementally              |
+| `ccgram_llm_requests`            | counter   | LLM/transcription requests by `kind` + `provider` + `outcome` |
+| `ccgram_llm_request_seconds`     | histogram | LLM/transcription request duration               |
+| `ccgram_topic_create`            | counter   | Topic/window creation outcome (ok/error)         |
+| `ccgram_operator_alerts`         | counter   | Operator alerts by `severity` + `outcome`        |
+
+Example Prometheus scrape config:
+
+```yaml
+scrape_configs:
+  - job_name: ccgram
+    static_configs:
+      - targets: ["127.0.0.1:9095"]
+```
 
 ### 6. Upgrading / deploying a new version
 

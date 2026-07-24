@@ -18,6 +18,7 @@ from ...config import config
 from ...telegram_client import TelegramClient
 from ...thread_router import thread_router
 from ...topic_state_registry import topic_state
+from ...metrics import QUEUE_DEPTH, QUEUE_TASKS, TELEGRAM_FLOOD
 from ...utils import task_done_callback
 from ...tts import TtsSynthesisError, get_synthesizer, prepare_tts_text
 from ...window_query import is_tool_calls_hidden
@@ -398,8 +399,10 @@ async def _message_queue_worker(client: TelegramClient, user_id: int) -> None:
                         extra = await _dispatch(client, user_id, task, queue, lock)
                         for _ in range(extra):
                             queue.task_done()
+                        QUEUE_TASKS.inc(outcome="sent")
                         break
                     except RetryAfter as e:
+                        TELEGRAM_FLOOD.inc(method="queue_worker")
                         retry_secs = min(
                             60,
                             (
@@ -415,6 +418,7 @@ async def _message_queue_worker(client: TelegramClient, user_id: int) -> None:
                         )
                         await asyncio.sleep(retry_secs)
             except (TelegramError, OSError):  # fmt: skip
+                QUEUE_TASKS.inc(outcome="failed")
                 logger.exception(
                     "Error processing message task for user %s (thread %s)",
                     user_id,
@@ -422,6 +426,7 @@ async def _message_queue_worker(client: TelegramClient, user_id: int) -> None:
                 )
             finally:
                 queue.task_done()
+                QUEUE_DEPTH.set(queue.qsize(), user=str(user_id))
         except asyncio.CancelledError:
             logger.debug("Message queue worker cancelled for user %s", user_id)
             break

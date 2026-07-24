@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import structlog
 from telegram.error import TelegramError
 
+from ...metrics import track_poll_cycle
 from ...thread_router import thread_router
 from ...multiplexer import multiplexer as tmux_manager
 from ...utils import log_throttled
@@ -99,13 +100,13 @@ async def status_poll_loop(bot: "Bot") -> None:
     _error_streak = 0
     while True:
         try:
-            all_windows = await tmux_manager.list_windows()
-            window_lookup = {w.window_id: w for w in all_windows}
+            with track_poll_cycle():
+                all_windows = await tmux_manager.list_windows()
+                window_lookup = {w.window_id: w for w in all_windows}
 
-            await run_periodic_tasks(client, all_windows, timers)
-            await _tick_bound_windows(bot, window_lookup, adaptive=adaptive)
-            await run_lifecycle_tasks(client, all_windows)
-
+                await run_periodic_tasks(client, all_windows, timers)
+                await _tick_bound_windows(bot, window_lookup, adaptive=adaptive)
+                await run_lifecycle_tasks(client, all_windows)
         except Exception as e:
             if isinstance(e, _LoopError):
                 logger.exception("Status poll loop error")

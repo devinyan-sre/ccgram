@@ -34,6 +34,7 @@ from .event_reader import (
 )
 from .fs_watcher import TranscriptWatcher
 from .idle_tracker import IdleTracker
+from .metrics import SESSIONS_TRACKED
 from .monitor_state import MonitorState
 from .providers import get_provider_for_window, registry  # noqa: F401 (used by test patches)
 from .session_map import parse_session_map, read_session_map_raw, session_map_prefix
@@ -534,6 +535,7 @@ class SessionMonitor:
                     self._delivery_drained_callback
                 )
                 new_messages = await self.check_for_updates(current_map)
+                SESSIONS_TRACKED.set(len(self.state.tracked_sessions))
 
                 for msg in new_messages:
                     structlog.contextvars.clear_contextvars()
