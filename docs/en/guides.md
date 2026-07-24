@@ -873,6 +873,31 @@ systemctl --user show ccgram -p NRestarts   # still 0 means no crash loop
 
 You can also send `/upgrade` in any bound topic — the bot runs `uv tool upgrade` and restarts itself.
 
+#### Health-gated deploy (recommended, auto-rollback)
+
+The manual flow above has a gap: a successful `uv tool install` does not mean
+the **service actually came back up**. A bad commit leaves a dead bot behind a
+"deployed OK" message.
+
+`scripts/deploy.sh` wraps the step: deploy → wait for health → roll back to the
+previous commit automatically if it never becomes healthy.
+
+```bash
+cd /path/to/ccgram && git pull
+scripts/deploy.sh                 # 60s health timeout, auto-rollback on failure
+scripts/deploy.sh --timeout 120   # relax the timeout
+scripts/deploy.sh --no-rollback   # gate only, keep the new build (for debugging)
+```
+
+Health means `systemctl is-active` is active (under `Type=notify` this already
+implies the bot sent `READY=1`) and — if `CCGRAM_METRICS_PORT` is enabled —
+`/healthz` returns 200. The latter shares the watchdog's gate, so it catches a
+process that is up but whose core loops make no progress.
+
+Exit code `0` = deployed and healthy; non-zero = the deploy failed (rolled back,
+or left in place with `--no-rollback`). Rollback builds the previous commit in a
+**temporary git worktree**, so your working tree is never touched.
+
 ### 7. Troubleshooting
 
 | Symptom | Cause & fix |

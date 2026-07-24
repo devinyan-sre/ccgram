@@ -955,6 +955,23 @@ systemctl --user show ccgram -p NRestarts   # 仍为 0 说明没有崩溃循环
 
 也可以直接在绑定的话题里发送 `/upgrade`,由 bot 自行执行 `uv tool upgrade` 并重启。
 
+#### 健康门控部署(推荐,自动回滚)
+
+上面的手工流程有个问题:`uv tool install` 成功不代表**服务真的起来了**。一个坏 commit 会留下一个已停止的 bot,而命令行显示"部署成功"。
+
+`scripts/deploy.sh` 把这一步包起来:部署 → 等待健康 → 不健康则自动回滚到上一个 commit。
+
+```bash
+cd /path/to/ccgram && git pull
+scripts/deploy.sh                 # 默认 60s 健康超时,失败自动回滚
+scripts/deploy.sh --timeout 120   # 放宽超时
+scripts/deploy.sh --no-rollback   # 只门控不回滚(排障时用)
+```
+
+健康判据:`systemctl is-active` 为 active(`Type=notify` 下即代表 bot 已发出 `READY=1`),且——若启用了 `CCGRAM_METRICS_PORT`——`/healthz` 返回 200。后者与 watchdog 同源,能识别"进程活着但核心循环无进展"。
+
+退出码:`0` 部署成功;非 `0` 表示部署失败(已回滚或按需保留)。回滚通过**临时 git worktree** 构建上一个 commit,不会改动你的工作树。
+
 ### 7. 常见问题
 
 | 症状 | 原因与处理 |
