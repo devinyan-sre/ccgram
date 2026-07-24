@@ -16,6 +16,7 @@ import asyncio
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -287,6 +288,46 @@ def _check_config_dir() -> tuple[str, str]:
     return _FAIL, f"config dir {config_dir} not found"
 
 
+def _secret_files() -> list[Path]:
+    """Files under the config dir that may hold secrets (tokens, API keys)."""
+    config_dir = ccgram_dir()
+    return [config_dir / ".env", Path(".env")]
+
+
+def _check_secret_permissions() -> tuple[str, str]:
+    """Warn when a secrets file is readable by group/other.
+
+    ``.env`` typically holds the bot token and LLM/Whisper/TTS API keys. A
+    world- or group-readable secrets file exposes them to every account on the
+    host. Reported as a warning (not fatal): ownership models vary, and doctor
+    must never block on a hardening nit. ``--fix`` tightens it to 0600.
+    """
+    exposed: list[str] = []
+    for path in _secret_files():
+        try:
+            if not path.is_file():
+                continue
+            mode = path.stat().st_mode
+        except OSError:
+            continue
+        if mode & (stat.S_IRWXG | stat.S_IRWXO):
+            exposed.append(f"{path} ({oct(mode & 0o777)})")
+    if exposed:
+        return _WARN, "secrets readable by group/other: " + ", ".join(exposed)
+    return _PASS, "secrets files are not group/other accessible"
+
+
+def _fix_secret_permissions() -> None:
+    """Tighten every secrets file to 0600 (owner read/write only)."""
+    for path in _secret_files():
+        try:
+            if path.is_file():
+                path.chmod(0o600)
+                _print_check(_PASS, f"tightened {path} to 0600")
+        except OSError as exc:
+            _print_check(_FAIL, f"could not chmod {path}: {exc}")
+
+
 def _check_bot_token() -> tuple[str, str]:
     """Check bot token is set (without printing it)."""
     load_ccgram_env()
@@ -543,6 +584,11 @@ def doctor_main(fix: bool = False) -> None:
     for check_fn in (_check_config_dir, _check_bot_token, _check_allowed_users):
         _, _, failed = _run_check(check_fn)
         has_failures = has_failures or failed
+
+    # Secrets file permissions (0600). --fix tightens exposed files.
+    secret_status, _, _ = _run_check(_check_secret_permissions)
+    if fix and secret_status == _WARN:
+        _fix_secret_permissions()
 
     # Events file check
     _, _, failed = _run_check(_check_events_file)

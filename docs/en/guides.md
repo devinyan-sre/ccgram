@@ -706,6 +706,18 @@ cd /path/to/ccgram && uv tool install --force --reinstall .
 
 The executable lands in `~/.local/bin/ccgram`. Run `ccgram doctor` once manually to confirm configuration, hooks, multiplexer, and agent CLIs are ready.
 
+> **Secrets file permissions**: `~/.ccgram/.env` typically holds the bot token
+> and the LLM/Whisper/TTS API keys. Keep it owner-readable only:
+>
+> ```bash
+> chmod 600 ~/.ccgram/.env
+> ```
+>
+> `ccgram doctor` checks this and warns when the file is group/other-readable;
+> `ccgram doctor --fix` tightens it to `0600`. To rotate a secret: edit `.env`,
+> then `systemctl --user restart ccgram`. ccgram never writes tokens or keys to
+> logs, `/metrics`, or error messages.
+
 ### 2. systemd unit
 
 `~/.config/systemd/user/ccgram.service`:

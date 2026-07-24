@@ -798,6 +798,14 @@ cd /path/to/ccgram && uv tool install --force --reinstall .
 
 可执行文件位于 `~/.local/bin/ccgram`。先手动跑一次 `ccgram doctor` 确认配置、hooks、复用器和 agent CLI 均就绪。
 
+> **密钥文件权限**:`~/.ccgram/.env` 通常存放 bot token 与 LLM/Whisper/TTS 的 API key。确保它只有属主可读:
+>
+> ```bash
+> chmod 600 ~/.ccgram/.env
+> ```
+>
+> `ccgram doctor` 会检查这一点,发现 group/other 可读时给出告警;`ccgram doctor --fix` 会自动收紧到 `0600`。轮换密钥时:改 `.env` → `systemctl --user restart ccgram`。ccgram 不会把 token 或 key 写进日志、`/metrics` 或错误信息。
+
 ### 2. systemd 单元
 
 `~/.config/systemd/user/ccgram.service`:
