@@ -200,6 +200,7 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_TYPING`                                      | `1`                            | Telegram「正在输入」提示:仅在 agent 真正产出(60 秒内有转录活动)时刷新,长时间思考/spinner 阶段自动消失,不再持续误导;设 `0` 完全关闭(🟢 话题图标+状态气泡仍表示忙碌) |
 | `AUTOCLOSE_DONE_MINUTES` / `--autoclose-done`        | `30`                           | 已完成话题 N 分钟后自动关闭（0=关闭该功能）                                                          |
 | `AUTOCLOSE_DEAD_MINUTES` / `--autoclose-dead`        | `10`                           | 已死亡会话 N 分钟后自动关闭（0=关闭该功能）                                                          |
+| `CCGRAM_AUTOCLOSE_ACTION`                            | `close`                        | 话题到期后的处理方式：`close` 归档话题并**保留全部聊天记录**（到期前会先发一条归档提示）；`delete` 为旧行为——Telegram 删除话题时会连同话题内全部消息一起销毁，需显式开启 |
 | `CCGRAM_WHISPER_PROVIDER` / `--whisper-provider`     | _（空）_                       | Whisper 提供方：`openai`、`groq`，留空则禁用                                                         |
 | `CCGRAM_WHISPER_API_KEY`                             | _（空）_                       | API 密钥（仅环境变量）；回退到 OPENAI_API_KEY/GROQ_API_KEY                                           |
 | `CCGRAM_WHISPER_BASE_URL` / `--whisper-base-url`     | _（提供方默认值）_             | 自定义 OpenAI 兼容端点 URL                                                                           |

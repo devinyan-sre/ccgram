@@ -9,6 +9,7 @@ from telegram.error import BadRequest, TelegramError
 from _helpers import make_mock_provider
 
 from ccgram.handlers.topics.topic_lifecycle import (
+    _archive_notified,
     check_autoclose_timers,
     probe_topic_existence,
     prune_stale_state,
@@ -75,10 +76,12 @@ def _reset():
     _window_poll_state.clear()
     _topic_poll_state.clear()
     _dead_notified.clear()
+    _archive_notified.clear()
     yield
     _window_poll_state.clear()
     _topic_poll_state.clear()
     _dead_notified.clear()
+    _archive_notified.clear()
 
 
 class TestIsShellPrompt:
@@ -140,12 +143,15 @@ class TestAutocloseTimers:
         ):
             mock_config.autoclose_done_minutes = 30
             mock_config.autoclose_dead_minutes = minutes
+            mock_config.autoclose_action = "close"
             mock_time.monotonic.return_value = elapsed
             mock_tr.resolve_chat_id.return_value = -100
             await check_autoclose_timers(bot)
-        bot.delete_forum_topic.assert_called_once_with(
+        # Default action archives instead of deleting — history must survive.
+        bot.close_forum_topic.assert_called_once_with(
             chat_id=-100, message_thread_id=42
         )
+        bot.delete_forum_topic.assert_not_called()
         mock_tr.unbind_thread.assert_called_once_with(1, 42)
         assert not _has_autoclose(1, 42)
 
@@ -177,6 +183,7 @@ class TestAutocloseTimers:
         bot.close_forum_topic.assert_not_called()
 
     async def test_check_telegram_error_handled(self) -> None:
+        """A close that fails leaves the timer armed so the next cycle retries."""
         _start_autoclose_timer(1, 42, "done", 0.0)
         bot = AsyncMock(spec=Bot)
         bot.close_forum_topic.side_effect = TelegramError("fail")
@@ -187,15 +194,17 @@ class TestAutocloseTimers:
         ):
             mock_config.autoclose_done_minutes = 30
             mock_config.autoclose_dead_minutes = 10
+            mock_config.autoclose_action = "close"
             mock_time.monotonic.return_value = 30 * 60 + 1
             mock_tr.resolve_chat_id.return_value = -100
             await check_autoclose_timers(bot)
-        assert not _has_autoclose(1, 42)
+        assert _has_autoclose(1, 42)
+        mock_tr.unbind_thread.assert_not_called()
 
     async def test_check_treats_missing_topic_as_removed(self) -> None:
         _start_autoclose_timer(1, 42, "done", 0.0)
         bot = AsyncMock(spec=Bot)
-        bot.delete_forum_topic.side_effect = BadRequest("Topic_id_invalid")
+        bot.close_forum_topic.side_effect = BadRequest("Topic_id_invalid")
         with (
             patch("ccgram.handlers.topics.topic_lifecycle.config") as mock_config,
             patch("ccgram.handlers.topics.topic_lifecycle.thread_router") as mock_tr,
@@ -207,13 +216,14 @@ class TestAutocloseTimers:
         ):
             mock_config.autoclose_done_minutes = 30
             mock_config.autoclose_dead_minutes = 10
+            mock_config.autoclose_action = "close"
             mock_time.monotonic.return_value = 30 * 60 + 1
             mock_tr.resolve_chat_id.return_value = -100
             mock_tr.get_window_for_thread.return_value = "@0"
 
             await check_autoclose_timers(bot)
 
-        bot.close_forum_topic.assert_not_called()
+        bot.delete_forum_topic.assert_not_called()
         mock_tr.unbind_thread.assert_called_once_with(1, 42)
         mock_clear.assert_awaited_once()
         assert not _has_autoclose(1, 42)

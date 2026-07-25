@@ -8,6 +8,7 @@ from telegram.error import BadRequest
 from ccgram.window_view import WindowView
 
 from ccgram.handlers.topics.topic_lifecycle import (
+    _archive_notified,
     check_autoclose_timers,
     check_unbound_window_ttl,
     probe_topic_existence,
@@ -24,10 +25,12 @@ def _clean_strategy_state():
     terminal_poll_state._states.clear()
     lifecycle_strategy._states.clear()
     lifecycle_strategy._dead_notified.clear()
+    _archive_notified.clear()
     yield
     terminal_poll_state._states.clear()
     lifecycle_strategy._states.clear()
     lifecycle_strategy._dead_notified.clear()
+    _archive_notified.clear()
 
 
 class TestCheckAutocloseTimers:
@@ -37,8 +40,74 @@ class TestCheckAutocloseTimers:
         bot.delete_forum_topic.assert_not_called()
 
     async def test_expired_done_topic_gets_closed(self):
+        """Default action archives the topic — history must survive."""
         bot = AsyncMock(spec=Bot)
         bot.delete_forum_topic = AsyncMock()
+        bot.close_forum_topic = AsyncMock()
+        user_id, thread_id = 1, 100
+        lifecycle_strategy.start_autoclose_timer(
+            user_id, thread_id, "done", time.monotonic() - 99999
+        )
+        with (
+            patch("ccgram.handlers.topics.topic_lifecycle.config") as mock_config,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.thread_router"
+            ) as mock_router,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.safe_send",
+                new_callable=AsyncMock,
+            ) as mock_send,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.clear_topic_state",
+                new_callable=AsyncMock,
+            ),
+        ):
+            mock_config.autoclose_done_minutes = 1
+            mock_config.autoclose_action = "close"
+            mock_router.resolve_chat_id.return_value = 42
+            mock_router.get_window_for_thread.return_value = "@0"
+            await check_autoclose_timers(bot)
+        bot.close_forum_topic.assert_called_once()
+        bot.delete_forum_topic.assert_not_called()
+        mock_send.assert_awaited_once()
+
+    async def test_delete_action_is_opt_in(self):
+        """CCGRAM_AUTOCLOSE_ACTION=delete restores the destructive behaviour."""
+        bot = AsyncMock(spec=Bot)
+        bot.delete_forum_topic = AsyncMock()
+        bot.close_forum_topic = AsyncMock()
+        user_id, thread_id = 1, 100
+        lifecycle_strategy.start_autoclose_timer(
+            user_id, thread_id, "done", time.monotonic() - 99999
+        )
+        with (
+            patch("ccgram.handlers.topics.topic_lifecycle.config") as mock_config,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.thread_router"
+            ) as mock_router,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.safe_send",
+                new_callable=AsyncMock,
+            ) as mock_send,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.clear_topic_state",
+                new_callable=AsyncMock,
+            ),
+        ):
+            mock_config.autoclose_done_minutes = 1
+            mock_config.autoclose_action = "delete"
+            mock_router.resolve_chat_id.return_value = 42
+            mock_router.get_window_for_thread.return_value = "@0"
+            await check_autoclose_timers(bot)
+        bot.delete_forum_topic.assert_called_once()
+        bot.close_forum_topic.assert_not_called()
+        mock_send.assert_not_awaited()
+
+    async def test_delete_action_falls_back_to_close(self):
+        """Legacy fallback survives: delete failure still retires the topic."""
+        bot = AsyncMock(spec=Bot)
+        bot.delete_forum_topic = AsyncMock(side_effect=BadRequest("no rights"))
+        bot.close_forum_topic = AsyncMock()
         user_id, thread_id = 1, 100
         lifecycle_strategy.start_autoclose_timer(
             user_id, thread_id, "done", time.monotonic() - 99999
@@ -54,10 +123,74 @@ class TestCheckAutocloseTimers:
             ),
         ):
             mock_config.autoclose_done_minutes = 1
+            mock_config.autoclose_action = "delete"
             mock_router.resolve_chat_id.return_value = 42
             mock_router.get_window_for_thread.return_value = "@0"
             await check_autoclose_timers(bot)
-        bot.delete_forum_topic.assert_called_once()
+        bot.close_forum_topic.assert_called_once()
+        assert lifecycle_strategy.get_state(user_id, thread_id).autoclose is None
+
+    async def test_close_failure_keeps_timer_armed(self):
+        """A failed close must not clear the timer or unbind the topic."""
+        bot = AsyncMock(spec=Bot)
+        bot.close_forum_topic = AsyncMock(side_effect=BadRequest("no rights"))
+        user_id, thread_id = 1, 100
+        lifecycle_strategy.start_autoclose_timer(
+            user_id, thread_id, "done", time.monotonic() - 99999
+        )
+        with (
+            patch("ccgram.handlers.topics.topic_lifecycle.config") as mock_config,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.thread_router"
+            ) as mock_router,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.safe_send",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.clear_topic_state",
+                new_callable=AsyncMock,
+            ) as mock_clear,
+        ):
+            mock_config.autoclose_done_minutes = 1
+            mock_config.autoclose_action = "close"
+            mock_router.resolve_chat_id.return_value = 42
+            mock_router.get_window_for_thread.return_value = "@0"
+            await check_autoclose_timers(bot)
+        mock_clear.assert_not_awaited()
+        assert lifecycle_strategy.get_state(user_id, thread_id).autoclose is not None
+
+    async def test_archive_notice_not_repeated_across_retries(self):
+        """A topic that keeps failing to close is notified exactly once."""
+        bot = AsyncMock(spec=Bot)
+        bot.close_forum_topic = AsyncMock(side_effect=BadRequest("no rights"))
+        user_id, thread_id = 1, 100
+        lifecycle_strategy.start_autoclose_timer(
+            user_id, thread_id, "done", time.monotonic() - 99999
+        )
+        with (
+            patch("ccgram.handlers.topics.topic_lifecycle.config") as mock_config,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.thread_router"
+            ) as mock_router,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.safe_send",
+                new_callable=AsyncMock,
+            ) as mock_send,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.clear_topic_state",
+                new_callable=AsyncMock,
+            ),
+        ):
+            mock_config.autoclose_done_minutes = 1
+            mock_config.autoclose_action = "close"
+            mock_router.resolve_chat_id.return_value = 42
+            mock_router.get_window_for_thread.return_value = "@0"
+            await check_autoclose_timers(bot)
+            await check_autoclose_timers(bot)
+            await check_autoclose_timers(bot)
+        assert bot.close_forum_topic.await_count == 3
+        mock_send.assert_awaited_once()
 
     async def test_not_yet_expired_topic_stays(self):
         bot = AsyncMock(spec=Bot)

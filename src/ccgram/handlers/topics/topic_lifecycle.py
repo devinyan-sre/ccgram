@@ -16,6 +16,7 @@ from telegram import Update
 from telegram.error import BadRequest, TelegramError
 from ... import window_query
 from ...config import config
+from ...i18n import t
 from ...session import session_manager
 from ...session_map import session_map_prefix
 from ...telegram_client import PTBTelegramClient, TelegramClient
@@ -24,7 +25,7 @@ from ...multiplexer import multiplexer as tmux_manager
 from ...utils import log_throttled
 from ...window_state_store import CCGRAM_CREATED_WINDOW_ORIGIN
 from ..cleanup import clear_topic_state
-from ..messaging_pipeline.message_sender import is_thread_gone
+from ..messaging_pipeline.message_sender import is_thread_gone, safe_send
 from ..polling.polling_state import (
     lifecycle_strategy,
     terminal_poll_state,
@@ -65,10 +66,50 @@ async def check_autoclose_timers(client: TelegramClient) -> None:
         await _close_expired_topic(client, user_id, thread_id, state)
 
 
+# Topics that already got the "archived" notice. A close that fails (e.g. the
+# bot lost can_manage_topics) leaves the autoclose timer armed and is retried
+# every cycle — without this guard the notice would be re-sent every retry.
+# Entries are dropped once the topic is actually retired.
+_archive_notified: set[tuple[int, int]] = set()
+
+
+async def _retire_topic(
+    client: TelegramClient, chat_id: int, thread_id: int, *, delete: bool
+) -> bool:
+    """Close (or delete) a topic. Returns True when it is retired or gone.
+
+    ``delete`` mode keeps the legacy delete-then-close fallback; the default
+    close-only path never touches the message history.
+    """
+    if delete:
+        try:
+            await client.delete_forum_topic(
+                chat_id=chat_id, message_thread_id=thread_id
+            )
+            return True
+        except TelegramError as e:
+            if is_thread_gone(e):
+                return True
+    try:
+        await client.close_forum_topic(chat_id=chat_id, message_thread_id=thread_id)
+        return True
+    except TelegramError as close_err:
+        if is_thread_gone(close_err):
+            return True
+        logger.debug("autoclose_failed", thread_id=thread_id, error=str(close_err))
+        return False
+
+
 async def _close_expired_topic(
     client: TelegramClient, user_id: int, thread_id: int, state: str
 ) -> None:
-    """Attempt to close/delete an expired topic and clean up state."""
+    """Retire an expired topic and clean up its state.
+
+    The default action is a non-destructive ``close_forum_topic``: the topic is
+    archived and every message stays readable.  ``CCGRAM_AUTOCLOSE_ACTION=delete``
+    restores the legacy ``delete_forum_topic`` behaviour — Telegram destroys the
+    whole message history along with the topic, so it is opt-in only.
+    """
     window_id = thread_router.get_window_for_thread(user_id, thread_id)
     if state == "dead" and window_id is not None:
         live_window = await tmux_manager.find_window_by_id(window_id)
@@ -83,30 +124,30 @@ async def _close_expired_topic(
             return
 
     chat_id = thread_router.resolve_chat_id(user_id, thread_id)
-    removed = False
-    try:
-        await client.delete_forum_topic(chat_id=chat_id, message_thread_id=thread_id)
-        removed = True
-    except TelegramError as e:
-        if is_thread_gone(e):
-            removed = True
-        else:
-            try:
-                await client.close_forum_topic(
-                    chat_id=chat_id, message_thread_id=thread_id
-                )
-                removed = True
-            except TelegramError as close_err:
-                if is_thread_gone(close_err):
-                    removed = True
-                else:
-                    logger.debug(
-                        "autoclose_failed", thread_id=thread_id, error=str(close_err)
-                    )
+    delete = config.autoclose_action == "delete"
+    if not delete and (user_id, thread_id) not in _archive_notified:
+        # Explain the sudden silence before the topic stops accepting messages.
+        _archive_notified.add((user_id, thread_id))
+        await safe_send(
+            client,
+            chat_id,
+            t(
+                "🗄 Session ended — topic archived. History is kept; "
+                "reopen the topic to start a new session here."
+            ),
+            message_thread_id=thread_id,
+            disable_notification=True,
+        )
+    removed = await _retire_topic(client, chat_id, thread_id, delete=delete)
     if removed:
+        _archive_notified.discard((user_id, thread_id))
         lifecycle_strategy.clear_autoclose_timer(user_id, thread_id)
         logger.info(
-            "auto_removed_topic", chat_id=chat_id, thread_id=thread_id, user_id=user_id
+            "auto_removed_topic",
+            chat_id=chat_id,
+            thread_id=thread_id,
+            user_id=user_id,
+            action="delete" if delete else "close",
         )
         await clear_topic_state(
             user_id,

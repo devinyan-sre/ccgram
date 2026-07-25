@@ -334,6 +334,13 @@ class Config:
         self.autoclose_dead_minutes: int = int(
             os.getenv("AUTOCLOSE_DEAD_MINUTES", "10")
         )
+        # How an expired topic is retired. "close" (default) archives the topic
+        # and keeps every message; "delete" removes it from the sidebar but
+        # Telegram destroys the whole message history with it — opt-in only.
+        action = os.getenv("CCGRAM_AUTOCLOSE_ACTION", "close").strip().lower()
+        self.autoclose_action: str = (
+            action if action in ("close", "delete") else "close"
+        )
         self.pane_lifecycle_notify: bool = os.getenv(
             "CCGRAM_PANE_LIFECYCLE_NOTIFY", ""
         ).lower() in ("1", "true", "yes")

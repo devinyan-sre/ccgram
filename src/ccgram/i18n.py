@@ -338,6 +338,11 @@ _ZH: dict[str, str] = {
     "\U0001f5d1 Killed '{name}'": "\U0001f5d1 已结束 '{name}'",
     "Create a new topic to start a session.": "创建新话题即可开始会话。",
     "Killed": "已结束",
+    # Topic autoclose
+    (
+        "🗄 Session ended — topic archived. History is kept; "
+        "reopen the topic to start a new session here."
+    ): ("🗄 会话已结束，话题已归档。历史记录已保留；重新打开话题即可在此开始新会话。"),
     # Voice
     "✓ Send to agent": "✓ 发送给 agent",
     "✗ Discard": "✗ 丢弃",
