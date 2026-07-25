@@ -302,6 +302,14 @@ def run_bot() -> None:
     if own_wid:
         config.own_window_id = own_wid
 
+    # Lazy: utils pulls PTB types; only the `run` path needs the instance lock.
+    from .utils import acquire_single_instance_lock
+
+    dup_lock = acquire_single_instance_lock()
+    if dup_lock:
+        print(f"Error: {dup_lock}", file=sys.stderr)
+        sys.exit(1)
+
     logger = structlog.get_logger()
 
     logger.info("Allowed users: %d configured", len(config.allowed_users))

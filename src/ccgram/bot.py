@@ -16,6 +16,7 @@ Responsibilities kept here:
 
 import os
 import signal
+import time
 
 import structlog
 from telegram.error import BadRequest, Conflict, NetworkError
@@ -132,14 +133,61 @@ async def post_shutdown(_application: Application) -> None:
     await bootstrap.shutdown_runtime()
 
 
+# A restart overlaps: the outgoing process may still be draining `getUpdates`
+# while the new one starts polling, which makes PTB raise `Conflict` for a few
+# seconds. Shutting down on the first one killed healthy bots (and, when the
+# survivor was the one exiting, left no bot at all). Only a conflict that keeps
+# firing past the grace window is a real second instance.
+CONFLICT_GRACE_SECONDS = 30.0
+CONFLICT_MIN_COUNT = 3
+# Conflicts spaced further apart than this belong to separate episodes.
+CONFLICT_EPISODE_GAP = 120.0
+
+_conflict_first_ts: float | None = None
+_conflict_last_ts: float = 0.0
+_conflict_count = 0
+
+
+def _handle_conflict() -> None:
+    """Shut down only on a sustained getUpdates conflict, not a transient one."""
+    global _conflict_first_ts, _conflict_last_ts, _conflict_count
+    now = time.monotonic()
+    if _conflict_first_ts is None or now - _conflict_last_ts > CONFLICT_EPISODE_GAP:
+        _conflict_first_ts = now
+        _conflict_count = 0
+    _conflict_last_ts = now
+    _conflict_count += 1
+
+    elapsed = now - _conflict_first_ts
+    if elapsed < CONFLICT_GRACE_SECONDS or _conflict_count < CONFLICT_MIN_COUNT:
+        logger.warning(
+            "getUpdates conflict — tolerating (likely a restart overlap)",
+            count=_conflict_count,
+            elapsed=round(elapsed, 1),
+        )
+        return
+
+    logger.critical(
+        "Another bot instance has been polling with the same token for %.0fs "
+        "(%d conflicts). Shutting down to avoid conflicts.",
+        elapsed,
+        _conflict_count,
+    )
+    os.kill(os.getpid(), signal.SIGINT)
+
+
+def _reset_conflict_state_for_testing() -> None:
+    """Reset the conflict tracker between tests."""
+    global _conflict_first_ts, _conflict_last_ts, _conflict_count
+    _conflict_first_ts = None
+    _conflict_last_ts = 0.0
+    _conflict_count = 0
+
+
 async def _error_handler(_update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle bot-level errors from updater and handlers."""
     if isinstance(context.error, Conflict):
-        logger.critical(
-            "Another bot instance is polling with the same token. "
-            "Shutting down to avoid conflicts."
-        )
-        os.kill(os.getpid(), signal.SIGINT)
+        _handle_conflict()
         return
     if isinstance(context.error, BadRequest) and "too old" in str(context.error):
         logger.debug("Callback query expired (query too old)")

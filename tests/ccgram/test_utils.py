@@ -1,9 +1,12 @@
 import json
+import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import structlog
+
+from ccgram import utils
 
 from ccgram.utils import (
     _SCAN_LINES,
@@ -573,3 +576,46 @@ class TestIsGeneralTopic:
         message.chat = None
         message.message_thread_id = None
         assert is_general_topic(message) is False
+
+
+class TestSingleInstanceLock:
+    """The lock makes a *second* bot fail, so the running one is never displaced."""
+
+    @pytest.fixture(autouse=True)
+    def _isolated_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CCGRAM_DIR", str(tmp_path))
+        monkeypatch.setattr(utils, "_instance_lock_fd", None)
+        yield
+        fd = getattr(utils, "_instance_lock_fd", None)
+        if fd is not None:
+            fd.close()
+        monkeypatch.setattr(utils, "_instance_lock_fd", None)
+
+    def test_first_acquire_succeeds_and_records_pid(self, tmp_path) -> None:
+        assert utils.acquire_single_instance_lock() is None
+        assert (tmp_path / "ccgram.lock").read_text().strip() == str(os.getpid())
+
+    def test_reacquire_in_same_process_is_noop(self) -> None:
+        assert utils.acquire_single_instance_lock() is None
+        assert utils.acquire_single_instance_lock() is None
+
+    def test_second_holder_is_rejected(self, tmp_path) -> None:
+        import fcntl
+
+        lock_path = tmp_path / "ccgram.lock"
+        with lock_path.open("a+") as other:
+            fcntl.flock(other.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            other.write("4242\n")
+            other.flush()
+
+            msg = utils.acquire_single_instance_lock()
+
+        assert msg is not None
+        assert "4242" in msg
+        assert utils._instance_lock_fd is None
+
+    def test_unwritable_dir_does_not_block_startup(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            utils.Path, "mkdir", MagicMock(side_effect=OSError("read-only"))
+        )
+        assert utils.acquire_single_instance_lock() is None

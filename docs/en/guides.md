@@ -696,6 +696,7 @@ All state files live in `$CCGRAM_DIR` (`~/.ccgram/` by default):
 | `session_map.json`   | Hook-generated window → session mappings                    |
 | `events.jsonl`       | Append-only hook event log (read incrementally by monitor)  |
 | `monitor_state.json` | Byte offsets per session (prevents duplicate notifications) |
+| `ccgram.lock`        | Single-instance mutex (`flock`, holds the owner pid): a second `ccgram run` exits with an error instead of displacing the running bot; the kernel releases it on exit |
 
 Session transcripts are read from provider-specific locations (read-only): `~/.claude/projects/` (Claude), `~/.codex/sessions/` (Codex), `~/.gemini/tmp/` (Gemini), `~/.pi/agent/sessions/` (Pi). Shell has no transcript — output is captured directly from the tmux pane. The bot never writes to agent data directories.
 

@@ -7,7 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from telegram.error import BadRequest, Conflict, NetworkError, TelegramError
 
-from ccgram.bot import _error_handler, _send_shutdown_notification
+from ccgram.bot import (
+    _error_handler,
+    _reset_conflict_state_for_testing,
+    _send_shutdown_notification,
+)
 
 
 def _make_context(error: BaseException) -> MagicMock:
@@ -65,16 +69,69 @@ class TestErrorHandlerStaleCallback:
 
         mock_logger.error.assert_called_once()
 
-    async def test_conflict_triggers_shutdown(self) -> None:
+
+class TestErrorHandlerConflict:
+    """A restart overlap must not take the healthy instance down."""
+
+    def setup_method(self) -> None:
+        _reset_conflict_state_for_testing()
+
+    def teardown_method(self) -> None:
+        _reset_conflict_state_for_testing()
+
+    async def test_single_conflict_is_tolerated(self) -> None:
+        ctx = _make_context(Conflict("409 Conflict"))
+
+        with (
+            patch("ccgram.bot.logger") as mock_logger,
+            patch("ccgram.bot.os.kill") as mock_kill,
+        ):
+            await _error_handler(None, ctx)
+
+        mock_kill.assert_not_called()
+        mock_logger.warning.assert_called_once()
+
+    async def test_burst_within_grace_window_is_tolerated(self) -> None:
+        """Many conflicts in a few seconds are a restart overlap, not a rival."""
         ctx = _make_context(Conflict("409 Conflict"))
 
         with (
             patch("ccgram.bot.logger"),
             patch("ccgram.bot.os.kill") as mock_kill,
+            patch("ccgram.bot.time.monotonic", side_effect=[0.0, 5.0, 10.0, 20.0]),
         ):
-            await _error_handler(None, ctx)
+            for _ in range(4):
+                await _error_handler(None, ctx)
+
+        mock_kill.assert_not_called()
+
+    async def test_sustained_conflict_triggers_shutdown(self) -> None:
+        ctx = _make_context(Conflict("409 Conflict"))
+
+        with (
+            patch("ccgram.bot.logger") as mock_logger,
+            patch("ccgram.bot.os.kill") as mock_kill,
+            patch("ccgram.bot.time.monotonic", side_effect=[0.0, 15.0, 31.0]),
+        ):
+            for _ in range(3):
+                await _error_handler(None, ctx)
 
         mock_kill.assert_called_once()
+        mock_logger.critical.assert_called_once()
+
+    async def test_long_gap_starts_a_new_episode(self) -> None:
+        """Isolated conflicts hours apart must never accumulate into a kill."""
+        ctx = _make_context(Conflict("409 Conflict"))
+
+        with (
+            patch("ccgram.bot.logger"),
+            patch("ccgram.bot.os.kill") as mock_kill,
+            patch("ccgram.bot.time.monotonic", side_effect=[0.0, 500.0, 1000.0]),
+        ):
+            for _ in range(3):
+                await _error_handler(None, ctx)
+
+        mock_kill.assert_not_called()
 
 
 class TestShutdownNotification:

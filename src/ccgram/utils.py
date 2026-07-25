@@ -9,6 +9,7 @@ Provides:
   - task_done_callback(): log unhandled exceptions from background asyncio tasks.
   - log_throttled(): suppress repeated identical debug messages per key.
   - detect_tmux_context(): auto-detect tmux session name and own window ID.
+  - acquire_single_instance_lock(): flock guard so a second bot cannot start.
   - check_duplicate_ccgram(): check if another ccgram is running in the session.
   - is_general_topic(): check if a message is in the General (default) forum topic.
   - handle_general_topic_message(): pin-once-then-react for General topic messages.
@@ -265,6 +266,55 @@ def detect_tmux_context() -> tuple[str | None, str | None]:
         return session_name, window_id
     except subprocess.TimeoutExpired, FileNotFoundError:
         return None, None
+
+
+_instance_lock_fd: "Any | None" = None
+
+
+def acquire_single_instance_lock() -> str | None:
+    """Take an exclusive lock on ``$CCGRAM_DIR/ccgram.lock``.
+
+    ``check_duplicate_ccgram`` only fires when ccgram itself runs inside tmux,
+    so a systemd-managed bot had no duplicate guard at all: a second instance
+    would start, both would poll ``getUpdates`` with the same token, and PTB's
+    ``Conflict`` would take the *healthy* instance down.  This lock makes the
+    newcomer fail instead — the running bot is never displaced.
+
+    Returns an error message when another instance holds the lock, ``None``
+    once the lock is held.  The file descriptor is parked in a module global
+    for the process lifetime; the kernel releases it on exit (including
+    SIGKILL), so a stale lock file is never left behind.
+    """
+    global _instance_lock_fd
+    if _instance_lock_fd is not None:
+        return None
+    # Lazy: fcntl is POSIX-only and only this function needs it.
+    import fcntl
+
+    lock_path = ccgram_dir() / "ccgram.lock"
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        fd = lock_path.open("a+")
+    except OSError as e:
+        # An unwritable state dir is a separate failure; don't block startup.
+        logger.warning("Could not open instance lock %s: %s", lock_path, e)
+        return None
+    try:
+        fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fd.seek(0)
+        holder = fd.read().strip() or "unknown"
+        fd.close()
+        return (
+            f"Another ccgram instance is already running (pid {holder}). "
+            f"Stop it first, or remove {lock_path} if that pid is gone."
+        )
+    fd.seek(0)
+    fd.truncate()
+    fd.write(f"{os.getpid()}\n")
+    fd.flush()
+    _instance_lock_fd = fd
+    return None
 
 
 def check_duplicate_ccgram(session_name: str) -> str | None:

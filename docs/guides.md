@@ -786,6 +786,7 @@ CCGram 支持 Claude Code、Codex CLI、Gemini CLI、Pi 和 Shell。每个话题
 | `session_map.json`   | hook 生成的窗口 → 会话映射                                 |
 | `events.jsonl`       | 追加式 hook 事件日志（监控器增量读取）                     |
 | `monitor_state.json` | 各会话的字节偏移量（防止重复通知）                         |
+| `ccgram.lock`        | 单实例互斥锁（`flock`，内含持有者 pid）：第二个 `ccgram run` 会直接报错退出，正在运行的 bot 不会被顶掉；进程退出时由内核自动释放 |
 
 会话转录从各提供方的专属位置只读读取：`~/.claude/projects/`（Claude）、`~/.codex/sessions/`（Codex）、`~/.gemini/tmp/`（Gemini）、`~/.pi/agent/sessions/`（Pi）。Shell 没有转录文件 —— 输出直接从 tmux 面板捕获。机器人永不写入代理的数据目录。
 
