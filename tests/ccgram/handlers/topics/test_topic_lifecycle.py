@@ -3,10 +3,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from telegram import Bot
-from telegram.error import BadRequest
+from telegram.error import BadRequest, TelegramError
 
 from ccgram.destructive_audit import (
     ACTION_TOPIC_RETIRED,
+    ACTION_WINDOW_KILLED_TOPIC_GONE,
     ACTION_WINDOW_KILLED_UNBOUND,
     ACTOR_AUTO,
 )
@@ -442,6 +443,7 @@ class TestHerdrKillPaths:
         bot.unpin_all_forum_topic_messages = AsyncMock(
             side_effect=BadRequest("Topic_id_invalid")
         )
+        bot.send_message = AsyncMock(side_effect=BadRequest("Thread not found"))
         herdr_id = "w1:t1"
         with (
             patch(
@@ -492,6 +494,8 @@ class TestProbeTopicExistence:
         bot.unpin_all_forum_topic_messages = AsyncMock(
             side_effect=BadRequest("Topic_id_invalid")
         )
+        # The authoritative send-probe must agree before anything is torn down.
+        bot.send_message = AsyncMock(side_effect=BadRequest("Thread not found"))
         with (
             patch(
                 "ccgram.handlers.topics.topic_lifecycle.thread_router"
@@ -513,6 +517,92 @@ class TestProbeTopicExistence:
             await probe_topic_existence(bot)
             mock_router.unbind_thread.assert_called_once_with(1, 100)
             mock_tmux.kill_window.assert_not_called()
+
+    async def test_unconfirmed_probe_never_kills(self):
+        """The unpin sweep is a ping, not a verdict — a hiccup must not destroy."""
+        bot = AsyncMock(spec=Bot)
+        bot.unpin_all_forum_topic_messages = AsyncMock(
+            side_effect=BadRequest("Topic_id_invalid")
+        )
+        # Authoritative probe succeeds → the topic is alive after all.
+        bot.send_message = AsyncMock(return_value=MagicMock(message_id=7))
+        with (
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.thread_router"
+            ) as mock_router,
+            patch("ccgram.handlers.topics.topic_lifecycle.tmux_manager") as mock_tmux,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.clear_topic_state",
+                new_callable=AsyncMock,
+            ) as mock_clear,
+        ):
+            mock_router.iter_thread_bindings.return_value = [(1, 100, "@0")]
+            mock_router.resolve_chat_id.return_value = 42
+            mock_tmux.kill_window = AsyncMock()
+            await probe_topic_existence(bot)
+
+        mock_tmux.kill_window.assert_not_called()
+        mock_router.unbind_thread.assert_not_called()
+        mock_clear.assert_not_awaited()
+        # The invisible probe message must not be left behind in the topic.
+        bot.delete_message.assert_awaited_once_with(42, 7)
+
+    async def test_inconclusive_network_error_never_kills(self):
+        """A transient failure on the confirmation probe is not a verdict."""
+        bot = AsyncMock(spec=Bot)
+        bot.unpin_all_forum_topic_messages = AsyncMock(
+            side_effect=BadRequest("Topic_id_invalid")
+        )
+        bot.send_message = AsyncMock(side_effect=TelegramError("network down"))
+        with (
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.thread_router"
+            ) as mock_router,
+            patch("ccgram.handlers.topics.topic_lifecycle.tmux_manager") as mock_tmux,
+        ):
+            mock_router.iter_thread_bindings.return_value = [(1, 100, "@0")]
+            mock_router.resolve_chat_id.return_value = 42
+            mock_tmux.kill_window = AsyncMock()
+            await probe_topic_existence(bot)
+
+        mock_tmux.kill_window.assert_not_called()
+        mock_router.unbind_thread.assert_not_called()
+
+    async def test_confirmed_deletion_kills_and_audits(self):
+        bot = AsyncMock(spec=Bot)
+        bot.unpin_all_forum_topic_messages = AsyncMock(
+            side_effect=BadRequest("Topic_id_invalid")
+        )
+        bot.send_message = AsyncMock(side_effect=BadRequest("Thread not found"))
+        with (
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.thread_router"
+            ) as mock_router,
+            patch("ccgram.handlers.topics.topic_lifecycle.tmux_manager") as mock_tmux,
+            patch("ccgram.handlers.topics.topic_lifecycle.window_query") as mock_wq,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.record_destructive",
+                new_callable=AsyncMock,
+            ) as mock_audit,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.clear_topic_state",
+                new_callable=AsyncMock,
+            ),
+        ):
+            mock_router.iter_thread_bindings.return_value = [(1, 100, "@0")]
+            mock_router.resolve_chat_id.return_value = 42
+            mock_tmux.find_window_by_id = AsyncMock(
+                return_value=MagicMock(window_id="@0")
+            )
+            mock_wq.view_window.return_value = _window_view("ccgram_created")
+            mock_tmux.kill_window = AsyncMock()
+            await probe_topic_existence(bot)
+
+        mock_tmux.kill_window.assert_called_once_with("@0")
+        mock_audit.assert_awaited_once()
+        call = mock_audit.await_args
+        assert call is not None
+        assert call.args[0] == ACTION_WINDOW_KILLED_TOPIC_GONE
 
     async def test_suspended_probe_skipped(self):
         bot = AsyncMock(spec=Bot)

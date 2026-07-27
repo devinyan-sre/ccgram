@@ -274,6 +274,43 @@ async def prune_stale_state(live_windows: "list[TmuxWindow]") -> None:
 _probe_pin_disabled: set[str] = set()
 
 
+async def _confirm_topic_gone(
+    client: TelegramClient, chat_id: int, thread_id: int
+) -> bool:
+    """Authoritatively re-check that a topic is gone before acting on it.
+
+    The unpin-based sweep is a cheap liveness ping, not a verdict — this module
+    used to kill a running agent on a *single* ``Topic_id_invalid`` from it,
+    while ``sync_command._probe_dead_topics`` documents that only
+    ``send_message`` reliably reports a missing thread. Killing a process on
+    the weaker signal meant one Telegram hiccup could destroy live work.
+
+    So: send an invisible, silent probe and delete it again. Only a definitive
+    "thread is gone" BadRequest counts as confirmation; any other outcome —
+    delivery succeeded, network error, rate limit — is inconclusive and returns
+    False, leaving the window untouched for a later cycle to re-evaluate.
+    """
+    try:
+        msg = await client.send_message(
+            chat_id=chat_id,
+            text="​",  # zero-width space — invisible in the topic
+            message_thread_id=thread_id,
+            disable_notification=True,
+        )
+    except BadRequest as exc:
+        return is_thread_gone(exc)
+    except TelegramError:
+        return False  # inconclusive — never escalate a transient failure
+    # The topic accepted a message, so it exists: the unpin verdict was wrong.
+    message_id = getattr(msg, "message_id", None)
+    if message_id is not None:
+        try:
+            await client.delete_message(chat_id, message_id)
+        except TelegramError:
+            logger.debug("probe_cleanup_failed", thread_id=thread_id)
+    return False
+
+
 async def probe_topic_existence(client: TelegramClient) -> None:
     """Probe all bound topics via Telegram API; detect deleted topics."""
     for user_id, thread_id, wid in list(thread_router.iter_thread_bindings()):
@@ -290,6 +327,16 @@ async def probe_topic_existence(client: TelegramClient) -> None:
                 "Topic_id_invalid" in e.message
                 or "thread not found" in e.message.lower()
             ):
+                if not await _confirm_topic_gone(
+                    client, thread_router.resolve_chat_id(user_id, thread_id), thread_id
+                ):
+                    logger.info(
+                        "topic_probe_unconfirmed",
+                        thread_id=thread_id,
+                        window_id=wid,
+                        reason=e.message,
+                    )
+                    continue
                 w = await tmux_manager.find_window_by_id(wid)
                 view = window_query.view_window(wid)
                 killed = False

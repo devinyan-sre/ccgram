@@ -738,6 +738,8 @@ class TestProbeFailures:
         terminal_poll_state.get_state("@5").probe_failures = 1
         bot = AsyncMock(spec=Bot)
         bot.unpin_all_forum_topic_messages.side_effect = BadRequest("Topic_id_invalid")
+        # The authoritative send-probe must confirm before any teardown.
+        bot.send_message.side_effect = BadRequest("Thread not found")
         mock_window = MagicMock()
         mock_window.window_id = "@5"
         with (
@@ -2241,6 +2243,7 @@ class TestDeadWindowNotification:
     async def test_probe_cleans_up_on_thread_not_found(self, error_msg: str) -> None:
         bot = AsyncMock(spec=Bot)
         bot.unpin_all_forum_topic_messages.side_effect = BadRequest(error_msg)
+        bot.send_message.side_effect = BadRequest("Thread not found")
         mock_window = MagicMock()
         mock_window.window_id = "@5"
         with (
