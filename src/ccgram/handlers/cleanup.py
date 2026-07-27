@@ -24,6 +24,7 @@ from ..session_map import session_map_prefix
 from ..thread_router import thread_router
 from ..topic_state_registry import topic_state
 from ..utils import handle_general_topic_message, is_general_topic, log_throttle_reset
+from ..window_state_ports import lifecycle_state
 from .callback_helpers import get_thread_id
 from .interactive import clear_interactive_msg
 from .messaging_pipeline.message_queue import enqueue_status_update
@@ -140,6 +141,11 @@ async def unbind_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     display = thread_router.get_display_name(window_id)
     client = PTBTelegramClient(context.bot)
+    # Exempt the window from the unbound-window TTL before unbinding, so the
+    # promise made below ("the session is still running") holds. Without this
+    # the TTL reaps it AUTOCLOSE_DONE_MINUTES later, killing the agent and any
+    # unsaved work in it.
+    lifecycle_state.set_user_detached(window_id, value=True)
     await enqueue_status_update(client, user.id, window_id, None, thread_id)
     await clear_topic_state(
         user.id,

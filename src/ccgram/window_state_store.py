@@ -154,6 +154,10 @@ class WindowState:
     # (``_detect_and_apply_provider``) must not overwrite the choice
     # until the user re-runs ``/agent auto`` (which clears the flag).
     provider_manual_override: bool = False
+    # User ran /unbind, which promises "the session is still running". The
+    # unbound-window TTL reaps orphans of a failed bind flow; a window the user
+    # deliberately detached is not an orphan, so it is exempt until re-bound.
+    user_detached: bool = False
 
     def to_dict(self) -> dict[str, Any]:  # noqa: C901
         d: dict[str, Any] = {
@@ -184,6 +188,8 @@ class WindowState:
             d["worktree_branch"] = self.worktree_branch
         if self.provider_manual_override:
             d["provider_manual_override"] = True
+        if self.user_detached:
+            d["user_detached"] = True
         return d
 
     @classmethod
@@ -219,6 +225,7 @@ class WindowState:
             worktree_path=data.get("worktree_path"),
             worktree_branch=data.get("worktree_branch"),
             provider_manual_override=data.get("provider_manual_override", False),
+            user_detached=data.get("user_detached", False),
         )
 
 
@@ -343,6 +350,14 @@ class WindowStateStore:
         if state is None or state.provider_manual_override == value:
             return
         state.provider_manual_override = value
+        self._schedule_save()
+
+    def set_user_detached(self, window_id: str, *, value: bool) -> None:
+        """Mark or clear the user-detached flag. No-op when unchanged."""
+        state = self.window_states.get(window_id)
+        if state is None or state.user_detached == value:
+            return
+        state.user_detached = value
         self._schedule_save()
 
     def clear_transcript_path(self, window_id: str) -> None:

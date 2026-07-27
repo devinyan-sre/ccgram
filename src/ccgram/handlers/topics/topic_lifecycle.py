@@ -30,6 +30,7 @@ from ...telegram_client import PTBTelegramClient, TelegramClient
 from ...thread_router import thread_router
 from ...multiplexer import multiplexer as tmux_manager
 from ...utils import log_throttled
+from ...window_state_ports import lifecycle_state
 from ...window_state_store import CCGRAM_CREATED_WINDOW_ORIGIN
 from ..cleanup import clear_topic_state
 from ..messaging_pipeline.message_sender import is_thread_gone, safe_send
@@ -202,6 +203,13 @@ async def check_unbound_window_ttl(
     now = time.monotonic()
     for w in live_windows:
         if w.window_id in bound_ids:
+            # Re-bound: the window is in use again, so a later orphaning should
+            # start a fresh TTL rather than inherit the /unbind exemption.
+            lifecycle_state.set_user_detached(w.window_id, value=False)
+            continue
+        if lifecycle_state.is_user_detached(w.window_id):
+            # /unbind promised this session keeps running — never reap it.
+            terminal_poll_state.clear_unbound_timer(w.window_id)
             continue
         view = window_query.view_window(w.window_id)
         if view is None or view.origin != CCGRAM_CREATED_WINDOW_ORIGIN:

@@ -358,6 +358,49 @@ class TestCheckUnboundWindowTtl:
         assert call.kwargs["actor"] == ACTOR_AUTO
 
 
+class TestUserDetachedExemption:
+    """/unbind promises the session keeps running — the TTL must honour that."""
+
+    async def test_user_detached_window_is_never_reaped(self):
+        ws = terminal_poll_state.get_state("@0")
+        ws.unbound_timer = time.monotonic() - 100
+        mock_window = MagicMock(window_id="@0", window_name="test")
+        with (
+            patch("ccgram.handlers.topics.topic_lifecycle.config") as mock_config,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.thread_router"
+            ) as mock_router,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.lifecycle_state"
+            ) as mock_lifecycle,
+            patch("ccgram.handlers.topics.topic_lifecycle.tmux_manager") as mock_tmux,
+        ):
+            mock_config.autoclose_done_minutes = 1
+            mock_router.iter_thread_bindings.return_value = []
+            mock_lifecycle.is_user_detached.return_value = True
+            mock_tmux.kill_window = AsyncMock()
+            await check_unbound_window_ttl([mock_window])
+        mock_tmux.kill_window.assert_not_called()
+        assert ws.unbound_timer is None
+
+    async def test_rebinding_clears_the_exemption(self):
+        """A re-bound window must start a fresh TTL if it is orphaned later."""
+        mock_window = MagicMock(window_id="@0", window_name="test")
+        with (
+            patch("ccgram.handlers.topics.topic_lifecycle.config") as mock_config,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.thread_router"
+            ) as mock_router,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.lifecycle_state"
+            ) as mock_lifecycle,
+        ):
+            mock_config.autoclose_done_minutes = 1
+            mock_router.iter_thread_bindings.return_value = [(1, 100, "@0")]
+            await check_unbound_window_ttl([mock_window])
+        mock_lifecycle.set_user_detached.assert_called_once_with("@0", value=False)
+
+
 class TestHerdrKillPaths:
     """Kill paths route through the multiplexer proxy regardless of window-ID format."""
 

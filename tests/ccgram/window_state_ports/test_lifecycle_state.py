@@ -6,6 +6,8 @@ from ccgram.window_state_ports.lifecycle_state import (
     LifecycleProjection,
     get_lifecycle,
     get_origin,
+    is_user_detached,
+    set_user_detached,
     set_window_origin,
 )
 from ccgram.window_state_store import WindowState, WindowStateStore
@@ -58,3 +60,46 @@ class TestWrites:
     def test_set_window_origin_invalid(self, store: WindowStateStore) -> None:
         with pytest.raises(ValueError):
             set_window_origin("@1", "garbage")
+
+
+class TestUserDetached:
+    """/unbind marks a window TTL-exempt; re-binding clears the exemption."""
+
+    def test_defaults_to_false(self, store: WindowStateStore) -> None:
+        store.window_states["@1"] = WindowState()
+        assert is_user_detached("@1") is False
+
+    def test_missing_window_is_not_detached(self, store: WindowStateStore) -> None:
+        assert is_user_detached("@missing") is False
+
+    def test_set_persists_and_projects(
+        self, store: WindowStateStore, save_calls: list[int]
+    ) -> None:
+        store.window_states["@1"] = WindowState()
+        set_user_detached("@1", value=True)
+        assert store.window_states["@1"].user_detached is True
+        assert is_user_detached("@1") is True
+        proj = get_lifecycle("@1")
+        assert proj is not None and proj.user_detached is True
+        assert len(save_calls) == 1
+
+    def test_set_noop_no_save(
+        self, store: WindowStateStore, save_calls: list[int]
+    ) -> None:
+        store.window_states["@1"] = WindowState(user_detached=True)
+        save_calls.clear()
+        set_user_detached("@1", value=True)
+        assert save_calls == []
+
+    def test_clearing_is_persisted(self, store: WindowStateStore) -> None:
+        store.window_states["@1"] = WindowState(user_detached=True)
+        set_user_detached("@1", value=False)
+        assert is_user_detached("@1") is False
+
+    def test_survives_a_serialization_round_trip(self) -> None:
+        """The flag must outlive a restart, or the TTL reaps parked sessions."""
+        restored = WindowState.from_dict(WindowState(user_detached=True).to_dict())
+        assert restored.user_detached is True
+
+    def test_absent_from_dict_when_false(self) -> None:
+        assert "user_detached" not in WindowState().to_dict()
