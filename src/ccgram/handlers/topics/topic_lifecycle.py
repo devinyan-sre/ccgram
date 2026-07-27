@@ -21,8 +21,10 @@ from ...destructive_audit import (
     ACTION_WINDOW_KILLED_TOPIC_GONE,
     ACTION_WINDOW_KILLED_UNBOUND,
     ACTOR_AUTO,
+    OUTCOME_SKIPPED_SUSPENDED,
     record_destructive,
 )
+from ...destructive_guard import destruction_blocked
 from ...i18n import t
 from ...session import session_manager
 from ...session_map import session_map_prefix
@@ -131,6 +133,21 @@ async def _close_expired_topic(
             )
             return
 
+    blocked = destruction_blocked()
+    if blocked:
+        # Leave the timer armed: once the suspension lapses the sweep
+        # re-evaluates against reality instead of an outage's aftermath.
+        await record_destructive(
+            ACTION_TOPIC_RETIRED,
+            actor=ACTOR_AUTO,
+            outcome=OUTCOME_SKIPPED_SUSPENDED,
+            detail=blocked,
+            window_id=window_id,
+            thread_id=thread_id,
+            user_id=user_id,
+        )
+        return
+
     chat_id = thread_router.resolve_chat_id(user_id, thread_id)
     delete = config.autoclose_action == "delete"
     if not delete and (user_id, thread_id) not in _archive_notified:
@@ -227,6 +244,17 @@ async def _kill_expired_unbound(now: float, timeout: float) -> None:
     """Find and kill unbound windows past their TTL."""
     expired = terminal_poll_state.get_expired_unbound(now, timeout)
     for wid in expired:
+        blocked = destruction_blocked()
+        if blocked:
+            # Timer stays set — the next cycle after the suspension re-checks.
+            await record_destructive(
+                ACTION_WINDOW_KILLED_UNBOUND,
+                actor=ACTOR_AUTO,
+                outcome=OUTCOME_SKIPPED_SUSPENDED,
+                detail=blocked,
+                window_id=wid,
+            )
+            continue
         await tmux_manager.kill_window(wid)
 
         # Lazy: topic_state_registry is wired during bootstrap; importing
@@ -311,6 +339,64 @@ async def _confirm_topic_gone(
     return False
 
 
+async def _handle_probe_topic_gone(
+    client: TelegramClient, user_id: int, thread_id: int, wid: str, reason: str
+) -> None:
+    """Act on an unpin probe that claims the topic is gone.
+
+    Two gates stand between the claim and any destruction: the mass-death
+    breaker (an outage is not a reason to reap) and an authoritative re-check
+    (the unpin verdict alone has been wrong).
+    """
+    blocked = destruction_blocked()
+    if blocked:
+        await record_destructive(
+            ACTION_WINDOW_KILLED_TOPIC_GONE,
+            actor=ACTOR_AUTO,
+            outcome=OUTCOME_SKIPPED_SUSPENDED,
+            detail=blocked,
+            window_id=wid,
+            thread_id=thread_id,
+            user_id=user_id,
+        )
+        return
+    chat_id = thread_router.resolve_chat_id(user_id, thread_id)
+    if not await _confirm_topic_gone(client, chat_id, thread_id):
+        logger.info(
+            "topic_probe_unconfirmed",
+            thread_id=thread_id,
+            window_id=wid,
+            reason=reason,
+        )
+        return
+
+    w = await tmux_manager.find_window_by_id(wid)
+    view = window_query.view_window(wid)
+    killed = False
+    if w and view and view.origin == CCGRAM_CREATED_WINDOW_ORIGIN:
+        await tmux_manager.kill_window(w.window_id)
+        killed = True
+    terminal_poll_state.reset_probe_failures(wid)
+    await clear_topic_state(user_id, thread_id, client, window_id=wid)
+    thread_router.unbind_thread(user_id, thread_id)
+    logger.info(
+        "Topic deleted: %s window_id '%s' and unbound thread %d for user %d",
+        "killed" if killed else "unbound",
+        wid,
+        thread_id,
+        user_id,
+    )
+    if killed:
+        await record_destructive(
+            ACTION_WINDOW_KILLED_TOPIC_GONE,
+            actor=ACTOR_AUTO,
+            detail=t("The agent process and any unsaved work in it are gone."),
+            window_id=wid,
+            thread_id=thread_id,
+            user_id=user_id,
+        )
+
+
 async def probe_topic_existence(client: TelegramClient) -> None:
     """Probe all bound topics via Telegram API; detect deleted topics."""
     for user_id, thread_id, wid in list(thread_router.iter_thread_bindings()):
@@ -327,44 +413,9 @@ async def probe_topic_existence(client: TelegramClient) -> None:
                 "Topic_id_invalid" in e.message
                 or "thread not found" in e.message.lower()
             ):
-                if not await _confirm_topic_gone(
-                    client, thread_router.resolve_chat_id(user_id, thread_id), thread_id
-                ):
-                    logger.info(
-                        "topic_probe_unconfirmed",
-                        thread_id=thread_id,
-                        window_id=wid,
-                        reason=e.message,
-                    )
-                    continue
-                w = await tmux_manager.find_window_by_id(wid)
-                view = window_query.view_window(wid)
-                killed = False
-                if w and view and view.origin == CCGRAM_CREATED_WINDOW_ORIGIN:
-                    await tmux_manager.kill_window(w.window_id)
-                    killed = True
-                terminal_poll_state.reset_probe_failures(wid)
-                await clear_topic_state(user_id, thread_id, client, window_id=wid)
-                thread_router.unbind_thread(user_id, thread_id)
-                action = "killed" if killed else "unbound"
-                logger.info(
-                    "Topic deleted: %s window_id '%s' and unbound thread %d for user %d",
-                    action,
-                    wid,
-                    thread_id,
-                    user_id,
+                await _handle_probe_topic_gone(
+                    client, user_id, thread_id, wid, e.message
                 )
-                if killed:
-                    await record_destructive(
-                        ACTION_WINDOW_KILLED_TOPIC_GONE,
-                        actor=ACTOR_AUTO,
-                        detail=t(
-                            "The agent process and any unsaved work in it are gone."
-                        ),
-                        window_id=wid,
-                        thread_id=thread_id,
-                        user_id=user_id,
-                    )
             elif isinstance(e, BadRequest) and "not enough rights" in e.message.lower():
                 _probe_pin_disabled.add(wid)
                 logger.info(

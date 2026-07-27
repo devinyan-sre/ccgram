@@ -366,8 +366,9 @@ OPERATOR_ALERTS = registry.counter(
 # destroying more than expected — the blind spot behind the 2026-07-25 incident.
 DESTRUCTIVE_ACTIONS = registry.counter(
     "ccgram_destructive_actions",
-    "Irreversible actions taken, by action and actor (auto/user)",
-    ("action", "actor"),
+    "Irreversible actions by action, actor (auto/user) and outcome "
+    "(executed/skipped_suspended/skipped_dryrun)",
+    ("action", "actor", "outcome"),
 )
 
 

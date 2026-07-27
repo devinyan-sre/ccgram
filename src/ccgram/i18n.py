@@ -338,6 +338,21 @@ _ZH: dict[str, str] = {
     "\U0001f5d1 Killed '{name}'": "\U0001f5d1 已结束 '{name}'",
     "Create a new topic to start a session.": "创建新话题即可开始会话。",
     "Killed": "已结束",
+    # Mass-death circuit breaker
+    "🧯 *CCGram circuit breaker*": "🧯 *CCGram 熔断器*",
+    "{count} windows died within {seconds}s — this looks like an": (
+        "{seconds} 秒内有 {count} 个窗口死亡 —— 这看起来是一次"
+    ),
+    "infrastructure event, not something anyone asked for.": (
+        "基础设施事件,而不是任何人主动要求的操作。"
+    ),
+    (
+        "Automatic topic/window cleanup is suspended for {minutes} minutes. "
+        "Nothing is lost — the timers stay armed and re-evaluate afterwards."
+    ): (
+        "自动话题/窗口清理已暂停 {minutes} 分钟。"
+        "什么都不会丢 —— 计时器仍然武装,暂停结束后会重新判断。"
+    ),
     # Destructive-action audit
     "🔻 *CCGram automatic action*": "🔻 *CCGram 自动操作*",
     "Nobody requested this — it was automatic cleanup. Check it was correct.": (

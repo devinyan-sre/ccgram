@@ -26,6 +26,7 @@ from ....claude_task_state import (
     get_subagent_names,
 )
 from ....config import config
+from ....destructive_guard import note_window_death_and_alert
 from ....providers import get_provider_for_window
 from ....telegram_client import PTBTelegramClient
 from ....thread_router import thread_router
@@ -324,6 +325,10 @@ async def _handle_dead_window_notification(
     # ids across restart) can't serve a stale "working" to the status poll.
     agent_status_cache.clear(wid)
     ps.clear_seen_status(wid)
+
+    # Feed the mass-death breaker from the one idempotent death path, so each
+    # window counts once whether the push stream or the poll loop noticed it.
+    await note_window_death_and_alert()
 
     clear_tool_msg_ids_for_topic(user_id, thread_id)
     chat_id = thread_router.resolve_chat_id(user_id, thread_id)

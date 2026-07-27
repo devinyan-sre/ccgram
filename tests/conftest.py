@@ -40,6 +40,22 @@ os.environ["CCGRAM_FS_EVENTS"] = "0"
 
 
 @pytest.fixture(autouse=True)
+def _reset_destructive_guard():
+    """Keep the mass-death breaker from leaking between tests.
+
+    The breaker is module-level by design (it is a process-wide safety valve).
+    Any test that simulates a window death feeds it, so without this reset a
+    handful of death-notification tests trip it and every later test that
+    expects automatic cleanup to run silently gets a suspended one instead.
+    """
+    from ccgram.destructive_guard import reset_for_testing
+
+    reset_for_testing()
+    yield
+    reset_for_testing()
+
+
+@pytest.fixture(autouse=True)
 def _clear_window_store():
     from ccgram.claude_task_state import claude_task_state
     from ccgram.window_state_store import get_window_store

@@ -306,6 +306,22 @@ class Config:
             "CCGRAM_DESTRUCTIVE_ALERTS", "1"
         ).lower() in ("1", "true", "yes")
 
+        # Mass-death circuit breaker. N window deaths inside WINDOW seconds is
+        # an infrastructure event (tmux restart), not N user intentions, so
+        # unattended cleanup stands down for SUSPEND minutes. The suspension is
+        # far longer than the detection window on purpose: in the 2026-07-25
+        # incident the destruction happened ~17 minutes after the deaths.
+        # Threshold 0 disables the breaker.
+        self.mass_death_threshold: int = max(
+            0, _parse_int_env("CCGRAM_MASS_DEATH_THRESHOLD", 3)
+        )
+        self.mass_death_window_seconds: int = max(
+            1, _parse_int_env("CCGRAM_MASS_DEATH_WINDOW", 120)
+        )
+        self.mass_death_suspend_minutes: int = max(
+            1, _parse_int_env("CCGRAM_MASS_DEATH_SUSPEND", 30)
+        )
+
     def _init_live_view(self) -> None:
         self.live_view_interval: int = max(
             1, _parse_int_env("CCGRAM_LIVE_VIEW_INTERVAL", 5)

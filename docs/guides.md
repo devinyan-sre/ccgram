@@ -202,6 +202,9 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `AUTOCLOSE_DEAD_MINUTES` / `--autoclose-dead`        | `10`                           | 已死亡会话 N 分钟后自动关闭（0=关闭该功能）                                                          |
 | `CCGRAM_AUTOCLOSE_ACTION`                            | `close`                        | 话题到期后的处理方式：`close` 归档话题并**保留全部聊天记录**（到期前会先发一条归档提示）；`delete` 为旧行为——Telegram 删除话题时会连同话题内全部消息一起销毁，需显式开启 |
 | `CCGRAM_DESTRUCTIVE_ALERTS`                          | `1`                            | 不可逆操作（退休话题、杀窗口）的 operator 私信告警：**只对"无人值守自动触发"的动作发**，单条即发、不做突发聚合（这类故障的特征就是单次静默事件）；用户自己点确认的销毁只记审计不打扰。设 `0` 关闭私信，审计日志与 `ccgram_destructive_actions` 指标仍然照常记录 |
+| `CCGRAM_MASS_DEATH_THRESHOLD`                        | `3`                            | 群体死亡熔断阈值：窗口检测窗口内死亡数达到该值即判定为「基础设施事件」（如 tmux server 重启），而不是 N 个用户意图，随即挂起全部**自动**破坏性清理。设 `0` 禁用熔断 |
+| `CCGRAM_MASS_DEATH_WINDOW`                           | `120`                          | 熔断的检测窗口（秒）：多少秒内累计到阈值才算突发 |
+| `CCGRAM_MASS_DEATH_SUSPEND`                          | `30`                           | 熔断后自动清理挂起的时长（分钟）。**刻意远长于检测窗口**：07-25 事故里销毁发生在死亡后约 17 分钟，几分钟就恢复的熔断等于没有。挂起期间什么都不会丢——计时器仍然武装，恢复后重新判断 |
 | `CCGRAM_WHISPER_PROVIDER` / `--whisper-provider`     | _（空）_                       | Whisper 提供方：`openai`、`groq`，留空则禁用                                                         |
 | `CCGRAM_WHISPER_API_KEY`                             | _（空）_                       | API 密钥（仅环境变量）；回退到 OPENAI_API_KEY/GROQ_API_KEY                                           |
 | `CCGRAM_WHISPER_BASE_URL` / `--whisper-base-url`     | _（提供方默认值）_             | 自定义 OpenAI 兼容端点 URL                                                                           |

@@ -54,6 +54,13 @@ ACTION_WINDOW_KILLED_UNBOUND = "window_killed_unbound"
 ACTION_WINDOW_KILLED_TOPIC_GONE = "window_killed_topic_gone"
 ACTION_WINDOW_KILLED_BY_USER = "window_killed_by_user"
 
+# What actually happened. A skipped action is still recorded: "the janitor
+# wanted to destroy this and was stopped" is exactly as interesting as the
+# destruction itself, and it is what makes a dry run worth running.
+OUTCOME_EXECUTED = "executed"
+OUTCOME_SKIPPED_SUSPENDED = "skipped_suspended"
+OUTCOME_SKIPPED_DRYRUN = "skipped_dryrun"
+
 _audit_client: TelegramClient | None = None
 
 
@@ -61,6 +68,11 @@ def set_audit_client(client: TelegramClient | None) -> None:
     """Arm (or disarm) the operator sink for destructive-action alerts."""
     global _audit_client
     _audit_client = client
+
+
+def get_audit_client() -> TelegramClient | None:
+    """The armed operator sink, shared with ``destructive_guard``."""
+    return _audit_client
 
 
 @dataclass(frozen=True)
@@ -73,11 +85,17 @@ class DestructiveAction:
     window_id: str | None = None
     thread_id: int | None = None
     user_id: int | None = None
+    outcome: str = OUTCOME_EXECUTED
 
     @property
     def is_unattended(self) -> bool:
         """True when nobody asked for this action at the moment it happened."""
         return self.actor == ACTOR_AUTO
+
+    @property
+    def destroyed_something(self) -> bool:
+        """True only when the action actually ran."""
+        return self.outcome == OUTCOME_EXECUTED
 
 
 # Human-readable one-liners. Deliberately state what was *lost*, not just what
@@ -128,8 +146,13 @@ async def record_destructive(
     window_id: str | None = None,
     thread_id: int | None = None,
     user_id: int | None = None,
+    outcome: str = OUTCOME_EXECUTED,
 ) -> None:
     """Log, count, and (for unattended actions) DM one irreversible action.
+
+    Skipped actions (circuit breaker, dry run) are logged and counted but never
+    DM'd — the breaker sends its own trip alert, and N suppressed actions must
+    not become N notifications.
 
     Best-effort and never raises: an audit sink that can break the operation it
     audits would be worse than no sink at all.
@@ -141,6 +164,7 @@ async def record_destructive(
         window_id=window_id,
         thread_id=thread_id,
         user_id=user_id,
+        outcome=outcome,
     )
     # Warning, not info: an irreversible action deserves to stand out in the
     # log even when it is entirely expected. `maybe_alert_error` ignores
@@ -150,13 +174,18 @@ async def record_destructive(
         audit="destructive",
         action=event.action,
         actor=event.actor,
+        outcome=event.outcome,
         window_id=event.window_id,
         thread_id=event.thread_id,
         user_id=event.user_id,
         detail=event.detail or None,
     )
-    DESTRUCTIVE_ACTIONS.inc(action=event.action, actor=event.actor)
+    DESTRUCTIVE_ACTIONS.inc(
+        action=event.action, actor=event.actor, outcome=event.outcome
+    )
 
+    if not event.destroyed_something:
+        return
     if not event.is_unattended or not config.destructive_alerts_enabled:
         return
     client = _audit_client

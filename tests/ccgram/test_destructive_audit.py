@@ -17,6 +17,8 @@ from ccgram.destructive_audit import (
     ACTION_WINDOW_KILLED_UNBOUND,
     ACTOR_AUTO,
     ACTOR_USER,
+    OUTCOME_EXECUTED,
+    OUTCOME_SKIPPED_SUSPENDED,
     DestructiveAction,
     describe_action,
     format_destructive_alert,
@@ -128,7 +130,30 @@ class TestRecordDestructive:
         assert mock_logger.warning.call_args.kwargs["audit"] == "destructive"
         assert mock_logger.warning.call_args.kwargs["action"] == ACTION_TOPIC_RETIRED
         mock_counter.inc.assert_called_once_with(
-            action=ACTION_TOPIC_RETIRED, actor=ACTOR_AUTO
+            action=ACTION_TOPIC_RETIRED, actor=ACTOR_AUTO, outcome=OUTCOME_EXECUTED
+        )
+
+    async def test_skipped_action_is_recorded_but_not_dmd(self) -> None:
+        """A suppressed action is worth auditing; the breaker sends its own DM."""
+        set_audit_client(AsyncMock())
+        with (
+            patch(
+                "ccgram.operator_alerts.notify_operator", new_callable=AsyncMock
+            ) as n,
+            patch("ccgram.destructive_audit.DESTRUCTIVE_ACTIONS") as mock_counter,
+            patch("ccgram.destructive_audit.config") as cfg,
+        ):
+            cfg.destructive_alerts_enabled = True
+            await record_destructive(
+                ACTION_TOPIC_RETIRED,
+                actor=ACTOR_AUTO,
+                outcome=OUTCOME_SKIPPED_SUSPENDED,
+            )
+        n.assert_not_awaited()
+        mock_counter.inc.assert_called_once_with(
+            action=ACTION_TOPIC_RETIRED,
+            actor=ACTOR_AUTO,
+            outcome=OUTCOME_SKIPPED_SUSPENDED,
         )
 
     async def test_warning_level_cannot_trip_error_burst_alerting(self) -> None:

@@ -10,6 +10,7 @@ from ccgram.destructive_audit import (
     ACTION_WINDOW_KILLED_TOPIC_GONE,
     ACTION_WINDOW_KILLED_UNBOUND,
     ACTOR_AUTO,
+    OUTCOME_SKIPPED_SUSPENDED,
 )
 from ccgram.window_view import WindowView
 
@@ -357,6 +358,80 @@ class TestCheckUnboundWindowTtl:
         assert call is not None
         assert call.args[0] == ACTION_WINDOW_KILLED_UNBOUND
         assert call.kwargs["actor"] == ACTOR_AUTO
+
+
+class TestBreakerSuspendsDestruction:
+    """While the mass-death breaker is tripped, nothing gets destroyed."""
+
+    async def test_autoclose_stands_down_and_keeps_the_timer(self):
+        bot = AsyncMock(spec=Bot)
+        bot.close_forum_topic = AsyncMock()
+        user_id, thread_id = 1, 100
+        lifecycle_strategy.start_autoclose_timer(
+            user_id, thread_id, "dead", time.monotonic() - 99999
+        )
+        with (
+            patch("ccgram.handlers.topics.topic_lifecycle.config") as mock_config,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.thread_router"
+            ) as mock_router,
+            patch("ccgram.handlers.topics.topic_lifecycle.tmux_manager") as mock_tmux,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.destruction_blocked",
+                return_value="mass_death",
+            ),
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.record_destructive",
+                new_callable=AsyncMock,
+            ) as mock_audit,
+        ):
+            mock_config.autoclose_dead_minutes = 1
+            mock_router.get_window_for_thread.return_value = "@0"
+            mock_tmux.find_window_by_id = AsyncMock(return_value=None)
+            await check_autoclose_timers(bot)
+
+        bot.close_forum_topic.assert_not_called()
+        bot.delete_forum_topic.assert_not_called()
+        # Timer must stay armed so the sweep re-runs once the breaker recovers.
+        assert lifecycle_strategy.get_state(user_id, thread_id).autoclose is not None
+        call = mock_audit.await_args
+        assert call is not None
+        assert call.kwargs["outcome"] == OUTCOME_SKIPPED_SUSPENDED
+
+    async def test_unbound_ttl_kill_stands_down(self):
+        ws = terminal_poll_state.get_state("@0")
+        ws.unbound_timer = time.monotonic() - 100
+        mock_window = MagicMock(window_id="@0", window_name="test")
+        with (
+            patch("ccgram.handlers.topics.topic_lifecycle.config") as mock_config,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.thread_router"
+            ) as mock_router,
+            patch("ccgram.handlers.topics.topic_lifecycle.window_query") as mock_wq,
+            patch("ccgram.handlers.topics.topic_lifecycle.tmux_manager") as mock_tmux,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.lifecycle_state"
+            ) as mock_lifecycle,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.destruction_blocked",
+                return_value="mass_death",
+            ),
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.record_destructive",
+                new_callable=AsyncMock,
+            ) as mock_audit,
+        ):
+            mock_config.autoclose_done_minutes = 1
+            mock_router.iter_thread_bindings.return_value = []
+            mock_lifecycle.is_user_detached.return_value = False
+            mock_wq.view_window.return_value = _window_view("ccgram_created")
+            mock_tmux.kill_window = AsyncMock()
+            await check_unbound_window_ttl([mock_window])
+
+        mock_tmux.kill_window.assert_not_called()
+        call = mock_audit.await_args
+        assert call is not None
+        assert call.kwargs["outcome"] == OUTCOME_SKIPPED_SUSPENDED
 
 
 class TestUserDetachedExemption:
