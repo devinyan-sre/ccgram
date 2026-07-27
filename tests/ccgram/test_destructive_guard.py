@@ -11,12 +11,18 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from ccgram.destructive_audit import (
+    OUTCOME_SKIPPED_DRYRUN,
+    OUTCOME_SKIPPED_SUSPENDED,
+)
 from ccgram.destructive_guard import (
+    BLOCKED_DRYRUN,
     BLOCKED_MASS_DEATH,
     destruction_blocked,
     format_breaker_alert,
     note_window_death,
     note_window_death_and_alert,
+    outcome_for,
     reset_for_testing,
 )
 
@@ -34,6 +40,7 @@ def cfg():
         mock_config.mass_death_threshold = 3
         mock_config.mass_death_window_seconds = 120
         mock_config.mass_death_suspend_minutes = 30
+        mock_config.destructive_dryrun = False
         yield mock_config
 
 
@@ -91,7 +98,7 @@ class TestAlerting:
     async def test_alert_sent_on_trip(self, cfg) -> None:
         with (
             patch(
-                "ccgram.destructive_audit.get_audit_client", return_value=AsyncMock()
+                "ccgram.destructive_guard.get_audit_client", return_value=AsyncMock()
             ),
             patch(
                 "ccgram.operator_alerts.notify_operator", new_callable=AsyncMock
@@ -104,7 +111,7 @@ class TestAlerting:
     async def test_no_alert_below_threshold(self, cfg) -> None:
         with (
             patch(
-                "ccgram.destructive_audit.get_audit_client", return_value=AsyncMock()
+                "ccgram.destructive_guard.get_audit_client", return_value=AsyncMock()
             ),
             patch(
                 "ccgram.operator_alerts.notify_operator", new_callable=AsyncMock
@@ -114,7 +121,7 @@ class TestAlerting:
         notify.assert_not_awaited()
 
     async def test_unarmed_sink_does_not_raise(self, cfg) -> None:
-        with patch("ccgram.destructive_audit.get_audit_client", return_value=None):
+        with patch("ccgram.destructive_guard.get_audit_client", return_value=None):
             for i in range(3):
                 await note_window_death_and_alert(now=float(i))
 
@@ -123,3 +130,33 @@ class TestAlerting:
         assert "6" in text
         assert "30" in text
         assert "suspended" in text.lower()
+
+
+class TestDryRun:
+    """Rehearsal mode: decide as usual, record the verdict, execute nothing."""
+
+    def test_dryrun_blocks_everything(self, cfg) -> None:
+        cfg.destructive_dryrun = True
+        assert destruction_blocked(now=0.0) == BLOCKED_DRYRUN
+
+    def test_dryrun_wins_over_a_tripped_breaker(self, cfg) -> None:
+        """A rehearsal must read as a rehearsal, not as an outage."""
+        cfg.destructive_dryrun = False
+        for i in range(3):
+            note_window_death(now=float(i))
+        cfg.destructive_dryrun = True
+        assert destruction_blocked(now=5.0) == BLOCKED_DRYRUN
+
+    def test_dryrun_blocks_even_with_breaker_disabled(self, cfg) -> None:
+        cfg.destructive_dryrun = True
+        cfg.mass_death_threshold = 0
+        assert destruction_blocked(now=0.0) == BLOCKED_DRYRUN
+
+    def test_off_by_default_in_this_fixture(self, cfg) -> None:
+        cfg.destructive_dryrun = False
+        assert destruction_blocked(now=0.0) is None
+
+    def test_outcome_labels_distinguish_the_two_reasons(self) -> None:
+        """A dry run and a suppressed outage must not look alike on /metrics."""
+        assert outcome_for(BLOCKED_DRYRUN) == OUTCOME_SKIPPED_DRYRUN
+        assert outcome_for(BLOCKED_MASS_DEATH) == OUTCOME_SKIPPED_SUSPENDED

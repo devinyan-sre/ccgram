@@ -322,6 +322,14 @@ class Config:
             1, _parse_int_env("CCGRAM_MASS_DEATH_SUSPEND", 30)
         )
 
+        # Rehearsal mode: unattended destructive paths decide as usual and
+        # record what they *would* have done, but never execute. Lets an
+        # operator confirm the cleanup policy matches their intent before
+        # trusting it with real topics and processes.
+        self.destructive_dryrun: bool = os.getenv(
+            "CCGRAM_DESTRUCTIVE_DRYRUN", ""
+        ).lower() in ("1", "true", "yes")
+
     def _init_live_view(self) -> None:
         self.live_view_interval: int = max(
             1, _parse_int_env("CCGRAM_LIVE_VIEW_INTERVAL", 5)

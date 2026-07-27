@@ -205,6 +205,7 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_MASS_DEATH_THRESHOLD`                        | `3`                            | 群体死亡熔断阈值：窗口检测窗口内死亡数达到该值即判定为「基础设施事件」（如 tmux server 重启），而不是 N 个用户意图，随即挂起全部**自动**破坏性清理。设 `0` 禁用熔断 |
 | `CCGRAM_MASS_DEATH_WINDOW`                           | `120`                          | 熔断的检测窗口（秒）：多少秒内累计到阈值才算突发 |
 | `CCGRAM_MASS_DEATH_SUSPEND`                          | `30`                           | 熔断后自动清理挂起的时长（分钟）。**刻意远长于检测窗口**：07-25 事故里销毁发生在死亡后约 17 分钟，几分钟就恢复的熔断等于没有。挂起期间什么都不会丢——计时器仍然武装，恢复后重新判断 |
+| `CCGRAM_DESTRUCTIVE_DRYRUN`                          | _(关)_                         | 演练模式：自动破坏性路径照常判断并把「本该做什么」记进审计日志和指标（`outcome=skipped_dryrun`），但**一律不真正执行**。用于在把话题和进程交给自动清理之前，先观察一段时间确认策略符合预期。只影响无人值守的动作，用户手动确认的销毁不受影响 |
 | `CCGRAM_WHISPER_PROVIDER` / `--whisper-provider`     | _（空）_                       | Whisper 提供方：`openai`、`groq`，留空则禁用                                                         |
 | `CCGRAM_WHISPER_API_KEY`                             | _（空）_                       | API 密钥（仅环境变量）；回退到 OPENAI_API_KEY/GROQ_API_KEY                                           |
 | `CCGRAM_WHISPER_BASE_URL` / `--whisper-base-url`     | _（提供方默认值）_             | 自定义 OpenAI 兼容端点 URL                                                                           |

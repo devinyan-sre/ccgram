@@ -21,10 +21,9 @@ from ...destructive_audit import (
     ACTION_WINDOW_KILLED_TOPIC_GONE,
     ACTION_WINDOW_KILLED_UNBOUND,
     ACTOR_AUTO,
-    OUTCOME_SKIPPED_SUSPENDED,
     record_destructive,
 )
-from ...destructive_guard import destruction_blocked
+from ...destructive_guard import destruction_blocked, outcome_for
 from ...i18n import t
 from ...session import session_manager
 from ...session_map import session_map_prefix
@@ -140,7 +139,7 @@ async def _close_expired_topic(
         await record_destructive(
             ACTION_TOPIC_RETIRED,
             actor=ACTOR_AUTO,
-            outcome=OUTCOME_SKIPPED_SUSPENDED,
+            outcome=outcome_for(blocked),
             detail=blocked,
             window_id=window_id,
             thread_id=thread_id,
@@ -250,7 +249,7 @@ async def _kill_expired_unbound(now: float, timeout: float) -> None:
             await record_destructive(
                 ACTION_WINDOW_KILLED_UNBOUND,
                 actor=ACTOR_AUTO,
-                outcome=OUTCOME_SKIPPED_SUSPENDED,
+                outcome=outcome_for(blocked),
                 detail=blocked,
                 window_id=wid,
             )
@@ -353,7 +352,7 @@ async def _handle_probe_topic_gone(
         await record_destructive(
             ACTION_WINDOW_KILLED_TOPIC_GONE,
             actor=ACTOR_AUTO,
-            outcome=OUTCOME_SKIPPED_SUSPENDED,
+            outcome=outcome_for(blocked),
             detail=blocked,
             window_id=wid,
             thread_id=thread_id,

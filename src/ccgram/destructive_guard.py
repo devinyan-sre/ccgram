@@ -31,12 +31,18 @@ from collections import deque
 import structlog
 
 from .config import config
+from .destructive_audit import (
+    OUTCOME_SKIPPED_DRYRUN,
+    OUTCOME_SKIPPED_SUSPENDED,
+    get_audit_client,
+)
 from .i18n import t
 
 logger = structlog.get_logger()
 
 # Reason codes returned by `destruction_blocked`. Also metric label values.
 BLOCKED_MASS_DEATH = "mass_death"
+BLOCKED_DRYRUN = "dryrun"
 
 _deaths: deque[float] = deque()
 _suspended_until: float = 0.0
@@ -57,15 +63,29 @@ def _prune(now: float) -> None:
 
 
 def destruction_blocked(*, now: float | None = None) -> str | None:
-    """Reason automated destruction is currently suspended, else None.
+    """Reason automated destruction must not proceed right now, else None.
 
     Only gates *unattended* actions — a user who taps "kill this session"
-    during an outage still gets what they asked for.
+    during an outage or a rehearsal still gets what they asked for.
+
+    Dry run is checked first so a rehearsal reads as a rehearsal in the audit
+    trail even while the breaker happens to be tripped.
     """
+    if config.destructive_dryrun:
+        return BLOCKED_DRYRUN
     if config.mass_death_threshold <= 0:
         return None
     moment = time.monotonic() if now is None else now
     return BLOCKED_MASS_DEATH if moment < _suspended_until else None
+
+
+def outcome_for(reason: str) -> str:
+    """Map a ``destruction_blocked`` reason to its audit outcome label."""
+    return (
+        OUTCOME_SKIPPED_DRYRUN
+        if reason == BLOCKED_DRYRUN
+        else OUTCOME_SKIPPED_SUSPENDED
+    )
 
 
 def note_window_death(*, now: float | None = None) -> bool:
@@ -125,11 +145,8 @@ async def note_window_death_and_alert(*, now: float | None = None) -> None:
     """
     if not note_window_death(now=now):
         return
-    # Lazy: operator_alerts + destructive_audit pull telegram_client and i18n;
-    # keep this module importable from the polling layer without them.
-    from .destructive_audit import get_audit_client
-
-    # Lazy: same cycle — operator_alerts is only needed on an actual trip.
+    # Lazy: operator_alerts is only reachable on an actual trip, which is rare;
+    # keep it off this module's import path for the polling layer.
     from .operator_alerts import SEVERITY_CRITICAL, notify_operator
 
     client = get_audit_client()
