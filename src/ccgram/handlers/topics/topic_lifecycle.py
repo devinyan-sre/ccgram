@@ -16,6 +16,13 @@ from telegram import Update
 from telegram.error import BadRequest, TelegramError
 from ... import window_query
 from ...config import config
+from ...destructive_audit import (
+    ACTION_TOPIC_RETIRED,
+    ACTION_WINDOW_KILLED_TOPIC_GONE,
+    ACTION_WINDOW_KILLED_UNBOUND,
+    ACTOR_AUTO,
+    record_destructive,
+)
 from ...i18n import t
 from ...session import session_manager
 from ...session_map import session_map_prefix
@@ -149,6 +156,18 @@ async def _close_expired_topic(
             user_id=user_id,
             action="delete" if delete else "close",
         )
+        await record_destructive(
+            ACTION_TOPIC_RETIRED,
+            actor=ACTOR_AUTO,
+            detail=(
+                t("Deleted — the topic's whole message history is gone.")
+                if delete
+                else t("Archived after the {state} timeout.").format(state=state)
+            ),
+            window_id=window_id,
+            thread_id=thread_id,
+            user_id=user_id,
+        )
         await clear_topic_state(
             user_id,
             thread_id,
@@ -211,6 +230,12 @@ async def _kill_expired_unbound(now: float, timeout: float) -> None:
         qualified_id = f"{session_map_prefix()}{wid}"
         topic_state.clear_qualified(qualified_id)
         logger.info("auto_killed_unbound_window", window_id=wid)
+        await record_destructive(
+            ACTION_WINDOW_KILLED_UNBOUND,
+            actor=ACTOR_AUTO,
+            detail=t("The agent process and any unsaved work in it are gone."),
+            window_id=wid,
+        )
 
 
 def _prune_orphaned_poll_state(live_ids: set[str], bound_ids: set[str]) -> None:
@@ -274,6 +299,17 @@ async def probe_topic_existence(client: TelegramClient) -> None:
                     thread_id,
                     user_id,
                 )
+                if killed:
+                    await record_destructive(
+                        ACTION_WINDOW_KILLED_TOPIC_GONE,
+                        actor=ACTOR_AUTO,
+                        detail=t(
+                            "The agent process and any unsaved work in it are gone."
+                        ),
+                        window_id=wid,
+                        thread_id=thread_id,
+                        user_id=user_id,
+                    )
             elif isinstance(e, BadRequest) and "not enough rights" in e.message.lower():
                 _probe_pin_disabled.add(wid)
                 logger.info(

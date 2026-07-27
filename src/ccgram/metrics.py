@@ -361,6 +361,15 @@ OPERATOR_ALERTS = registry.counter(
     ("severity", "outcome"),
 )
 
+# Irreversible actions (topic retired, window killed) by action and actor.
+# A rising `actor="auto"` rate is the signal that unattended cleanup is
+# destroying more than expected — the blind spot behind the 2026-07-25 incident.
+DESTRUCTIVE_ACTIONS = registry.counter(
+    "ccgram_destructive_actions",
+    "Irreversible actions taken, by action and actor (auto/user)",
+    ("action", "actor"),
+)
+
 
 # --- cross-cutting helpers ----------------------------------------------
 

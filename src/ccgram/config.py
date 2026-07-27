@@ -298,6 +298,14 @@ class Config:
             "CCGRAM_ERROR_ALERTS", "1"
         ).lower() in ("1", "true", "yes")
 
+        # Destructive-action alerting: DM the operator every time unattended
+        # cleanup retires a topic or kills a window. Not burst-gated — the
+        # failure mode is one silent event, not a flood. CCGRAM_DESTRUCTIVE_ALERTS=0
+        # keeps the audit log and metric but stops the DMs.
+        self.destructive_alerts_enabled: bool = os.getenv(
+            "CCGRAM_DESTRUCTIVE_ALERTS", "1"
+        ).lower() in ("1", "true", "yes")
+
     def _init_live_view(self) -> None:
         self.live_view_interval: int = max(
             1, _parse_int_env("CCGRAM_LIVE_VIEW_INTERVAL", 5)

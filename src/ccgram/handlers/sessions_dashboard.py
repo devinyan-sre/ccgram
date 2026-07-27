@@ -24,6 +24,11 @@ from telegram import (
     Update,
 )
 from ..config import config
+from ..destructive_audit import (
+    ACTION_WINDOW_KILLED_BY_USER,
+    ACTOR_USER,
+    record_destructive,
+)
 from ..i18n import t
 from ..telegram_client import PTBTelegramClient, TelegramClient
 from ..thread_router import thread_router
@@ -172,6 +177,15 @@ async def handle_sessions_kill_confirm(
         window_id,
         display,
         user_id,
+    )
+    # actor=user: the operator is looking at the confirmation they just tapped,
+    # so this lands in the audit trail without a DM.
+    await record_destructive(
+        ACTION_WINDOW_KILLED_BY_USER,
+        actor=ACTOR_USER,
+        detail=display,
+        window_id=window_id,
+        user_id=user_id,
     )
 
     # Re-render dashboard

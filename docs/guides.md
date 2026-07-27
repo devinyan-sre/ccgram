@@ -201,6 +201,7 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `AUTOCLOSE_DONE_MINUTES` / `--autoclose-done`        | `30`                           | 已完成话题 N 分钟后自动关闭（0=关闭该功能）                                                          |
 | `AUTOCLOSE_DEAD_MINUTES` / `--autoclose-dead`        | `10`                           | 已死亡会话 N 分钟后自动关闭（0=关闭该功能）                                                          |
 | `CCGRAM_AUTOCLOSE_ACTION`                            | `close`                        | 话题到期后的处理方式：`close` 归档话题并**保留全部聊天记录**（到期前会先发一条归档提示）；`delete` 为旧行为——Telegram 删除话题时会连同话题内全部消息一起销毁，需显式开启 |
+| `CCGRAM_DESTRUCTIVE_ALERTS`                          | `1`                            | 不可逆操作（退休话题、杀窗口）的 operator 私信告警：**只对"无人值守自动触发"的动作发**，单条即发、不做突发聚合（这类故障的特征就是单次静默事件）；用户自己点确认的销毁只记审计不打扰。设 `0` 关闭私信，审计日志与 `ccgram_destructive_actions` 指标仍然照常记录 |
 | `CCGRAM_WHISPER_PROVIDER` / `--whisper-provider`     | _（空）_                       | Whisper 提供方：`openai`、`groq`，留空则禁用                                                         |
 | `CCGRAM_WHISPER_API_KEY`                             | _（空）_                       | API 密钥（仅环境变量）；回退到 OPENAI_API_KEY/GROQ_API_KEY                                           |
 | `CCGRAM_WHISPER_BASE_URL` / `--whisper-base-url`     | _（提供方默认值）_             | 自定义 OpenAI 兼容端点 URL                                                                           |

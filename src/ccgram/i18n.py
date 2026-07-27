@@ -338,6 +338,23 @@ _ZH: dict[str, str] = {
     "\U0001f5d1 Killed '{name}'": "\U0001f5d1 已结束 '{name}'",
     "Create a new topic to start a session.": "创建新话题即可开始会话。",
     "Killed": "已结束",
+    # Destructive-action audit
+    "🔻 *CCGram automatic action*": "🔻 *CCGram 自动操作*",
+    "Nobody requested this — it was automatic cleanup. Check it was correct.": (
+        "这不是任何人主动触发的,是自动清理。请确认它做得对。"
+    ),
+    "Topic retired by autoclose": "话题被自动关闭策略退休",
+    "Topic removed by /sync (history destroyed)": "话题被 /sync 移除(聊天记录已销毁)",
+    "Window killed — unbound past its TTL": "窗口被杀 —— 解绑后超过存活时限",
+    "Window killed — its topic was deleted": "窗口被杀 —— 对应话题已被删除",
+    "Window killed from the sessions dashboard": "窗口被杀 —— 来自会话面板操作",
+    "Deleted — the topic's whole message history is gone.": (
+        "已删除 —— 该话题的全部聊天记录已随之销毁。"
+    ),
+    "Archived after the {state} timeout.": "在 {state} 状态超时后归档。",
+    "The agent process and any unsaved work in it are gone.": (
+        "该 agent 进程及其中未保存的工作已丢失。"
+    ),
     # Topic autoclose
     (
         "🗄 Session ended — topic archived. History is kept; "

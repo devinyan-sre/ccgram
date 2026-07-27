@@ -27,6 +27,11 @@ from telegram import (
 from telegram.error import BadRequest, TelegramError
 from .. import window_query
 from ..config import config
+from ..destructive_audit import (
+    ACTION_TOPIC_REMOVED_SYNC,
+    ACTOR_USER,
+    record_destructive,
+)
 from ..i18n import t
 from ..session import AuditIssue, AuditResult, session_manager
 from ..session_map import session_map_sync
@@ -288,6 +293,14 @@ async def _close_ghost_topics(
                 thread_router.unbind_thread(user_id, thread_id)
                 if topic_removed:
                     closed_count += 1
+                    # actor=user: /sync fixes are an explicit, confirmed action.
+                    await record_destructive(
+                        ACTION_TOPIC_REMOVED_SYNC,
+                        actor=ACTOR_USER,
+                        window_id=window_id,
+                        thread_id=thread_id,
+                        user_id=user_id,
+                    )
             except OSError, TelegramError:
                 logger.exception(
                     "Failed to clean up ghost binding thread=%d window=%s",

@@ -380,6 +380,14 @@ async def bootstrap_application(application: Application) -> None:
 
         set_error_alert_client(PTBTelegramClient(application.bot))
 
+    # Arm the destructive-action audit sink. Unconditional: the audit log and
+    # metric always run, and `config.destructive_alerts_enabled` gates only the
+    # DM inside `record_destructive`.
+    # Lazy: destructive_audit pulls telegram_client + i18n + metrics.
+    from .destructive_audit import set_audit_client
+
+    set_audit_client(PTBTelegramClient(application.bot))
+
     # systemd integration: signal readiness and arm the health-gated
     # watchdog heartbeat (both no-ops outside Type=notify units).
     sd_notify.notify("READY=1")
@@ -483,10 +491,15 @@ async def shutdown_runtime() -> None:
     sd_notify.notify("STOPPING=1")
     sd_notify.stop_watchdog()
 
-    # Lazy: disarm the error-alert sink so a stopped bot can't DM.
+    # Lazy: disarm both DM sinks so a stopped bot can't send.
     from .operator_alerts import set_error_alert_client
 
     set_error_alert_client(None)
+
+    # Lazy: mirrors the error-alert sink teardown above.
+    from .destructive_audit import set_audit_client
+
+    set_audit_client(None)
 
     if _status_poll_task is not None:
         _status_poll_task.cancel()

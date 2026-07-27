@@ -5,6 +5,11 @@ import pytest
 from telegram import Bot
 from telegram.error import BadRequest
 
+from ccgram.destructive_audit import (
+    ACTION_TOPIC_RETIRED,
+    ACTION_WINDOW_KILLED_UNBOUND,
+    ACTOR_AUTO,
+)
 from ccgram.window_view import WindowView
 
 from ccgram.handlers.topics.topic_lifecycle import (
@@ -160,6 +165,47 @@ class TestCheckAutocloseTimers:
         mock_clear.assert_not_awaited()
         assert lifecycle_strategy.get_state(user_id, thread_id).autoclose is not None
 
+    async def test_retiring_a_topic_is_audited(self):
+        """Unattended destruction must reach the audit sink, not just the log."""
+        bot = AsyncMock(spec=Bot)
+        bot.close_forum_topic = AsyncMock()
+        user_id, thread_id = 1, 100
+        lifecycle_strategy.start_autoclose_timer(
+            user_id, thread_id, "dead", time.monotonic() - 99999
+        )
+        with (
+            patch("ccgram.handlers.topics.topic_lifecycle.config") as mock_config,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.thread_router"
+            ) as mock_router,
+            patch("ccgram.handlers.topics.topic_lifecycle.tmux_manager") as mock_tmux,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.safe_send",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.record_destructive",
+                new_callable=AsyncMock,
+            ) as mock_audit,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.clear_topic_state",
+                new_callable=AsyncMock,
+            ),
+        ):
+            mock_config.autoclose_dead_minutes = 1
+            mock_config.autoclose_action = "close"
+            mock_router.resolve_chat_id.return_value = 42
+            mock_router.get_window_for_thread.return_value = "@0"
+            mock_tmux.find_window_by_id = AsyncMock(return_value=None)
+            await check_autoclose_timers(bot)
+
+        mock_audit.assert_awaited_once()
+        call = mock_audit.await_args
+        assert call is not None
+        assert call.args[0] == ACTION_TOPIC_RETIRED
+        assert call.kwargs["actor"] == ACTOR_AUTO
+        assert call.kwargs["thread_id"] == thread_id
+
     async def test_archive_notice_not_repeated_across_retries(self):
         """A topic that keeps failing to close is notified exactly once."""
         bot = AsyncMock(spec=Bot)
@@ -292,6 +338,10 @@ class TestCheckUnboundWindowTtl:
             ) as mock_router,
             patch("ccgram.handlers.topics.topic_lifecycle.window_query") as mock_wq,
             patch("ccgram.handlers.topics.topic_lifecycle.tmux_manager") as mock_tmux,
+            patch(
+                "ccgram.handlers.topics.topic_lifecycle.record_destructive",
+                new_callable=AsyncMock,
+            ) as mock_audit,
         ):
             mock_config.autoclose_done_minutes = 1
             mock_router.iter_thread_bindings.return_value = []
@@ -299,6 +349,13 @@ class TestCheckUnboundWindowTtl:
             mock_tmux.kill_window = AsyncMock()
             await check_unbound_window_ttl([mock_window])
         mock_tmux.kill_window.assert_called_once_with("@0")
+        # Killing an agent process is the most destructive thing ccgram does
+        # unattended — it must never happen without an audit record.
+        mock_audit.assert_awaited_once()
+        call = mock_audit.await_args
+        assert call is not None
+        assert call.args[0] == ACTION_WINDOW_KILLED_UNBOUND
+        assert call.kwargs["actor"] == ACTOR_AUTO
 
 
 class TestHerdrKillPaths:

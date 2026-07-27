@@ -103,10 +103,11 @@ def test_dynamic_t_calls_are_allowlisted() -> None:
     # Each allowlisted site passes a module-level constant / dict value into
     # t(); test_dynamic_site_values_are_translated verifies those values.
     allowlist = [
+        "destructive_audit.py:97",
         "handlers/interactive/interactive_callbacks.py:137",
         "handlers/interactive/interactive_ui.py:102",
         "handlers/live/pane_callbacks.py:188",
-        "handlers/sync_command.py:82",
+        "handlers/sync_command.py:87",
         "handlers/text/text_handler.py:304",
         "handlers/text/text_handler.py:323",
     ]
@@ -128,6 +129,7 @@ def test_dynamic_site_values_are_translated() -> None:
     from ccgram.handlers.interactive.interactive_ui import (
         INTERACTIVE_INSTRUCTION_LINE,
     )
+    from ccgram.destructive_audit import _ACTION_TEXT
     from ccgram.handlers.live.pane_callbacks import _RENAME_PROMPT
     from ccgram.handlers.sync_command import _CATEGORY_LABELS
     from ccgram.handlers.text.text_handler import PENDING_DELIVERY_NOTICE
@@ -138,6 +140,7 @@ def test_dynamic_site_values_are_translated() -> None:
         PENDING_DELIVERY_NOTICE,
         *INTERACTIVE_KEY_LABELS.values(),
         *_CATEGORY_LABELS.values(),
+        *_ACTION_TEXT.values(),
     ]
     missing = [v for v in values if v not in _ZH]
     assert not missing, (
