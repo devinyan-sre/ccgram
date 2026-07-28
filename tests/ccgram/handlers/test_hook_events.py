@@ -826,3 +826,58 @@ class TestHandleSessionEnd:
             event = _make_event(event_type="SessionEnd", data={"reason": "logout"})
             await dispatch_hook_event(event, bot)
             mock_enqueue.assert_not_called()
+
+
+class TestPreCompact:
+    """Compaction silently changes what the agent knows — announce it.
+
+    Before this handler the event was in the "not actionable" set, so a
+    session simply continued with less memory and the first sign was the
+    agent asking about something it had been told an hour earlier.
+    """
+
+    async def _dispatch(self, trigger: str, monkeypatch) -> MagicMock:
+        monkeypatch.setattr(
+            "ccgram.handlers.hook_events.thread_router.iter_thread_bindings",
+            lambda: [(111, 42, "@0")],
+        )
+        enqueue = AsyncMock()
+        monkeypatch.setattr(
+            "ccgram.handlers.hook_events.enqueue_status_update", enqueue
+        )
+        event = _make_event("PreCompact", data={"trigger": trigger})
+        await dispatch_hook_event(event, AsyncMock(spec=Bot))
+        return enqueue
+
+    async def test_auto_compaction_is_announced(self, monkeypatch) -> None:
+        enqueue = await self._dispatch("auto", monkeypatch)
+        enqueue.assert_awaited_once()
+        text = enqueue.await_args.args[3]
+        assert "🗜" in text
+        assert "full" in text.lower()
+
+    async def test_manual_compaction_is_announced_differently(
+        self, monkeypatch
+    ) -> None:
+        """A /compact the user typed should not read as 'context is full'."""
+        enqueue = await self._dispatch("manual", monkeypatch)
+        text = enqueue.await_args.args[3]
+        assert "full" not in text.lower()
+
+    async def test_notice_tells_the_user_what_to_do(self, monkeypatch) -> None:
+        enqueue = await self._dispatch("auto", monkeypatch)
+        assert "file" in enqueue.await_args.args[3].lower()
+
+    async def test_unbound_window_is_silent(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "ccgram.handlers.hook_events.thread_router.iter_thread_bindings",
+            lambda: [],
+        )
+        enqueue = AsyncMock()
+        monkeypatch.setattr(
+            "ccgram.handlers.hook_events.enqueue_status_update", enqueue
+        )
+        await dispatch_hook_event(
+            _make_event("PreCompact", data={"trigger": "auto"}), AsyncMock(spec=Bot)
+        )
+        enqueue.assert_not_awaited()

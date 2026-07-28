@@ -48,6 +48,7 @@ _HOOK_EVENT_TYPES: tuple[str, ...] = (
     "SubagentStop",
     "TeammateIdle",
     "TaskCompleted",
+    "PreCompact",
 )
 
 # Events that should not block the agent (async: true)
@@ -59,6 +60,9 @@ _ASYNC_EVENTS: frozenset[str] = frozenset(
         "SubagentStop",
         "TeammateIdle",
         "TaskCompleted",
+        # Async on purpose: a blocking PreCompact hook delays compaction, and
+        # ccgram only wants to announce it — never to hold it up.
+        "PreCompact",
     }
 )
 

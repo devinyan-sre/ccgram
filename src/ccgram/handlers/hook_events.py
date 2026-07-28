@@ -9,10 +9,12 @@ Key function: dispatch_hook_event().
 """
 
 import asyncio
+from collections.abc import Awaitable, Callable
 
 import structlog
 
 from ..claude_task_state import classify_wait_message, claude_task_state
+from ..i18n import t
 from ..providers.base import HookEvent
 from ..session_lifecycle import session_lifecycle
 from ..session_state_ports.live_session_state import has_task_snapshot
@@ -311,6 +313,43 @@ async def _handle_session_end(event: HookEvent, client: TelegramClient) -> None:
         )
 
 
+async def _handle_pre_compact(event: HookEvent, client: TelegramClient) -> None:
+    """Handle PreCompact — tell the topic its context is about to be squashed.
+
+    Compaction is the one event that silently changes what the agent knows.
+    It was previously invisible from Telegram: the session simply continued
+    with less memory, and the first sign was the agent asking about something
+    it had been told an hour earlier.
+
+    Announcing it is all ccgram does here. Per the hook contract PreCompact
+    can only *block* compaction — it cannot steer what survives — so the
+    useful move is to give the operator the moment they need to run
+    ``/compact <what to keep>`` themselves, or to write anything load-bearing
+    into a file first. The hook is installed async so this notice can never
+    delay the compaction it is announcing.
+    """
+    users = _resolve_users_for_window_key(event.window_key)
+    if not users:
+        return
+
+    trigger = event.data.get("trigger", "")
+    logger.info("Hook PreCompact: window_key=%s, trigger=%s", event.window_key, trigger)
+
+    text = (
+        t("🗜 Context is full — auto-compacting now.")
+        if trigger == "auto"
+        else t("🗜 Compacting context.")
+    )
+    text += "\n" + t(
+        "Details will be summarised away; put anything you need to keep in a file."
+    )
+
+    for user_id, thread_id, window_id in users:
+        await enqueue_status_update(
+            client, user_id, window_id, text, thread_id=thread_id
+        )
+
+
 async def _handle_task_completed(event: HookEvent, client: TelegramClient) -> None:
     """Handle TaskCompleted — notify topic that a task was completed."""
 
@@ -351,38 +390,45 @@ async def _handle_task_completed(event: HookEvent, client: TelegramClient) -> No
         )
 
 
+# Event → handler. A table rather than a match statement: every entry is one
+# line, so adding an event never grows a branch count, and the "known but not
+# actionable" set below stays visibly separate from "unknown event".
+_HANDLERS: dict[str, Callable[[HookEvent, TelegramClient], Awaitable[None]]] = {
+    "Notification": _handle_notification,
+    "Stop": _handle_stop,
+    "StopFailure": _handle_stop_failure,
+    "SessionEnd": _handle_session_end,
+    "SubagentStart": _handle_subagent_start,
+    "SubagentStop": _handle_subagent_stop,
+    "TeammateIdle": _handle_teammate_idle,
+    "TaskCompleted": _handle_task_completed,
+    "PreCompact": _handle_pre_compact,
+}
+
+# Events ccgram knows about but deliberately does nothing with. Listed so an
+# genuinely unknown event still reaches the debug log instead of being
+# silently swallowed alongside these. SessionStart is handled via
+# session_map.json rather than here.
+_IGNORED_EVENTS: frozenset[str] = frozenset(
+    {
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "PermissionRequest",
+        "ConfigChange",
+        "WorktreeCreate",
+        "WorktreeRemove",
+        "PostCompact",
+    }
+)
+
+
 async def dispatch_hook_event(event: HookEvent, client: TelegramClient) -> None:
     """Route hook events to appropriate handlers."""
-    match event.event_type:
-        case "Notification":
-            await _handle_notification(event, client)
-        case "Stop":
-            await _handle_stop(event, client)
-        case "StopFailure":
-            await _handle_stop_failure(event, client)
-        case "SessionEnd":
-            await _handle_session_end(event, client)
-        case "SubagentStart":
-            await _handle_subagent_start(event, client)
-        case "SubagentStop":
-            await _handle_subagent_stop(event, client)
-        case "TeammateIdle":
-            await _handle_teammate_idle(event, client)
-        case "TaskCompleted":
-            await _handle_task_completed(event, client)
-        case (
-            "SessionStart"
-            | "UserPromptSubmit"
-            | "PreToolUse"
-            | "PostToolUse"
-            | "PostToolUseFailure"
-            | "PermissionRequest"
-            | "ConfigChange"
-            | "WorktreeCreate"
-            | "WorktreeRemove"
-            | "PreCompact"
-            | "PostCompact"
-        ):
-            pass  # Not actionable for the bot — SessionStart handled via session_map.json
-        case _:
-            logger.debug("Ignoring unknown hook event type: %s", event.event_type)
+    handler = _HANDLERS.get(event.event_type)
+    if handler is not None:
+        await handler(event, client)
+    elif event.event_type not in _IGNORED_EVENTS:
+        logger.debug("Ignoring unknown hook event type: %s", event.event_type)

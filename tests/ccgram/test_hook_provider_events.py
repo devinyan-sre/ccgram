@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from ccgram.hook import _encode_pi_cwd_dirname, _install_hook, hook_main
+from ccgram.hooks.model import NormalizedHookEvent
 
 
 def _tmux_result() -> subprocess.CompletedProcess[str]:
@@ -425,3 +426,51 @@ def test_gemini_install_adds_provider_specific_hooks(
             if "--provider gemini" in hook["command"]
         ]
         assert len(matches) == 1
+
+
+def _normalize_precompact(payload: dict) -> "NormalizedHookEvent | None":
+    from ccgram.hooks.adapters import get_hook_adapter
+
+    adapter = get_hook_adapter("claude")
+    assert adapter is not None
+    return adapter.normalize(payload)
+
+
+_UUID = "3f1b2c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+
+
+def test_claude_adapter_normalizes_precompact_auto_trigger() -> None:
+    """Compaction nobody asked for is the case worth announcing."""
+    event = _normalize_precompact(
+        {
+            "hook_event_name": "PreCompact",
+            "session_id": _UUID,
+            "cwd": "/tmp/project",
+            "transcript_path": "/tmp/t.jsonl",
+            "trigger": "auto",
+        }
+    )
+    assert event is not None
+    assert event.canonical_event_name == "PreCompact"
+    assert event.data["trigger"] == "auto"
+
+
+def test_claude_adapter_preserves_manual_precompact_trigger() -> None:
+    event = _normalize_precompact(
+        {
+            "hook_event_name": "PreCompact",
+            "session_id": _UUID,
+            "trigger": "manual",
+        }
+    )
+    assert event is not None
+    assert event.data["trigger"] == "manual"
+
+
+def test_claude_adapter_precompact_without_trigger_degrades() -> None:
+    """A payload missing `trigger` must still normalize, not crash."""
+    event = _normalize_precompact(
+        {"hook_event_name": "PreCompact", "session_id": _UUID}
+    )
+    assert event is not None
+    assert event.data["trigger"] == ""

@@ -338,6 +338,12 @@ _ZH: dict[str, str] = {
     "\U0001f5d1 Killed '{name}'": "\U0001f5d1 已结束 '{name}'",
     "Create a new topic to start a session.": "创建新话题即可开始会话。",
     "Killed": "已结束",
+    # Context compaction
+    "🗜 Context is full — auto-compacting now.": "🗜 上下文已满,正在自动压缩。",
+    "🗜 Compacting context.": "🗜 正在压缩上下文。",
+    (
+        "Details will be summarised away; put anything you need to keep in a file."
+    ): "细节会被摘要掉;需要保留的内容请先写进文件。",
     # Daily digest ("idle {hours}h" is already defined above and reused here)
     "idle {days}d": "空闲 {days} 天",
     "{count} tool errors": "{count} 次工具报错",

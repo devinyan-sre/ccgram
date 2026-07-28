@@ -6,6 +6,8 @@ lifecycle events, and retain only metadata safe enough for ``events.jsonl``.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import os
 from pathlib import Path
 from typing import cast
@@ -105,6 +107,7 @@ class ClaudeHookAdapter:
         "SubagentStop",
         "TeammateIdle",
         "TaskCompleted",
+        "PreCompact",
     )
     # Claude installs all of its event types — the install path uses
     # ~/.claude/settings.json schema rather than the JSON-hook installer,
@@ -280,46 +283,52 @@ class GeminiHookAdapter:
         )
 
 
+# Per-event field extraction. A table of small functions rather than a chain
+# of `if event_name == ...: return {...}` — one entry per event keeps adding an
+# event a one-line change instead of another return statement.
+_CLAUDE_EXTRACTORS: dict[str, Callable[[dict[str, object]], dict[str, JsonValue]]] = {
+    "Notification": lambda p: {
+        "tool_name": _str_field(p, "tool_name"),
+        "message": _str_field(p, "message"),
+    },
+    "Stop": lambda p: {
+        "stop_reason": _str_field(p, "stop_reason"),
+        "num_turns": _int_field(p, "num_turns"),
+    },
+    "StopFailure": lambda p: {
+        "error": _str_field(p, "error"),
+        "error_details": _str_field(p, "error_details"),
+    },
+    "SessionEnd": lambda p: {"reason": _str_field(p, "reason")},
+    "SubagentStart": lambda p: {
+        "subagent_id": _str_field(p, "subagent_id"),
+        "description": _str_field(p, "description"),
+        "name": _str_field(p, "name"),
+    },
+    "TeammateIdle": lambda p: {
+        "teammate_name": _str_field(p, "teammate_name"),
+        "team_name": _str_field(p, "team_name"),
+    },
+    # "manual" (user ran /compact) vs "auto" (context filled up). The
+    # distinction is the whole point of announcing it: an auto compaction is
+    # the one nobody asked for and nobody would otherwise notice.
+    "PreCompact": lambda p: {"trigger": _str_field(p, "trigger")},
+    "TaskCompleted": lambda p: {
+        "task_id": _str_field(p, "task_id"),
+        "task_subject": _str_field(p, "task_subject"),
+        "task_description": _str_field(p, "task_description"),
+        "teammate_name": _str_field(p, "teammate_name"),
+        "team_name": _str_field(p, "team_name"),
+    },
+}
+_CLAUDE_EXTRACTORS["SubagentStop"] = _CLAUDE_EXTRACTORS["SubagentStart"]
+
+
 def _extract_claude_data(
     event_name: str, payload: dict[str, object]
 ) -> dict[str, JsonValue]:
-    if event_name == "Notification":
-        return {
-            "tool_name": _str_field(payload, "tool_name"),
-            "message": _str_field(payload, "message"),
-        }
-    if event_name == "Stop":
-        return {
-            "stop_reason": _str_field(payload, "stop_reason"),
-            "num_turns": _int_field(payload, "num_turns"),
-        }
-    if event_name == "StopFailure":
-        return {
-            "error": _str_field(payload, "error"),
-            "error_details": _str_field(payload, "error_details"),
-        }
-    if event_name == "SessionEnd":
-        return {"reason": _str_field(payload, "reason")}
-    if event_name in {"SubagentStart", "SubagentStop"}:
-        return {
-            "subagent_id": _str_field(payload, "subagent_id"),
-            "description": _str_field(payload, "description"),
-            "name": _str_field(payload, "name"),
-        }
-    if event_name == "TeammateIdle":
-        return {
-            "teammate_name": _str_field(payload, "teammate_name"),
-            "team_name": _str_field(payload, "team_name"),
-        }
-    if event_name == "TaskCompleted":
-        return {
-            "task_id": _str_field(payload, "task_id"),
-            "task_subject": _str_field(payload, "task_subject"),
-            "task_description": _str_field(payload, "task_description"),
-            "teammate_name": _str_field(payload, "teammate_name"),
-            "team_name": _str_field(payload, "team_name"),
-        }
-    return {}
+    extractor = _CLAUDE_EXTRACTORS.get(event_name)
+    return extractor(payload) if extractor is not None else {}
 
 
 _ADAPTERS: dict[ProviderName, HookAdapter] = {
