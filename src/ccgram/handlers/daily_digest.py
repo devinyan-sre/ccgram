@@ -21,7 +21,7 @@ import structlog
 from ..i18n import t
 from ..thread_router import thread_router
 from ..window_query import view_window
-from .digest_text import DigestStats, analyze
+from .digest_text import DigestStats, analyze, entry_ts
 
 if TYPE_CHECKING:
     from telegram.ext import Application, ContextTypes
@@ -33,17 +33,10 @@ logger = structlog.get_logger()
 # Read at most this much of a transcript's tail when counting recent turns.
 _TAIL_BYTES = 2 * 1024 * 1024
 _DAY_SECONDS = 24 * 3600
-
-
-def _entry_ts(entry: dict[str, object]) -> float | None:
-    """Epoch seconds for a transcript entry, or None when unusable."""
-    ts_raw = entry.get("timestamp")
-    if not isinstance(ts_raw, str):
-        return None
-    try:
-        return _dt.datetime.fromisoformat(ts_raw.replace("Z", "+00:00")).timestamp()
-    except ValueError:
-        return None
+# How many exchanges to name per topic, and how wide each may print. Three
+# lines keep the digest scannable; a fourth turns a report into a log.
+_TOP_ROUNDS = 3
+_PROMPT_WIDTH = 42
 
 
 def scan_transcript(
@@ -74,7 +67,7 @@ def scan_transcript(
                     continue
                 if not isinstance(entry, dict):
                     continue
-                ts = _entry_ts(entry)
+                ts = entry_ts(entry)
                 if ts is None:
                     continue
                 if last_ts is None or ts > last_ts:
@@ -103,6 +96,31 @@ def _idle_suffix(last_ts: float | None, now_ts: float) -> str:
     return " 💤 " + t("idle {days}d").format(days=int(hours // 24))
 
 
+def _one_line(text: str, width: int = _PROMPT_WIDTH) -> str:
+    """Collapse a prompt to a single readable line for the report."""
+    flat = " ".join(text.split())
+    return flat if len(flat) <= width else flat[: width - 1] + "…"
+
+
+def _format_rounds(stats: DigestStats) -> list[str]:
+    """What was actually discussed, deepest exchange first.
+
+    Ranked by *active* time rather than wall clock: a question asked before
+    lunch and answered after it is not a long conversation, and ranking it as
+    one buries the exchange that really took the day.
+    """
+    busiest = stats.busiest_rounds(_TOP_ROUNDS)
+    if not busiest:
+        return []
+    lines = ["    📝 " + t("most discussed:")]
+    for r in busiest:
+        detail = t("{minutes}m / {turns} turns").format(
+            minutes=max(1, round(r.active_seconds / 60)), turns=r.turns
+        )
+        lines.append(f"       · {_one_line(r.prompt)} — {detail}")
+    return lines
+
+
 def _format_stats(stats: DigestStats) -> list[str]:
     """The indented detail lines under one topic's headline."""
     lines: list[str] = []
@@ -115,6 +133,7 @@ def _format_stats(stats: DigestStats) -> list[str]:
     lines.append(f"    {counts}")
     if stats.keywords:
         lines.append("    🔑 " + " · ".join(stats.keywords))
+    lines.extend(_format_rounds(stats))
     if stats.errors:
         lines.append("    ⚠ " + t("{count} tool errors").format(count=stats.errors))
     return lines

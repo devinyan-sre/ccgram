@@ -341,6 +341,8 @@ _ZH: dict[str, str] = {
     # Daily digest ("idle {hours}h" is already defined above and reused here)
     "idle {days}d": "空闲 {days} 天",
     "{count} tool errors": "{count} 次工具报错",
+    "most discussed:": "聊得最多的：",
+    "{minutes}m / {turns} turns": "{minutes} 分钟 / {turns} 轮",
     # Mass-death circuit breaker
     "🧯 *CCGram circuit breaker*": "🧯 *CCGram 熔断器*",
     "{count} windows died within {seconds}s — this looks like an": (

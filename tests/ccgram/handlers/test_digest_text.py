@@ -6,9 +6,12 @@ as a prompt, so 462 tool results and 25 real questions were reported as
 "491 prompts". A digest that misreports activity by 20x is worse than none.
 """
 
+import datetime as dt
+
 from ccgram.handlers.digest_text import (
     DigestStats,
     analyze,
+    entry_ts,
     extract_keywords,
     extract_user_prompt,
     is_text_reply,
@@ -174,3 +177,93 @@ class TestAnalyze:
 
     def test_malformed_entries_do_not_raise(self) -> None:
         analyze([{}, {"type": "user"}, {"type": "user", "message": None}])
+
+
+def _at(entry: dict, seconds: int) -> dict:
+    """Stamp an entry at a fixed offset from a known epoch."""
+    base = dt.datetime(2026, 7, 28, 0, 0, 0, tzinfo=dt.UTC)
+    return {**entry, "timestamp": (base + dt.timedelta(seconds=seconds)).isoformat()}
+
+
+class TestRounds:
+    def test_a_round_spans_prompt_to_next_prompt(self) -> None:
+        entries = [
+            _at(_user("第一个问题"), 0),
+            _at(_assistant([{"type": "text", "text": "答"}]), 60),
+            _at(_user("第二个问题"), 120),
+            _at(_assistant([{"type": "text", "text": "答"}]), 150),
+        ]
+        rounds = analyze(entries).rounds
+        assert [r.prompt for r in rounds] == ["第一个问题", "第二个问题"]
+
+    def test_active_time_measures_work_not_absence(self) -> None:
+        """A prompt answered in a minute is not a two-hour conversation."""
+        entries = [
+            _at(_user("问题"), 0),
+            _at(_assistant([{"type": "text", "text": "答"}]), 60),
+            _at(_user("下一个"), 7200),  # user came back two hours later
+        ]
+        assert analyze(entries).rounds[0].active_seconds == 60
+
+    def test_idle_gap_inside_a_round_is_clamped(self) -> None:
+        """Wall clock would call this an hour of work; it was five minutes."""
+        entries = [
+            _at(_user("问题"), 0),
+            _at(_assistant([{"type": "text", "text": "答"}]), 3600),
+        ]
+        assert analyze(entries).rounds[0].active_seconds == 300
+
+    def test_turns_count_assistant_activity(self) -> None:
+        entries = [
+            _at(_user("问题"), 0),
+            _at(_assistant([{"type": "tool_use", "name": "Bash", "input": {}}]), 10),
+            _at(_assistant([{"type": "text", "text": "好了"}]), 20),
+        ]
+        assert analyze(entries).rounds[0].turns == 2
+
+    def test_tool_results_do_not_split_a_round(self) -> None:
+        """Tool traffic is part of the exchange, not a new question."""
+        entries = [
+            _at(_user("问题"), 0),
+            _at(_assistant([{"type": "tool_use", "name": "Bash", "input": {}}]), 10),
+            _at(_user([{"type": "tool_result", "content": "ok"}]), 20),
+            _at(_assistant([{"type": "text", "text": "好了"}]), 30),
+        ]
+        assert len(analyze(entries).rounds) == 1
+
+    def test_busiest_ranks_by_active_time(self) -> None:
+        entries = [
+            _at(_user("短的"), 0),
+            _at(_assistant([{"type": "text", "text": "a"}]), 30),
+            _at(_user("长的"), 60),
+            _at(_assistant([{"type": "text", "text": "b"}]), 300),
+        ]
+        busiest = analyze(entries).busiest_rounds(1)
+        assert busiest[0].prompt == "长的"
+
+    def test_busiest_limit_is_respected(self) -> None:
+        entries = []
+        for i in range(5):
+            entries.append(_at(_user(f"问题{i}"), i * 100))
+            entries.append(
+                _at(_assistant([{"type": "text", "text": "答"}]), i * 100 + 10)
+            )
+        assert len(analyze(entries).busiest_rounds(3)) == 3
+
+    def test_entries_without_timestamps_do_not_raise(self) -> None:
+        stats = analyze([_user("问题"), _assistant([{"type": "text", "text": "答"}])])
+        assert stats.rounds[0].active_seconds == 0
+        assert stats.rounds[0].turns == 1
+
+    def test_no_prompt_means_no_rounds(self) -> None:
+        assert analyze([_assistant([{"type": "text", "text": "答"}])]).rounds == ()
+
+
+class TestEntryTs:
+    def test_parses_z_suffix(self) -> None:
+        assert entry_ts({"timestamp": "2026-07-28T00:00:00Z"}) is not None
+
+    def test_missing_or_malformed(self) -> None:
+        assert entry_ts({}) is None
+        assert entry_ts({"timestamp": "not a date"}) is None
+        assert entry_ts({"timestamp": 12345}) is None

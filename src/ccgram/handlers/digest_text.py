@@ -19,6 +19,7 @@ Two jobs:
 
 from __future__ import annotations
 
+import datetime as _dt
 import re
 from collections import Counter
 from collections.abc import Iterable
@@ -264,6 +265,22 @@ _MAX_NGRAM = 4
 _MIN_NGRAM = 2
 
 
+# A gap longer than this between consecutive entries means the human walked
+# away, not that the work took that long. Wall-clock duration without this
+# clamp ranks "asked at 15:19, came back at 01:27" as the day's deepest
+# conversation; the actual deepest one lasted twelve minutes and 66 turns.
+_IDLE_GAP_CAP = 300.0
+
+
+@dataclass(frozen=True)
+class Round:
+    """One exchange: a human prompt and the work that followed it."""
+
+    prompt: str
+    active_seconds: float
+    turns: int
+
+
 @dataclass(frozen=True)
 class DigestStats:
     """What one topic did over the digest window."""
@@ -273,11 +290,28 @@ class DigestStats:
     errors: int = 0
     tools: tuple[tuple[str, int], ...] = ()
     keywords: tuple[str, ...] = field(default=())
+    rounds: tuple[Round, ...] = ()
 
     @property
     def is_empty(self) -> bool:
         """True when nothing worth reporting happened."""
         return not (self.prompts or self.replies)
+
+    def busiest_rounds(self, limit: int = 3) -> tuple[Round, ...]:
+        """The exchanges that took the most actual work, longest first."""
+        ranked = sorted(self.rounds, key=lambda r: (-r.active_seconds, -r.turns))
+        return tuple(ranked[:limit])
+
+
+def entry_ts(entry: dict[str, Any]) -> float | None:
+    """Epoch seconds for a transcript entry, or None when unusable."""
+    raw = entry.get("timestamp")
+    if not isinstance(raw, str):
+        return None
+    try:
+        return _dt.datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
 
 
 def _is_error_flag(value: Any) -> bool:
@@ -295,6 +329,49 @@ def _blocks(entry: dict[str, Any]) -> list[dict[str, Any]]:
     return [b for b in content if isinstance(b, dict)]
 
 
+class _RoundTracker:
+    """Segments a transcript stream into prompt-led exchanges.
+
+    A small state machine rather than inline bookkeeping: the round boundary
+    rule (a *real* prompt opens one, tool traffic never does) and the idle
+    clamp are the subtle parts of this module, and they read better with a
+    name attached.
+    """
+
+    def __init__(self) -> None:
+        self._rounds: list[Round] = []
+        self._prompt: str | None = None
+        self._active = 0.0
+        self._turns = 0
+        self._prev_ts: float | None = None
+
+    def start(self, prompt: str, ts: float | None) -> None:
+        """Close any open round and begin a new one at *prompt*."""
+        self._close()
+        self._prompt, self._prev_ts = prompt, ts
+
+    def observe(self, entry: dict[str, Any], ts: float | None) -> None:
+        """Fold one non-prompt entry into the open round, if any."""
+        if self._prompt is None:
+            return
+        if ts is not None:
+            if self._prev_ts is not None:
+                self._active += min(ts - self._prev_ts, _IDLE_GAP_CAP)
+            self._prev_ts = ts
+        if entry.get("type") == "assistant":
+            self._turns += 1
+
+    def _close(self) -> None:
+        if self._prompt is not None:
+            self._rounds.append(Round(self._prompt, self._active, self._turns))
+        self._prompt, self._active, self._turns = None, 0.0, 0
+
+    def finish(self) -> tuple[Round, ...]:
+        """Close the trailing round and return everything collected."""
+        self._close()
+        return tuple(self._rounds)
+
+
 def analyze(
     entries: Iterable[dict[str, Any]], *, keyword_limit: int = 5
 ) -> DigestStats:
@@ -306,13 +383,18 @@ def analyze(
     prompts: list[str] = []
     replies = errors = 0
     tools: Counter[str] = Counter()
+    tracker = _RoundTracker()
 
     for entry in entries:
+        ts = entry_ts(entry)
         prompt = extract_user_prompt(entry)
         if prompt is not None:
             prompts.append(prompt)
-        elif is_text_reply(entry):
-            replies += 1
+            tracker.start(prompt, ts)
+        else:
+            if is_text_reply(entry):
+                replies += 1
+            tracker.observe(entry, ts)
         for block in _blocks(entry):
             kind = block.get("type")
             if kind == "tool_use":
@@ -328,6 +410,7 @@ def analyze(
         errors=errors,
         tools=tuple(tools.most_common()),
         keywords=tuple(extract_keywords(prompts, keyword_limit)),
+        rounds=tracker.finish(),
     )
 
 
