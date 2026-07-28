@@ -338,6 +338,9 @@ _ZH: dict[str, str] = {
     "\U0001f5d1 Killed '{name}'": "\U0001f5d1 已结束 '{name}'",
     "Create a new topic to start a session.": "创建新话题即可开始会话。",
     "Killed": "已结束",
+    # Daily digest ("idle {hours}h" is already defined above and reused here)
+    "idle {days}d": "空闲 {days} 天",
+    "{count} tool errors": "{count} 次工具报错",
     # Mass-death circuit breaker
     "🧯 *CCGram circuit breaker*": "🧯 *CCGram 熔断器*",
     "{count} windows died within {seconds}s — this looks like an": (
