@@ -170,7 +170,14 @@ async def build_digest_for_user(_user_id: int, window_ids: list[str]) -> str:
 
 
 async def send_daily_digest(client: TelegramClient) -> None:
-    """Send the digest to every user with bound topics (General topic)."""
+    """Send the digest to every user with bound topics, and log the outcome.
+
+    Every path logs. A digest is a once-a-day job whose only evidence used to
+    be the message itself: if the job never fired, or fired and could not
+    deliver, the log stayed silent and the operator simply read the quiet as
+    "nothing happened yesterday". Success, nothing-to-send and partial failure
+    are now three distinguishable lines.
+    """
     # Lazy: messaging_pipeline ↔ handler cycle through status_bubble
     from .messaging_pipeline.message_sender import safe_send
 
@@ -178,13 +185,32 @@ async def send_daily_digest(client: TelegramClient) -> None:
     for user_id, _thread_id, window_id in thread_router.iter_thread_bindings():
         per_user.setdefault(user_id, []).append(window_id)
 
+    if not per_user:
+        logger.info("daily_digest_skipped", reason="no bound topics")
+        return
+
+    sent = failed = topics = 0
     for user_id, window_ids in per_user.items():
         try:
             chat_id = thread_router.resolve_chat_id(user_id)
         except KeyError, RuntimeError:
+            logger.warning("daily_digest_unroutable", user_id=user_id)
+            failed += 1
             continue
         text = await build_digest_for_user(user_id, window_ids)
-        await safe_send(client, chat_id, text)
+        # safe_send swallows Telegram errors and returns None — without
+        # counting that, an undeliverable digest is indistinguishable from
+        # a delivered one.
+        if await safe_send(client, chat_id, text) is None:
+            failed += 1
+            continue
+        sent += 1
+        topics += len(window_ids)
+
+    if failed:
+        logger.warning("daily_digest_partial", users=sent, topics=topics, failed=failed)
+    else:
+        logger.info("daily_digest_sent", users=sent, topics=topics)
 
 
 def setup_daily_digest_job(application: Application) -> None:

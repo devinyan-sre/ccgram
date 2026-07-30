@@ -2,12 +2,13 @@
 
 import datetime as dt
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from ccgram.handlers.daily_digest import (
     _idle_suffix,
     build_digest_for_user,
     scan_transcript,
+    send_daily_digest,
     setup_daily_digest_job,
 )
 from ccgram.handlers.digest_text import DigestStats
@@ -155,3 +156,67 @@ class TestSetup:
             mock_config.daily_digest_time = "25:99"
             setup_daily_digest_job(app)
         app.job_queue.run_daily.assert_not_called()
+
+
+class TestSendDigestLogging:
+    """A once-a-day job must never succeed or fail silently."""
+
+    def _bindings(self, monkeypatch, bindings, chat_id=-100) -> None:
+        monkeypatch.setattr(
+            "ccgram.handlers.daily_digest.thread_router.iter_thread_bindings",
+            lambda: bindings,
+        )
+        monkeypatch.setattr(
+            "ccgram.handlers.daily_digest.thread_router.resolve_chat_id",
+            lambda _uid, _tid=None: chat_id,
+        )
+        monkeypatch.setattr(
+            "ccgram.handlers.daily_digest.thread_router.get_display_name",
+            lambda _wid: "proj",
+        )
+        monkeypatch.setattr(
+            "ccgram.handlers.daily_digest.view_window", lambda _wid: None
+        )
+
+    async def test_logs_success_with_counts(self, monkeypatch) -> None:
+        self._bindings(monkeypatch, [(1, 10, "@1"), (1, 11, "@2")])
+        with (
+            patch(
+                "ccgram.handlers.messaging_pipeline.message_sender.safe_send",
+                new_callable=AsyncMock,
+                return_value=MagicMock(),
+            ),
+            patch("ccgram.handlers.daily_digest.logger") as mock_logger,
+        ):
+            await send_daily_digest(MagicMock())
+
+        mock_logger.info.assert_called_once()
+        assert mock_logger.info.call_args.args[0] == "daily_digest_sent"
+        assert mock_logger.info.call_args.kwargs == {"users": 1, "topics": 2}
+
+    async def test_no_bound_topics_is_logged_not_silent(self, monkeypatch) -> None:
+        """'Nothing to send' must be distinguishable from 'job never fired'."""
+        self._bindings(monkeypatch, [])
+        with patch("ccgram.handlers.daily_digest.logger") as mock_logger:
+            await send_daily_digest(MagicMock())
+
+        mock_logger.info.assert_called_once()
+        assert mock_logger.info.call_args.args[0] == "daily_digest_skipped"
+
+    async def test_undeliverable_digest_warns(self, monkeypatch) -> None:
+        """safe_send returns None on Telegram failure — that must be counted."""
+        self._bindings(monkeypatch, [(1, 10, "@1")])
+        with (
+            patch(
+                "ccgram.handlers.messaging_pipeline.message_sender.safe_send",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch("ccgram.handlers.daily_digest.logger") as mock_logger,
+        ):
+            await send_daily_digest(MagicMock())
+
+        mock_logger.warning.assert_called_once()
+        assert mock_logger.warning.call_args.args[0] == "daily_digest_partial"
+        assert mock_logger.warning.call_args.kwargs["failed"] == 1
+        mock_logger.info.assert_not_called()
