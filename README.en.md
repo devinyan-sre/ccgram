@@ -75,6 +75,7 @@ Each Telegram topic maps to one multiplexer window. Type in Telegram → keystro
 - **Migrate providers in place** — Transactionally replace Claude/Codex/Gemini/Pi with optional context transfer
 - **Diagnose delivery** — `/diag` checks process/session/transcript/cursors; `/replay` safely resends replies
 - **Park topics** — `/park` stops compute but retains history; `/wake` restarts in the same topic
+- **Clear naming** — New topics use `directory-provider-number`, such as `ccgram-codex-2`
 - **Send workspace files** — Share files to Telegram via `/send` (glob, path, or substring search)
 - **Action toolbar** — Provider-specific buttons for common actions (Screenshot, Mode, Esc, Enter, etc.)
 

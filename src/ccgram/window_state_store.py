@@ -134,6 +134,8 @@ class WindowState:
         parked: Whether the user intentionally stopped this window with
             ``/park``. Persisted so restarts do not turn an intentional stop
             into a crash notification.
+        auto_named: Whether ccgram owns the window/topic display name. Manual
+            Telegram topic edits clear this flag.
     """
 
     session_id: str = ""
@@ -162,6 +164,7 @@ class WindowState:
     # deliberately detached is not an orphan, so it is exempt until re-bound.
     user_detached: bool = False
     parked: bool = False
+    auto_named: bool = False
 
     def to_dict(self) -> dict[str, Any]:  # noqa: C901
         d: dict[str, Any] = {
@@ -196,6 +199,8 @@ class WindowState:
             d["user_detached"] = True
         if self.parked:
             d["parked"] = True
+        if self.auto_named:
+            d["auto_named"] = True
         return d
 
     @classmethod
@@ -233,6 +238,7 @@ class WindowState:
             provider_manual_override=data.get("provider_manual_override", False),
             user_detached=data.get("user_detached", False),
             parked=data.get("parked", False),
+            auto_named=data.get("auto_named", False),
         )
 
 
@@ -373,6 +379,14 @@ class WindowStateStore:
         if state is None or state.parked == value:
             return
         state.parked = value
+        self._schedule_save()
+
+    def set_auto_named(self, window_id: str, *, value: bool) -> None:
+        """Persist whether ccgram owns this window's display name."""
+        state = self.window_states.get(window_id)
+        if state is None or state.auto_named == value:
+            return
+        state.auto_named = value
         self._schedule_save()
 
     def clear_transcript_path(self, window_id: str) -> None:

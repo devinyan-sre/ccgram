@@ -5,7 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import structlog
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import TelegramError
 
 from .. import session_query, topic_routing, window_query
 from ..config import config
@@ -17,9 +19,11 @@ from ..providers import (
     detect_provider_from_transcript_path,
 )
 from ..provider_handoff import HandoffResult, handoff_provider
+from ..session import session_manager
 from ..session_map import read_session_map_raw, session_map_prefix
 from ..session_monitor import get_active_monitor
 from ..telegram_client import PTBTelegramClient
+from ..topic_naming import reserve_topic_name
 from ..window_state_ports import identity_state, lifecycle_state
 from .callback_data import CB_HANDOFF, CB_PARK, CB_WAKE
 from .callback_helpers import get_thread_id, user_owns_window
@@ -27,6 +31,7 @@ from .callback_registry import register
 from .last_reply import deliver_text
 from .messaging_pipeline.message_sender import safe_edit, safe_reply
 from .polling.polling_state import lifecycle_strategy
+from .status.topic_emoji import format_topic_name_for_mode
 
 if TYPE_CHECKING:
     from telegram import CallbackQuery
@@ -34,6 +39,7 @@ if TYPE_CHECKING:
 
 _PROVIDERS = ("claude", "codex", "gemini", "pi", "shell")
 _MAX_REPLAY = 10
+logger = structlog.get_logger()
 
 
 def build_handoff_keyboard(window_id: str) -> InlineKeyboardMarkup:
@@ -120,7 +126,33 @@ def _result_text(result: HandoffResult) -> str:
     )
 
 
-async def handoff_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _sync_topic_name(
+    client: PTBTelegramClient,
+    user_id: int,
+    thread_id: int,
+    result: HandoffResult,
+) -> None:
+    """Apply a committed lifecycle name to the existing Telegram topic."""
+    if not result.success or not result.window_name:
+        return
+    try:
+        await client.edit_forum_topic(
+            chat_id=topic_routing.resolve_chat(user_id, thread_id),
+            message_thread_id=thread_id,
+            name=format_topic_name_for_mode(
+                result.window_name,
+                identity_state.get_approval_mode(result.new_window_id),
+            ),
+        )
+    except TelegramError as exc:
+        logger.warning(
+            "Lifecycle operation succeeded but topic rename failed: thread=%s error=%s",
+            thread_id,
+            str(exc),
+        )
+
+
+async def handoff_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """``/handoff <provider> [context]`` — replace provider atomically."""
     resolved = _resolve_bound(update)
     if resolved is None or not update.message:
@@ -155,7 +187,52 @@ async def handoff_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -
         provider_name=provider_name,
         include_context=include_context,
     )
+    await _sync_topic_name(PTBTelegramClient(context.bot), user_id, thread_id, result)
     await safe_reply(update.message, _result_text(result))
+
+
+async def autoname_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """``/autoname`` — opt an existing topic into provider-aware naming."""
+    resolved = _resolve_bound(update)
+    if resolved is None or not update.message:
+        if update.message:
+            await safe_reply(
+                update.message, t("❌ Use /autoname inside a bound topic.")
+            )
+        return
+    user_id, thread_id, window_id = resolved
+    view = window_query.view_window(window_id)
+    if view is None or not view.cwd:
+        await safe_reply(update.message, t("❌ No state exists for this window."))
+        return
+    provider_name = view.provider_name or "shell"
+    async with reserve_topic_name(
+        view.cwd,
+        provider_name,
+        replacing_window_id=window_id,
+        force_automatic=True,
+    ) as reserved_name:
+        window = await tmux_manager.find_window_by_id(window_id)
+        renamed = window is None or await tmux_manager.rename_window(
+            window_id, reserved_name.name
+        )
+    if not renamed:
+        await safe_reply(update.message, t("❌ Could not apply the automatic name."))
+        return
+    session_manager.set_display_name(window_id, reserved_name.name)
+    session_manager.set_window_auto_named(window_id, value=True)
+    result = HandoffResult(
+        True,
+        window_id,
+        new_window_id=window_id,
+        provider_name=provider_name,
+        window_name=reserved_name.name,
+    )
+    await _sync_topic_name(PTBTelegramClient(context.bot), user_id, thread_id, result)
+    await safe_reply(
+        update.message,
+        t("✅ Automatic topic name applied: {name}").format(name=reserved_name.name),
+    )
 
 
 async def _park(user_id: int, thread_id: int, window_id: str) -> tuple[bool, str]:
@@ -359,6 +436,7 @@ async def _callback_handoff(
     window_id: str,
     provider_name: str,
     include_context: bool,
+    client: PTBTelegramClient,
 ) -> None:
     await query.answer()
     await safe_edit(
@@ -372,12 +450,13 @@ async def _callback_handoff(
         provider_name=provider_name,
         include_context=include_context,
     )
+    await _sync_topic_name(client, user_id, thread_id, result)
     await safe_edit(query, _result_text(result), reply_markup=None)
 
 
 @register(CB_HANDOFF, CB_PARK, CB_WAKE)
 async def _dispatch(  # noqa: PLR0911
-    update: Update, _context: ContextTypes.DEFAULT_TYPE
+    update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     query = update.callback_query
     user = update.effective_user
@@ -405,6 +484,7 @@ async def _dispatch(  # noqa: PLR0911
             window_id,
             provider_name,
             context_flag == "1",
+            PTBTelegramClient(context.bot),
         )
         return
     if data.startswith(CB_PARK):
@@ -426,4 +506,12 @@ async def _dispatch(  # noqa: PLR0911
         await query.answer("Not your session", show_alert=True)
         return
     lifecycle_strategy.clear_dead_notification(user.id, thread_id)
-    await _callback_handoff(query, user.id, thread_id, window_id, provider_name, False)
+    await _callback_handoff(
+        query,
+        user.id,
+        thread_id,
+        window_id,
+        provider_name,
+        False,
+        PTBTelegramClient(context.bot),
+    )

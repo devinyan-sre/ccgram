@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Authentication-expiry action buttons, duplicate-notice suppression, Codex /
   Gemini / Pi transcript filesystem wakeups, and new binding, delivery-lag,
   handoff, and live-view metrics.
+- Provider-aware `directory-provider-number` names across Claude, Codex,
+  Gemini, Pi, and shell on tmux/herdr, including collision-safe concurrent
+  allocation, handoff/wake synchronization, manual-name protection, and
+  `/autoname` migration for legacy topics.
 
 ### Changed
 

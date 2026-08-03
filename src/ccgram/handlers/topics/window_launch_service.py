@@ -24,6 +24,7 @@ from ...providers import registry as provider_registry
 from ...session import session_manager
 from ...session_map import session_map_sync
 from ...thread_router import thread_router
+from ...topic_naming import reserve_topic_name
 from ...multiplexer import multiplexer as tmux_manager
 from ...multiplexer.window_ops import send_to_window
 from ...user_preferences import user_preferences
@@ -134,6 +135,8 @@ async def _create_topic_window(
     launch_command: str | None,
     chosen_workspace_id: str | None,
     context: ContextTypes.DEFAULT_TYPE,
+    *,
+    window_name: str,
 ) -> tuple[bool, str, str, str]:
     """Create the topic's window, returning ``(success, message, name, id)``.
 
@@ -151,11 +154,12 @@ async def _create_topic_window(
             wt_repo,
             wt_path,
             wt_branch,
-            window_name=Path(wt_path).name,
+            window_name=window_name,
             launch_command=launch_command,
         )
     return await tmux_manager.create_window(
         selected_path,
+        window_name=window_name,
         launch_command=launch_command,
         workspace_id=chosen_workspace_id,
     )
@@ -239,26 +243,31 @@ async def launch_window(  # noqa: PLR0915, C901
         context.user_data.get(PENDING_WORKSPACE_ID) if context.user_data else None
     ) or None
 
-    success, message, created_wname, created_wid = await _create_topic_window(
-        selected_path, launch_command, chosen_workspace_id, context
-    )
+    async with reserve_topic_name(selected_path, provider_name) as reserved_name:
+        success, message, created_wname, created_wid = await _create_topic_window(
+            selected_path,
+            launch_command,
+            chosen_workspace_id,
+            context,
+            window_name=reserved_name.name,
+        )
+        if success:
+            # No await may occur between create and this race guard.
+            topic_orchestration.register_pending_creation(created_wid)
+            user_preferences.update_user_mru(user_id, selected_path)
+            session_manager.set_window_origin(created_wid, CCGRAM_CREATED_WINDOW_ORIGIN)
+            session_manager.set_window_cwd(created_wid, selected_path)
+            session_manager.set_window_provider(created_wid, provider_name)
+            session_manager.set_window_approval_mode(created_wid, approval_mode)
+            session_manager.set_window_auto_named(
+                created_wid, value=reserved_name.automatic
+            )
+            session_manager.set_display_name(created_wid, created_wname)
+            _persist_worktree_state(created_wid, selected_path, context)
     if not success:
         await _abort_topic_creation(query, message, context)
         return WindowLaunchResult(success=False, error_message=message)
 
-    # Race-guard: tag this window as "directory flow in progress" BEFORE any
-    # subsequent await. The provider's SessionStart hook fires inside the new
-    # tmux pane within seconds; the SessionMonitor's 1s poll cycle would
-    # otherwise see an unbound window and auto-create a duplicate Telegram
-    # topic before bind_thread() runs below. See MC-2967 for full repro.
-    topic_orchestration.register_pending_creation(created_wid)
-
-    user_preferences.update_user_mru(user_id, selected_path)
-    session_manager.set_window_origin(created_wid, CCGRAM_CREATED_WINDOW_ORIGIN)
-    session_manager.set_window_cwd(created_wid, selected_path)
-    session_manager.set_window_provider(created_wid, provider_name)
-    session_manager.set_window_approval_mode(created_wid, approval_mode)
-    _persist_worktree_state(created_wid, selected_path, context)
     logger.info(
         "Window created: %s (id=%s) at %s provider=%s mode=%s (user=%d, thread=%s)",
         created_wname,

@@ -38,6 +38,7 @@ from ...session import session_manager
 from ...session_map import session_map_sync
 from ...telegram_client import PTBTelegramClient
 from ...thread_router import thread_router
+from ...topic_naming import reserve_topic_name
 from ...multiplexer import multiplexer as tmux_manager
 from ...window_state_store import CCGRAM_CREATED_WINDOW_ORIGIN
 from ...utils import read_session_metadata_from_jsonl
@@ -411,15 +412,31 @@ async def _create_resume_window(
     launch_command = resolve_launch_command(
         provider.capabilities.name, approval_mode=approval_mode
     )
-    success, message, created_wname, created_wid = await tmux_manager.create_window(
-        cwd, agent_args=launch_args, launch_command=launch_command
-    )
-    if success:
-        if provider.capabilities.supports_hook:
-            await session_map_sync.wait_for_session_map_entry(created_wid)
-        session_manager.set_window_origin(created_wid, CCGRAM_CREATED_WINDOW_ORIGIN)
-        session_manager.set_window_provider(created_wid, provider.capabilities.name)
-        session_manager.set_window_approval_mode(created_wid, approval_mode)
+    provider_name = provider.capabilities.name
+    if not isinstance(provider_name, str):
+        provider_name = "claude"
+    async with reserve_topic_name(
+        cwd,
+        provider_name,
+        replacing_window_id=old_window_id or "",
+    ) as reserved_name:
+        success, message, created_wname, created_wid = await tmux_manager.create_window(
+            cwd,
+            window_name=reserved_name.name,
+            agent_args=launch_args,
+            launch_command=launch_command,
+        )
+        if success:
+            session_manager.set_window_origin(created_wid, CCGRAM_CREATED_WINDOW_ORIGIN)
+            session_manager.set_window_cwd(created_wid, cwd)
+            session_manager.set_window_provider(created_wid, provider_name)
+            session_manager.set_window_approval_mode(created_wid, approval_mode)
+            session_manager.set_window_auto_named(
+                created_wid, value=reserved_name.automatic
+            )
+            session_manager.set_display_name(created_wid, created_wname)
+    if success and provider.capabilities.supports_hook:
+        await session_map_sync.wait_for_session_map_entry(created_wid)
 
     return success, message, created_wname, created_wid
 

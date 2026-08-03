@@ -56,6 +56,7 @@ EXCLUDED_FILES: frozenset[Path] = frozenset(
         SRC_ROOT / "window_state_ports" / "worktree_state.py",
         SRC_ROOT / "window_state_ports" / "tool_state.py",
         SRC_ROOT / "window_state_ports" / "lifecycle_state.py",
+        SRC_ROOT / "window_state_ports" / "naming_state.py",
     }
 )
 

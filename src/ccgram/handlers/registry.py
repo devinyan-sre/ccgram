@@ -26,6 +26,7 @@ from .callback_registry import dispatch as _dispatch_callback
 from .callback_registry import load_handlers as _load_callback_handlers
 from .agent_command import agent_command
 from .lifecycle_commands import (
+    autoname_command,
     diag_command,
     handoff_command,
     park_command,
@@ -106,6 +107,7 @@ def register_all(
         CommandSpec("agent", agent_command),
         CommandSpec("provider", agent_command),  # alias
         CommandSpec("handoff", handoff_command),
+        CommandSpec("autoname", autoname_command),
         CommandSpec("park", park_command),
         CommandSpec("wake", wake_command),
         CommandSpec("diag", diag_command),
@@ -189,6 +191,7 @@ COMMAND_NAMES: tuple[str, ...] = (
     "agent",
     "provider",
     "handoff",
+    "autoname",
     "park",
     "wake",
     "diag",

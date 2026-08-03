@@ -1,11 +1,18 @@
 """Transactional provider handoff tests."""
 
 from pathlib import Path
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
 from ccgram.provider_handoff import handoff_provider
+from ccgram.topic_naming import ReservedTopicName
+
+
+@asynccontextmanager
+async def _reserved_name(*_args, **_kwargs):
+    yield ReservedTopicName("project-2", automatic=True)
 
 
 @pytest.fixture
@@ -27,6 +34,7 @@ async def test_handoff_binds_only_after_replacement_is_ready(old_view) -> None:
             "ccgram.provider_handoff.window_query.view_window", return_value=old_view
         ),
         patch("ccgram.provider_handoff.get_provider_for_window", return_value=target),
+        patch("ccgram.provider_handoff.reserve_topic_name", _reserved_name),
         patch(
             "ccgram.provider_handoff.resolve_launch_command",
             return_value="codex --yolo",
@@ -45,9 +53,10 @@ async def test_handoff_binds_only_after_replacement_is_ready(old_view) -> None:
         ) as send,
     ):
         mux.create_window = AsyncMock(
-            return_value=(True, "created", "project-2", "@new")
+            return_value=(True, "created", "project-2-2", "@new")
         )
         mux.stamp_pane_title = AsyncMock()
+        mux.rename_window = AsyncMock(return_value=True)
         mux.find_window_by_id = AsyncMock(return_value=MagicMock())
         mux.kill_window = AsyncMock(return_value=True)
 
@@ -65,8 +74,10 @@ async def test_handoff_binds_only_after_replacement_is_ready(old_view) -> None:
     orchestration.register_pending_creation.assert_called_once_with("@new")
     orchestration.clear_pending_creation.assert_called_once_with("@new")
     sessions.set_window_provider.assert_called_once_with("@new", "codex")
+    sessions.set_window_auto_named.assert_called_once_with("@new", value=True)
     router.bind_thread.assert_called_once_with(7, 11, "@new", window_name="project-2")
     send.assert_awaited_once_with("@new", "continue here")
+    mux.rename_window.assert_awaited_once_with("@new", "project-2")
     mux.kill_window.assert_awaited_once_with("@old")
 
 
@@ -80,6 +91,7 @@ async def test_handoff_startup_failure_rolls_back_and_keeps_binding(old_view) ->
             "ccgram.provider_handoff.window_query.view_window", return_value=old_view
         ),
         patch("ccgram.provider_handoff.get_provider_for_window", return_value=target),
+        patch("ccgram.provider_handoff.reserve_topic_name", _reserved_name),
         patch("ccgram.provider_handoff.resolve_launch_command", return_value="codex"),
         patch("ccgram.provider_handoff.tmux_manager") as mux,
         patch("ccgram.provider_handoff.topic_orchestration") as orchestration,
@@ -133,6 +145,7 @@ async def test_handoff_context_failure_never_commits_binding(old_view) -> None:
             "ccgram.provider_handoff.window_query.view_window", return_value=old_view
         ),
         patch("ccgram.provider_handoff.get_provider_for_window", return_value=target),
+        patch("ccgram.provider_handoff.reserve_topic_name", _reserved_name),
         patch("ccgram.provider_handoff.resolve_launch_command", return_value="codex"),
         patch("ccgram.provider_handoff.tmux_manager") as mux,
         patch("ccgram.provider_handoff.topic_orchestration"),
@@ -177,6 +190,7 @@ async def test_handoff_old_cleanup_failure_restores_original_binding(old_view) -
             "ccgram.provider_handoff.window_query.view_window", return_value=old_view
         ),
         patch("ccgram.provider_handoff.get_provider_for_window", return_value=target),
+        patch("ccgram.provider_handoff.reserve_topic_name", _reserved_name),
         patch("ccgram.provider_handoff.resolve_launch_command", return_value="codex"),
         patch("ccgram.provider_handoff.tmux_manager") as mux,
         patch("ccgram.provider_handoff.topic_orchestration"),

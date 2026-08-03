@@ -261,7 +261,12 @@ async def test_herdr_delegates_worktree_creation(
     ):
         mock_tmux.capabilities.native_worktrees = True
         mock_tmux.create_worktree_window = AsyncMock(
-            return_value=(True, "Created herdr worktree", "ccg-feature", "w5:t1")
+            return_value=(
+                True,
+                "Created herdr worktree",
+                "ccg-feature-claude-1",
+                "w5:t1",
+            )
         )
         mock_tmux.stamp_pane_title = AsyncMock()
         mock_registry.is_valid.return_value = True
@@ -285,7 +290,7 @@ async def test_herdr_delegates_worktree_creation(
     call = mock_tmux.create_worktree_window.await_args
     assert call is not None
     assert call.args == (str(git_repo), worktree_path, "ccg/feature")
-    assert call.kwargs["window_name"] == "ccg-feature"
+    assert call.kwargs["window_name"] == "ccg-feature-claude-1"
     assert call.kwargs["launch_command"] == "claude"
     mock_tmux.create_window.assert_not_called()
 

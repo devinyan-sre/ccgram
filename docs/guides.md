@@ -592,6 +592,20 @@ claude     # or: codex, gemini, pi
 
 `/park` 不删除 Telegram 话题或历史记录，只停止对应窗口并持久化恢复所需状态。即使 ccgram 重启，也不会把主动休眠误报为崩溃。`/sessions` 中已停止的话题会显示 **Wake** 按钮。
 
+### 自动话题名称
+
+ccgram 创建的新话题和窗口统一使用 `目录名-Provider-序号`：
+
+```text
+ccgram-codex-1
+ccgram-claude-1
+ccgram-codex-2
+```
+
+序号按目录标签和 Provider 分配，运行中、恢复中及 `/park` 的话题都会占用自己的编号；并发创建也会先预留名称。支持 `claude`、`codex`、`gemini`、`pi` 和 `shell`，tmux 与 herdr 使用同一生成规则（herdr 仍可能按其原有显示规则添加 workspace 前缀）。`/handoff` 切换 Provider 后会同步更新窗口名和 Telegram 话题名，使用相同 Provider 的 `/wake` 则保留原编号。
+
+旧话题和用户手动修改过的名称不会被强制覆盖。在旧话题中运行 `/autoname` 可显式迁移到新规则；此后再次手动修改 Telegram 话题名称会自动退出托管命名。
+
 ## 话题诊断与回复重放
 
 `/diag` 显示当前话题的窗口存活状态、声明/实际 Provider、前台 PID、session ID、transcript 路径，以及 transcript 文件大小与已提交投递游标。出现 Provider 或 transcript 错配时，周期性一致性守护会自动重新发现并修正绑定。

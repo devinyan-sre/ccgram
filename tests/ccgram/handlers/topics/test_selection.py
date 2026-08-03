@@ -304,6 +304,7 @@ class TestHandleModeSelect:
         mock_resolve_launch.assert_called_once_with("codex", approval_mode="yolo")
         mock_tmux.create_window.assert_called_once_with(
             "/tmp/proj",
+            window_name="proj-codex-1",
             launch_command="codex --dangerously-bypass-approvals-and-sandbox",
             workspace_id=None,
         )

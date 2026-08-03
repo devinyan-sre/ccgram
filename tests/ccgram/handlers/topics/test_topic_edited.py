@@ -53,6 +53,7 @@ class TestTopicEditedHandler:
 
         mock_tm.rename_window.assert_called_once_with("@0", "new-name")
         mock_sm.set_display_name.assert_called_once_with("@0", "new-name")
+        mock_sm.set_window_auto_named.assert_called_once_with("@0", value=False)
 
     @_PATCH_ALLOWED
     @patch("ccgram.handlers.topics.topic_lifecycle.tmux_manager")
@@ -146,6 +147,7 @@ class TestTopicEditedHandler:
 
         mock_tm.rename_window.assert_called_once_with(herdr_id, "new-agent")
         mock_sm.set_display_name.assert_called_once_with(herdr_id, "new-agent")
+        mock_sm.set_window_auto_named.assert_called_once_with(herdr_id, value=False)
 
     @_PATCH_ALLOWED
     @patch("ccgram.handlers.topics.topic_lifecycle.tmux_manager")

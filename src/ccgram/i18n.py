@@ -575,6 +575,9 @@ _ZH: dict[str, str] = {
         "✅ 此话题已切换到 {provider}（{window}）。{context}"
     ),
     "❌ Use /handoff inside a bound topic.": "❌ 请在已绑定的话题内使用 /handoff。",
+    "❌ Use /autoname inside a bound topic.": "❌ 请在已绑定的话题内使用 /autoname。",
+    "❌ Could not apply the automatic name.": "❌ 无法应用自动话题名称。",
+    "✅ Automatic topic name applied: {name}": "✅ 已应用自动话题名称：{name}",
     (
         "Choose the replacement provider. The old session is kept until "
         "the new one is ready."
@@ -613,6 +616,10 @@ _ZH: dict[str, str] = {
     (
         "The old session could not be stopped, so the switch was rolled back."
     ): "旧会话无法停止，切换已回滚。",
+    (
+        "The replacement started, but its topic name could not be finalized. "
+        "The old session was kept."
+    ): "新会话已启动，但话题名称无法完成设置；旧会话已保留。",
     (
         "The provider may be expired or logged out. Switch provider or park this topic."
     ): "Provider 可能已过期或退出登录，请切换 Provider 或休眠此话题。",

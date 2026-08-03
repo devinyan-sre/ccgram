@@ -104,6 +104,11 @@ class TestDisplayNames:
         mgr.set_display_name("@1", "new-name")
         assert thread_router.get_display_name("@1") == "new-name"
 
+    def test_set_window_auto_named(self, mgr: SessionManager) -> None:
+        window_store.get_window_state("@1")
+        mgr.set_window_auto_named("@1", value=True)
+        assert window_store.window_states["@1"].auto_named is True
+
     def test_bind_thread_sets_display_name(self, mgr: SessionManager) -> None:
         thread_router.bind_thread(100, 1, "@1", window_name="proj")
         assert thread_router.get_display_name("@1") == "proj"

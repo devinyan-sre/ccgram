@@ -128,3 +128,12 @@ class TestParked:
 
     def test_absent_from_dict_when_false(self) -> None:
         assert "parked" not in WindowState().to_dict()
+
+
+class TestAutomaticNamePersistence:
+    def test_survives_a_serialization_round_trip(self) -> None:
+        restored = WindowState.from_dict(WindowState(auto_named=True).to_dict())
+        assert restored.auto_named is True
+
+    def test_absent_from_dict_when_false(self) -> None:
+        assert "auto_named" not in WindowState().to_dict()

@@ -43,6 +43,7 @@ from .user_preferences import (
 from .window_view import WindowView
 from .window_state_ports import identity_state as _identity_state
 from .window_state_ports import lifecycle_state as _lifecycle_state
+from .window_state_ports import naming_state as _naming_state
 from .window_state_ports import tool_state as _tool_state
 from .window_state_ports import worktree_state as _worktree_state
 from .window_state_store import (
@@ -267,6 +268,10 @@ class SessionManager:
         ws = self.window_states.get(window_id)
         if ws:
             ws.window_name = window_name
+
+    def set_window_auto_named(self, window_id: str, *, value: bool) -> None:
+        """Mark whether ccgram may update the provider-aware display name."""
+        _naming_state.set_auto_named(window_id, value=value)
 
     def sync_display_names(self, live_windows: list[tuple[str, str]]) -> bool:
         """Sync display names from live tmux windows. Returns True if changed."""

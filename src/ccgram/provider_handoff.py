@@ -25,6 +25,7 @@ from .providers import (
 from .session import session_manager
 from .session_map import read_session_map_raw, session_map_prefix
 from .thread_router import thread_router
+from .topic_naming import reserve_topic_name
 from .window_state_store import CCGRAM_CREATED_WINDOW_ORIGIN
 from . import window_query
 
@@ -48,6 +49,7 @@ class HandoffResult:
     provider_name: str = ""
     message: str = ""
     context_sent: bool = False
+    window_name: str = ""
 
 
 async def _provider_ready(window_id: str, provider_name: str) -> bool:
@@ -81,7 +83,7 @@ async def _wait_until_ready(window_id: str, provider_name: str) -> bool:
     return False
 
 
-async def handoff_provider(  # noqa: C901,PLR0915 - local transaction branches
+async def handoff_provider(  # noqa: C901,PLR0911,PLR0912,PLR0915 - transaction
     *,
     user_id: int,
     thread_id: int,
@@ -124,10 +126,28 @@ async def handoff_provider(  # noqa: C901,PLR0915 - local transaction branches
     launch_command = resolve_launch_command(
         target_provider, approval_mode=approval_mode
     )
-    success, message, window_name, new_window_id = await tmux_manager.create_window(
+    async with reserve_topic_name(
         old_view.cwd,
-        launch_command=launch_command,
-    )
+        target_provider,
+        replacing_window_id=old_window_id,
+    ) as reserved_name:
+        success, message, window_name, new_window_id = await tmux_manager.create_window(
+            old_view.cwd,
+            window_name=reserved_name.name,
+            launch_command=launch_command,
+        )
+        if success:
+            topic_orchestration.register_pending_creation(new_window_id)
+            session_manager.set_window_origin(
+                new_window_id, CCGRAM_CREATED_WINDOW_ORIGIN
+            )
+            session_manager.set_window_cwd(new_window_id, old_view.cwd)
+            session_manager.set_window_provider(new_window_id, target_provider)
+            session_manager.set_window_approval_mode(new_window_id, approval_mode)
+            session_manager.set_window_auto_named(
+                new_window_id, value=reserved_name.automatic
+            )
+            session_manager.set_display_name(new_window_id, window_name)
     if not success:
         _record_handoff(source_provider, target_provider, "create_failed")
         return HandoffResult(
@@ -137,13 +157,8 @@ async def handoff_provider(  # noqa: C901,PLR0915 - local transaction branches
             message=message,
         )
 
-    topic_orchestration.register_pending_creation(new_window_id)
     binding_committed = False
     try:
-        session_manager.set_window_origin(new_window_id, CCGRAM_CREATED_WINDOW_ORIGIN)
-        session_manager.set_window_cwd(new_window_id, old_view.cwd)
-        session_manager.set_window_provider(new_window_id, target_provider)
-        session_manager.set_window_approval_mode(new_window_id, approval_mode)
         await tmux_manager.stamp_pane_title(new_window_id, target_provider)
 
         if approval_mode == "yolo" and target.capabilities.has_yolo_confirmation:
@@ -166,6 +181,25 @@ async def handoff_provider(  # noqa: C901,PLR0915 - local transaction branches
                     "The old session was kept."
                 ).format(provider=target_provider, seconds=int(_START_TIMEOUT)),
             )
+
+        # Backends may suffix the requested name while the old window still
+        # exists. Both tmux and herdr support duplicate labels during this
+        # short transactional overlap, so finalize before the commit point.
+        if window_name != reserved_name.name:
+            if not await tmux_manager.rename_window(new_window_id, reserved_name.name):
+                await tmux_manager.kill_window(new_window_id)
+                _record_handoff(source_provider, target_provider, "rename_failed")
+                return HandoffResult(
+                    False,
+                    old_window_id,
+                    provider_name=target_provider,
+                    message=t(
+                        "The replacement started, but its topic name could not "
+                        "be finalized. The old session was kept."
+                    ),
+                )
+            window_name = reserved_name.name
+            session_manager.set_display_name(new_window_id, window_name)
 
         if target.capabilities.chat_first_command_path:
             # Lazy: only shell-like providers need prompt markers.
@@ -226,6 +260,7 @@ async def handoff_provider(  # noqa: C901,PLR0915 - local transaction branches
             provider_name=target_provider,
             message=t("Switched to {provider}.").format(provider=target_provider),
             context_sent=context_sent,
+            window_name=window_name,
         )
     except asyncio.CancelledError:
         if binding_committed:

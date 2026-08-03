@@ -530,6 +530,20 @@ Handoff is transactional: the old window remains bound until the replacement pro
 
 `/park` never deletes the Telegram topic or its history, and persists the intentional stop so a ccgram restart does not report it as a crash. The sessions dashboard shows a **Wake** action for stopped topics.
 
+### Automatic topic names
+
+New ccgram topics and windows use `directory-provider-number` consistently:
+
+```text
+ccgram-codex-1
+ccgram-claude-1
+ccgram-codex-2
+```
+
+Numbers are allocated per directory label and provider, while live, recovering, and `/park` topics retain their slots; concurrent creates reserve names before launching. The same generator covers `claude`, `codex`, `gemini`, `pi`, and `shell` on both tmux and herdr (herdr may still prepend its existing adaptive workspace label). `/handoff` updates the window and Telegram topic after a provider switch, while `/wake` with the same provider retains the existing number.
+
+Legacy and manually edited names are not overwritten. Run `/autoname` inside an older topic to opt into the new scheme. Editing that Telegram topic name manually afterward opts it back out of managed naming.
+
 ## Topic diagnostics and reply replay
 
 `/diag` reports window liveness, declared/detected provider, foreground PID, session ID, transcript path, file size, and the delivery-committed cursor. The periodic consistency guard repairs provider/session mismatches automatically.

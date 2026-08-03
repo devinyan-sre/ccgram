@@ -75,6 +75,7 @@ graph LR
 - **跨 Provider 迁移** — 在原话题内事务式切换 Claude/Codex/Gemini/Pi，支持上下文交接
 - **可靠性诊断** — `/diag` 检查进程、会话、transcript 与投递游标；`/replay` 安全重放
 - **话题休眠** — `/park` 停止后台进程但保留历史，`/wake` 在原话题恢复
+- **清晰命名** — 新话题统一使用 `目录-Provider-序号`，如 `ccgram-codex-2`
 - **发送工作区文件** — 通过 `/send` 把文件分享到 Telegram(支持 glob、路径或子串搜索)
 - **操作工具栏** — 各 provider 专属的常用操作按钮(截图、模式、Esc、Enter 等)
 
