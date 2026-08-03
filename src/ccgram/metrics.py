@@ -334,6 +334,25 @@ MONITOR_BYTES = registry.counter(
     "ccgram_monitor_bytes_read",
     "Transcript bytes read incrementally by the session monitor",
 )
+DELIVERY_LAG_BYTES = registry.gauge(
+    "ccgram_delivery_lag_bytes",
+    "Transcript bytes read but not yet committed as delivered",
+)
+BINDING_REPAIRS = registry.counter(
+    "ccgram_binding_repairs",
+    "Session binding repairs by reason",
+    ("reason",),
+)
+PROVIDER_HANDOFFS = registry.counter(
+    "ccgram_provider_handoffs",
+    "Provider handoff attempts by source, target and outcome",
+    ("source", "target", "outcome"),
+)
+LIVE_VIEW_TICKS = registry.counter(
+    "ccgram_live_view_ticks",
+    "Live-view refresh attempts by outcome",
+    ("outcome",),
+)
 
 # LLM / transcription helpers.
 LLM_DURATION = registry.histogram(

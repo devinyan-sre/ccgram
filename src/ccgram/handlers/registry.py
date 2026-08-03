@@ -25,6 +25,13 @@ from telegram.ext._utils.types import HandlerCallback
 from .callback_registry import dispatch as _dispatch_callback
 from .callback_registry import load_handlers as _load_callback_handlers
 from .agent_command import agent_command
+from .lifecycle_commands import (
+    diag_command,
+    handoff_command,
+    park_command,
+    replay_command,
+    wake_command,
+)
 from .cleanup import unbind_command
 from .command_history import recall_command
 from .commands import (
@@ -98,6 +105,11 @@ def register_all(
         CommandSpec("search", search_command),
         CommandSpec("agent", agent_command),
         CommandSpec("provider", agent_command),  # alias
+        CommandSpec("handoff", handoff_command),
+        CommandSpec("park", park_command),
+        CommandSpec("wake", wake_command),
+        CommandSpec("diag", diag_command),
+        CommandSpec("replay", replay_command),
     ]
 
     for spec in command_specs:
@@ -176,5 +188,10 @@ COMMAND_NAMES: tuple[str, ...] = (
     "search",
     "agent",
     "provider",
+    "handoff",
+    "park",
+    "wake",
+    "diag",
+    "replay",
 )
 """Sentinel for tests: the exact command names register_all installs, in order."""

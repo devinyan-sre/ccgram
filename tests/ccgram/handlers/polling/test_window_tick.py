@@ -443,6 +443,24 @@ class TestCheckInteractiveOnly:
 
 
 class TestDeadWindowNotification:
+    async def test_parked_window_is_silently_marked(self):
+        bot = AsyncMock(spec=Bot)
+        lifecycle_strategy.clear_dead_notification(1, 100)
+        with (
+            patch(
+                "ccgram.handlers.polling.window_tick.apply.is_parked",
+                return_value=True,
+            ),
+            patch(
+                "ccgram.handlers.polling.window_tick.apply.rate_limit_send_message",
+                new_callable=AsyncMock,
+            ) as mock_send,
+        ):
+            await _handle_dead_window_notification(bot, 1, 100, "@0")
+
+        assert lifecycle_strategy.is_dead_notified(1, 100, "@0")
+        mock_send.assert_not_awaited()
+
     async def test_sends_once(self):
         bot = AsyncMock(spec=Bot)
         with (

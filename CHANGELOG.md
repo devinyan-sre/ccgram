@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Transactional `/handoff <provider> [context]` replacement that preserves the
+  old topic/window until the new process and transcript are verified.
+- Persistent `/park`, plus `/wake`, `/diag`, and `/replay` topic lifecycle and
+  delivery tools; intentional parking remains distinguishable from a crash
+  across service restarts.
+- Authentication-expiry action buttons, duplicate-notice suppression, Codex /
+  Gemini / Pi transcript filesystem wakeups, and new binding, delivery-lag,
+  handoff, and live-view metrics.
+
+### Changed
+
+- Live View now records its per-view network circuit breaker explicitly; a
+  failed media refresh disables only that view so ordinary messages retain
+  priority.
+
 ## [4.7.1] - 2026-07-24
 
 ### Fixed
@@ -1512,5 +1531,3 @@ or backward-compatible; no existing behavior changes without a new env switch.
 - Address code review findings
 - Address code review findings
 - Address code review findings
-
-

@@ -6,7 +6,9 @@ from ccgram.window_state_ports.lifecycle_state import (
     LifecycleProjection,
     get_lifecycle,
     get_origin,
+    is_parked,
     is_user_detached,
+    set_parked,
     set_user_detached,
     set_window_origin,
 )
@@ -103,3 +105,26 @@ class TestUserDetached:
 
     def test_absent_from_dict_when_false(self) -> None:
         assert "user_detached" not in WindowState().to_dict()
+
+
+class TestParked:
+    def test_defaults_to_false(self, store: WindowStateStore) -> None:
+        store.window_states["@1"] = WindowState()
+        assert is_parked("@1") is False
+
+    def test_set_persists_and_projects(
+        self, store: WindowStateStore, save_calls: list[int]
+    ) -> None:
+        store.window_states["@1"] = WindowState()
+        set_parked("@1", value=True)
+        assert is_parked("@1") is True
+        projection = get_lifecycle("@1")
+        assert projection is not None and projection.parked is True
+        assert len(save_calls) == 1
+
+    def test_survives_a_serialization_round_trip(self) -> None:
+        restored = WindowState.from_dict(WindowState(parked=True).to_dict())
+        assert restored.parked is True
+
+    def test_absent_from_dict_when_false(self) -> None:
+        assert "parked" not in WindowState().to_dict()

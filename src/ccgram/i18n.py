@@ -567,6 +567,55 @@ _ZH: dict[str, str] = {
     ),
     "Cancelled. Agent still **{provider}**.": "已取消。Agent 仍为 **{provider}**。",
     "Bad callback": "无效回调",
+    # Provider lifecycle
+    "Codex + context": "Codex + 上下文",
+    "Park topic": "休眠话题",
+    " Context was transferred.": " 已交接上下文。",
+    "✅ Switched this topic to {provider} ({window}).{context}": (
+        "✅ 此话题已切换到 {provider}（{window}）。{context}"
+    ),
+    "❌ Use /handoff inside a bound topic.": "❌ 请在已绑定的话题内使用 /handoff。",
+    (
+        "Choose the replacement provider. The old session is kept until "
+        "the new one is ready."
+    ): "选择替换 Provider。新会话就绪前会保留旧会话。",
+    "❌ Unknown provider.": "❌ 未知 Provider。",
+    "⏳ Starting {provider} and verifying it…": "⏳ 正在启动并验证 {provider}…",
+    "Topic is already parked. Use /wake to restart it.": (
+        "话题已经休眠，请使用 /wake 重新启动。"
+    ),
+    "Could not stop the session.": "无法停止会话。",
+    "Topic parked. History and project binding were preserved.": (
+        "话题已休眠，历史消息和项目绑定均已保留。"
+    ),
+    "❌ Use /park inside a bound topic.": "❌ 请在已绑定的话题内使用 /park。",
+    "❌ Use /wake inside a bound topic.": "❌ 请在已绑定的话题内使用 /wake。",
+    "⏳ Waking with {provider}…": "⏳ 正在使用 {provider} 恢复…",
+    "❌ No state exists for this window.": "❌ 此窗口没有可用状态。",
+    "❌ Use /diag inside a bound topic.": "❌ 请在已绑定的话题内使用 /diag。",
+    "❌ Use /replay inside a bound topic.": "❌ 请在已绑定的话题内使用 /replay。",
+    "No assistant replies are available to replay.": "没有可重放的助手回复。",
+    "🔁 Replay": "🔁 重放",
+    "The original project directory is unavailable.": "原项目目录不可用。",
+    "Unknown provider: {provider}": "未知 Provider：{provider}",
+    (
+        "{provider} did not become ready within {seconds} seconds. "
+        "The old session was kept."
+    ): "{provider} 未能在 {seconds} 秒内就绪，旧会话已保留。",
+    "Switched to {provider}.": "已切换到 {provider}。",
+    "Provider handoff failed. The old session was kept.": (
+        "Provider 迁移失败，旧会话已保留。"
+    ),
+    (
+        "The replacement started, but context could not be sent. "
+        "The old session was kept."
+    ): "新会话已启动，但上下文发送失败；旧会话已保留。",
+    (
+        "The old session could not be stopped, so the switch was rolled back."
+    ): "旧会话无法停止，切换已回滚。",
+    (
+        "The provider may be expired or logged out. Switch provider or park this topic."
+    ): "Provider 可能已过期或退出登录，请切换 Provider 或休眠此话题。",
     # /last
     "No command output found.": "没有找到命令输出。",
     "No reply yet.": "还没有回复。",

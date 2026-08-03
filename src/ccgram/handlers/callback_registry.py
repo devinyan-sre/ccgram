@@ -125,6 +125,7 @@ def load_handlers() -> None:
         agent_command,
         command_history,
         hook_events,
+        lifecycle_commands,
         sessions_dashboard,
         sync_command,
     )

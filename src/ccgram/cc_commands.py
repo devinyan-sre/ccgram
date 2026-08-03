@@ -89,6 +89,11 @@ _BOT_COMMANDS: list[tuple[str, str]] = [
     ("toolbar", "Show action toolbar"),
     ("verbose", "Toggle tool call batching"),
     ("upgrade", "Upgrade ccgram and restart"),
+    ("handoff", "Replace provider while keeping this topic"),
+    ("park", "Stop session but keep topic history"),
+    ("wake", "Restart a parked topic"),
+    ("diag", "Diagnose topic and delivery state"),
+    ("replay", "Replay recent assistant replies"),
 ]
 
 # Telegram limits: max 100 commands, descriptions max 256 chars

@@ -35,7 +35,7 @@ from .event_reader import (
 from .fs_watcher import TranscriptWatcher
 from .health import SESSION_MONITOR, record_progress
 from .idle_tracker import IdleTracker
-from .metrics import SESSIONS_TRACKED
+from .metrics import DELIVERY_LAG_BYTES, SESSIONS_TRACKED
 from .monitor_state import MonitorState
 from .providers import get_provider_for_window, registry  # noqa: F401 (used by test patches)
 from .session_map import parse_session_map, read_session_map_raw, session_map_prefix
@@ -70,6 +70,7 @@ _WAKE_DEBOUNCE = 0.05
 _MSG_PREVIEW_LENGTH = 80
 # Cap for the per-session error circuit breaker (see _process_session_guarded).
 _SESSION_ERROR_BACKOFF_MAX = 300.0
+_DELIVERY_LAG_WARN_SECS = 30.0
 
 logger = structlog.get_logger()
 
@@ -118,6 +119,8 @@ class SessionMonitor:
         self._transcript_reader = TranscriptReader(self.state, self._idle_tracker)
         # session_id → (consecutive_failures, monotonic_ts_of_next_attempt)
         self._session_error_breaker: dict[str, tuple[int, float]] = {}
+        self._delivery_lag_since: dict[str, float] = {}
+        self._delivery_lag_alerted: set[str] = set()
 
         # Filesystem-event wakeups (optional; polling is the fallback cadence).
         self._wake_event = asyncio.Event()
@@ -147,6 +150,33 @@ class SessionMonitor:
     def get_last_activity(self, session_id: str) -> float | None:
         """Get monotonic timestamp of last transcript activity for a session."""
         return self._idle_tracker.get_last_activity(session_id)
+
+    def _observe_delivery_lag(self) -> None:
+        """Track persistent read-vs-delivered cursor gaps per session."""
+        now = time.monotonic()
+        active: set[str] = set()
+        total = 0
+        for session_id, tracked in self.state.tracked_sessions.items():
+            lag = max(0, tracked.last_byte_offset - tracked.delivered_byte_offset)
+            total += lag
+            if not lag:
+                continue
+            active.add(session_id)
+            started = self._delivery_lag_since.setdefault(session_id, now)
+            if (
+                now - started >= _DELIVERY_LAG_WARN_SECS
+                and session_id not in self._delivery_lag_alerted
+            ):
+                logger.warning(
+                    "Delivery cursor stalled for session %s: %d bytes pending",
+                    session_id,
+                    lag,
+                )
+                self._delivery_lag_alerted.add(session_id)
+        for session_id in set(self._delivery_lag_since) - active:
+            self._delivery_lag_since.pop(session_id, None)
+            self._delivery_lag_alerted.discard(session_id)
+        DELIVERY_LAG_BYTES.set(total)
 
     def set_message_callback(
         self, callback: Callable[[NewMessage], Awaitable[None]]
@@ -536,6 +566,7 @@ class SessionMonitor:
                     self._delivery_drained_callback
                 )
                 new_messages = await self.check_for_updates(current_map)
+                self._observe_delivery_lag()
                 SESSIONS_TRACKED.set(len(self.state.tracked_sessions))
                 # Forward-progress stamp for the health gate: reaching here
                 # means a full poll cycle completed, not merely that the task
@@ -585,7 +616,13 @@ class SessionMonitor:
         if not config.fs_events_enabled or self._fs_watcher is not None:
             return
         watcher = TranscriptWatcher(
-            [self.projects_path, config.events_file.parent],
+            [
+                self.projects_path,
+                Path.home() / ".codex" / "sessions",
+                Path.home() / ".gemini" / "tmp",
+                Path.home() / ".pi" / "agent" / "sessions",
+                config.events_file.parent,
+            ],
             self._wake_event,
             asyncio.get_running_loop(),
         )

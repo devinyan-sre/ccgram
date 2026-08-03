@@ -41,6 +41,8 @@ from .callback_data import (
     CB_SESSIONS_REFRESH,
     CB_STATUS_ESC,
     CB_STATUS_SCREENSHOT,
+    CB_PARK,
+    CB_WAKE,
 )
 from .callback_helpers import user_owns_window
 from .callback_registry import register
@@ -102,8 +104,23 @@ async def _build_dashboard(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
                     t("\U0001f5d1 Kill {name}").format(name=display_name),
                     callback_data=f"{CB_SESSIONS_KILL}{window_id}"[:64],
                 ),
+                InlineKeyboardButton(
+                    "⏸ Park",
+                    callback_data=f"{CB_PARK}{window_id}"[:64],
+                ),
             ]
             action_rows.append(row)
+        elif view:
+            action_rows.append(
+                [
+                    InlineKeyboardButton(
+                        f"▶ Wake {display_name}",
+                        callback_data=(
+                            f"{CB_WAKE}{window_id}:{view.provider_name or 'codex'}"
+                        )[:64],
+                    )
+                ]
+            )
 
     text = t("Sessions") + "\n\n" + "\n".join(lines)
     rows = [*action_rows, [_REFRESH_BTN, _NEW_BTN]]

@@ -1,4 +1,4 @@
-"""Lifecycle-state feature port — window origin + user-detached flag.
+"""Lifecycle-state feature port — origin, detach, and parked flags.
 
 Reads the project origin flag. Writes delegate to ``WindowStateStore``
 setters which already validate input and schedule a single save per real
@@ -23,6 +23,7 @@ class LifecycleProjection:
     window_id: str
     origin: str
     user_detached: bool = False
+    parked: bool = False
 
 
 def get_lifecycle(window_id: str) -> LifecycleProjection | None:
@@ -32,7 +33,10 @@ def get_lifecycle(window_id: str) -> LifecycleProjection | None:
         return None
     origin = state.origin if state.origin in WINDOW_ORIGINS else DEFAULT_WINDOW_ORIGIN
     return LifecycleProjection(
-        window_id=window_id, origin=origin, user_detached=state.user_detached
+        window_id=window_id,
+        origin=origin,
+        user_detached=state.user_detached,
+        parked=state.parked,
     )
 
 
@@ -65,11 +69,24 @@ def set_user_detached(window_id: str, *, value: bool) -> None:
     window_store.set_user_detached(window_id, value=value)
 
 
+def is_parked(window_id: str) -> bool:
+    """True when the user intentionally stopped this window with ``/park``."""
+    state = window_store.window_states.get(window_id)
+    return bool(state and state.parked)
+
+
+def set_parked(window_id: str, *, value: bool) -> None:
+    """Mark or clear an intentional parked state."""
+    window_store.set_parked(window_id, value=value)
+
+
 __all__ = [
     "LifecycleProjection",
     "get_lifecycle",
     "get_origin",
+    "is_parked",
     "is_user_detached",
+    "set_parked",
     "set_user_detached",
     "set_window_origin",
 ]

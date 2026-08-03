@@ -514,6 +514,28 @@ On switch, the bot clears `WindowState.transcript_path`, drops the previous `ses
 
 Manual overrides set `WindowState.provider_manual_override=True`. The periodic auto-detection in `_detect_and_apply_provider` skips overridden windows until `/agent auto` clears the flag.
 
+## Provider handoff and topic parking
+
+`/agent` only corrects provider metadata. Use `/handoff` to replace the running CLI:
+
+```text
+/handoff codex             # switch only after Codex is running and tracked
+/handoff codex context     # also transfer a compact recent-conversation handoff
+/park                      # stop the window but keep topic, project and history
+/wake                      # restart with the previous provider
+/wake codex                # restart with a selected provider
+```
+
+Handoff is transactional: the old window remains bound until the replacement process and session transcript are ready. A create, login, or binding failure removes the replacement and preserves the old session. Authentication-failure notices offer **Codex**, **Codex + context**, and **Park topic** actions, with duplicate authentication notices suppressed for ten minutes.
+
+`/park` never deletes the Telegram topic or its history, and persists the intentional stop so a ccgram restart does not report it as a crash. The sessions dashboard shows a **Wake** action for stopped topics.
+
+## Topic diagnostics and reply replay
+
+`/diag` reports window liveness, declared/detected provider, foreground PID, session ID, transcript path, file size, and the delivery-committed cursor. The periodic consistency guard repairs provider/session mismatches automatically.
+
+`/replay [count]` safely resends the latest 1–10 assistant text replies without moving the monitor cursor. It defaults to three replies and sends oversized output as a `.txt` document.
+
 ## Live View
 
 Monitor agent terminal output in real-time via auto-refreshing screenshots in Telegram.
@@ -839,6 +861,10 @@ Exported metrics (names are a public contract — renaming breaks dashboards and
 | `ccgram_poll_cycle_seconds`      | histogram | Status-poll loop cycle duration                  |
 | `ccgram_sessions_tracked`        | gauge     | Sessions currently tracked by the SessionMonitor |
 | `ccgram_monitor_bytes_read`      | counter   | Transcript bytes read incrementally              |
+| `ccgram_delivery_lag_bytes`      | gauge     | Transcript bytes read but not yet delivery-committed |
+| `ccgram_binding_repairs`         | counter   | Automatic session/provider binding repairs       |
+| `ccgram_provider_handoffs`       | counter   | Provider handoff outcomes                         |
+| `ccgram_live_view_ticks`         | counter   | Live-view update, flood and circuit-breaker outcomes |
 | `ccgram_llm_requests`            | counter   | LLM/transcription requests by `kind` + `provider` + `outcome` |
 | `ccgram_llm_request_seconds`     | histogram | LLM/transcription request duration               |
 | `ccgram_topic_create`            | counter   | Topic creation outcome: `ok`/`flood`/`permission`/`bad_request`/`error` — pinpoints the failure cause |

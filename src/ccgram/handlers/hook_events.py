@@ -9,6 +9,7 @@ Key function: dispatch_hook_event().
 """
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 
 import structlog
@@ -27,6 +28,7 @@ from .interactive import (
     handle_interactive_ui,
     set_interactive_mode,
 )
+from .lifecycle_commands import build_auth_failure_keyboard
 from .messaging_pipeline.message_queue import enqueue_status_update
 from .polling.polling_state import reset_window_polling_state
 from .status.topic_emoji import update_topic_emoji
@@ -35,6 +37,23 @@ from .status.topic_emoji import update_topic_emoji
 logger = structlog.get_logger()
 
 _WINDOW_KEY_PARTS = 2
+_AUTH_FAILURE_COOLDOWN_SECS = 600.0
+_auth_failure_last_sent: dict[str, float] = {}
+_AUTH_FAILURE_MARKERS = (
+    "auth",
+    "credential",
+    "api key",
+    "login required",
+    "token expired",
+    "401",
+    "403",
+)
+
+
+def _is_auth_failure(error: object, details: object) -> bool:
+    """Recognize common provider login and subscription failure wording."""
+    message = f"{error} {details}".lower()
+    return any(marker in message for marker in _AUTH_FAILURE_MARKERS)
 
 
 def _resolve_users_for_window_key(
@@ -268,6 +287,17 @@ async def _handle_stop_failure(event: HookEvent, client: TelegramClient) -> None
 
     error = event.data.get("error", "unknown")
     error_details = event.data.get("error_details", "")
+    auth_failure = _is_auth_failure(error, error_details)
+    if auth_failure:
+        now = time.monotonic()
+        last_sent = _auth_failure_last_sent.get(event.window_key, 0.0)
+        if now - last_sent < _AUTH_FAILURE_COOLDOWN_SECS:
+            logger.debug(
+                "Suppressing duplicate authentication failure for %s",
+                event.window_key,
+            )
+            return
+        _auth_failure_last_sent[event.window_key] = now
     logger.warning(
         "Hook StopFailure: window_key=%s, error=%s, details=%s",
         event.window_key,
@@ -277,11 +307,22 @@ async def _handle_stop_failure(event: HookEvent, client: TelegramClient) -> None
 
     detail = f": {error_details}" if error_details else ""
     text = f"⚠ API error — {error}{detail}"
+    reply_markup = None
+    if auth_failure:
+        text += "\n\n" + t(
+            "The provider may be expired or logged out. Switch provider or park this topic."
+        )
 
     for user_id, thread_id, _window_id in users:
+        if auth_failure:
+            reply_markup = build_auth_failure_keyboard(_window_id)
         chat_id = thread_router.resolve_chat_id(user_id, thread_id)
         await rate_limit_send_message(
-            client, chat_id, text, message_thread_id=thread_id
+            client,
+            chat_id,
+            text,
+            message_thread_id=thread_id,
+            reply_markup=reply_markup,
         )
 
 

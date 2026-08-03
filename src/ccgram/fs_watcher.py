@@ -1,7 +1,7 @@
 """Filesystem watcher that wakes the session-monitor loop on writes.
 
-Wraps a watchdog Observer (inotify on Linux) watching the Claude projects
-tree and the ccgram state dir. On any ``*.jsonl`` change the asyncio wake
+Wraps a watchdog Observer (inotify on Linux) watching all configured provider
+transcript trees and the ccgram state dir. On any ``*.jsonl`` change the asyncio wake
 event is set from the observer thread via ``call_soon_threadsafe``, so the
 monitor loop's poll sleep returns immediately instead of waiting out the
 full interval.

@@ -36,6 +36,7 @@ from ....window_state_ports.pane_state import (
     get_pane_lifecycle_notify,
     get_pane_projection,
 )
+from ....window_state_ports.lifecycle_state import is_parked
 from ...callback_data import IDLE_STATUS_TEXT
 from ...cleanup import clear_topic_state
 from ...interactive import (
@@ -315,6 +316,9 @@ async def _handle_dead_window_notification(
 ) -> None:
     lc = runtime.lifecycle if runtime is not None else lifecycle_strategy
     ps = runtime.poll_state if runtime is not None else terminal_poll_state
+    if is_parked(wid):
+        lc.mark_dead_notified(user_id, thread_id, wid)
+        return
     if lc.is_dead_notified(user_id, thread_id, wid):
         return
     # Mark notified before the first await: the push (event-stream) and poll

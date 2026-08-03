@@ -35,6 +35,7 @@ import aiofiles
 
 from .config import config
 from .hooks.state_files import StateFileValidationError, parse_session_map_entry
+from .metrics import BINDING_REPAIRS
 from .utils import atomic_write_json, log_throttle_reset, log_throttled
 from .window_resolver import is_window_id, session_map_prefix_for
 
@@ -683,6 +684,7 @@ class SessionMapSync:
                 effective["provider_name"].lower(),
                 path_for_inference,
             )
+            BINDING_REPAIRS.inc(reason="provider_mismatch")
             state.provider_name = new_provider
             changed = True
         if (

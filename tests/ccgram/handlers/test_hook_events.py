@@ -13,9 +13,17 @@ from ccgram.claude_task_state import (
 )
 from ccgram.handlers.hook_events import (
     HookEvent,
+    _auth_failure_last_sent,
+    _is_auth_failure,
     _resolve_users_for_window_key,
     dispatch_hook_event,
 )
+
+
+def test_auth_failure_detection_covers_expiry_and_http_status() -> None:
+    assert _is_auth_failure("request failed", "token expired") is True
+    assert _is_auth_failure("HTTP 401", "") is True
+    assert _is_auth_failure("network timeout", "connection reset") is False
 
 
 def _make_event(
@@ -660,6 +668,9 @@ class TestHandleTaskCompleted:
 
 
 class TestHandleStopFailure:
+    def setup_method(self) -> None:
+        _auth_failure_last_sent.clear()
+
     async def test_sends_error_alert(self, monkeypatch) -> None:
         monkeypatch.setattr(
             "ccgram.handlers.hook_events.thread_router.iter_thread_bindings",
@@ -696,6 +707,34 @@ class TestHandleStopFailure:
             event = _make_event(event_type="StopFailure", data={"error": "unknown"})
             await dispatch_hook_event(event, bot)
             mock_send.assert_not_called()
+
+    async def test_auth_failure_offers_handoff_and_suppresses_duplicate(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            "ccgram.handlers.hook_events.thread_router.iter_thread_bindings",
+            lambda: iter([(100, 42, "@0")]),
+        )
+        bot = AsyncMock(spec=Bot)
+        with (
+            patch(
+                "ccgram.handlers.hook_events.thread_router.resolve_chat_id",
+                return_value=-100,
+            ),
+            patch(
+                "ccgram.handlers.messaging_pipeline.message_sender.rate_limit_send_message",
+                new_callable=AsyncMock,
+            ) as mock_send,
+        ):
+            event = _make_event(
+                event_type="StopFailure",
+                data={"error": "authentication_failed"},
+            )
+            await dispatch_hook_event(event, bot)
+            await dispatch_hook_event(event, bot)
+
+        mock_send.assert_awaited_once()
+        assert mock_send.call_args.kwargs["reply_markup"] is not None
 
 
 class TestHandleSessionEnd:

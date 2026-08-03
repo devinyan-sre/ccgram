@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from ...metrics import BINDING_REPAIRS
 from ...providers import (
     detect_provider_from_pane,
     detect_provider_from_runtime,
@@ -94,6 +95,8 @@ async def _codex_foreground(
     """Resolve foreground process details only for active Codex windows."""
     if window is None or provider_name != "codex":
         return None
+    # Lazy: process detection pulls platform-specific process inspection; only
+    # active Codex transcript disambiguation needs it.
     from ...providers.process_detection import foreground_cached
 
     return await foreground_cached(window_id)
@@ -275,6 +278,14 @@ async def _find_and_register_transcript(
             transcript_path=event.transcript_path,
             provider_name=provider_name,
         )
+        if allow_bound_reassignment:
+            BINDING_REPAIRS.inc(reason="process_time_window")
+            logger.warning(
+                "Repaired stale session binding for window %s: %s -> %s",
+                window_id,
+                identity.session_id,
+                event.session_id,
+            )
         await asyncio.to_thread(
             session_map_sync.write_hookless_session_map,
             window_id=window_id,

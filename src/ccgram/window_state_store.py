@@ -131,6 +131,9 @@ class WindowState:
             created in (None when the topic kept the current branch).
             Persisted — a forward investment for the eventual cleanup UX.
         worktree_branch: Branch name created for ``worktree_path``.
+        parked: Whether the user intentionally stopped this window with
+            ``/park``. Persisted so restarts do not turn an intentional stop
+            into a crash notification.
     """
 
     session_id: str = ""
@@ -158,6 +161,7 @@ class WindowState:
     # unbound-window TTL reaps orphans of a failed bind flow; a window the user
     # deliberately detached is not an orphan, so it is exempt until re-bound.
     user_detached: bool = False
+    parked: bool = False
 
     def to_dict(self) -> dict[str, Any]:  # noqa: C901
         d: dict[str, Any] = {
@@ -190,6 +194,8 @@ class WindowState:
             d["provider_manual_override"] = True
         if self.user_detached:
             d["user_detached"] = True
+        if self.parked:
+            d["parked"] = True
         return d
 
     @classmethod
@@ -226,6 +232,7 @@ class WindowState:
             worktree_branch=data.get("worktree_branch"),
             provider_manual_override=data.get("provider_manual_override", False),
             user_detached=data.get("user_detached", False),
+            parked=data.get("parked", False),
         )
 
 
@@ -358,6 +365,14 @@ class WindowStateStore:
         if state is None or state.user_detached == value:
             return
         state.user_detached = value
+        self._schedule_save()
+
+    def set_parked(self, window_id: str, *, value: bool) -> None:
+        """Persist whether a window was intentionally stopped by the user."""
+        state = self.window_states.get(window_id)
+        if state is None or state.parked == value:
+            return
+        state.parked = value
         self._schedule_save()
 
     def clear_transcript_path(self, window_id: str) -> None:

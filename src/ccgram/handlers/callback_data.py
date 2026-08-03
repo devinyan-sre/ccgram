@@ -140,5 +140,10 @@ CB_SEND_CANCEL = "sf:x"  # cancel /send browser
 CB_AGENT_SET = "ag:set:"  # ag:set:<window_id>:<provider_or_auto>
 CB_AGENT_CANCEL = "ag:x:"  # ag:x:<window_id>
 
+# Provider lifecycle: transactional handoff, park, and wake.
+CB_HANDOFF = "life:ho:"  # life:ho:<window_id>:<provider>:<0|1 context>
+CB_PARK = "life:park:"  # life:park:<window_id>
+CB_WAKE = "life:wake:"  # life:wake:<window_id>:<provider>
+
 # Idle status sentinel (shared between status_polling and message_queue)
 IDLE_STATUS_TEXT = "\u2713 Ready"

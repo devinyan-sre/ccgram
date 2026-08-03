@@ -167,6 +167,17 @@ async def _deliver(
             Path(tmp_path).unlink(missing_ok=True)
 
 
+async def deliver_text(
+    client: TelegramClient,
+    chat_id: int,
+    thread_id: int | None,
+    window_id: str,
+    text: str,
+) -> None:
+    """Public text/document delivery helper used by replay diagnostics."""
+    await _deliver(client, chat_id, thread_id, window_id, text)
+
+
 async def last_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /last — send the most recent reply or shell output to this topic."""
     # Lazy: config singleton resolved at call time so tests can swap it

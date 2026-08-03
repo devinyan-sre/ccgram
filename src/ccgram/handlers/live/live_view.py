@@ -25,6 +25,7 @@ from telegram.error import RetryAfter, TelegramError
 
 from ...config import config
 from ...i18n import t
+from ...metrics import LIVE_VIEW_TICKS
 from ...screenshot import text_to_image
 from ...telegram_client import TelegramClient
 from ...multiplexer import multiplexer as tmux_manager
@@ -181,14 +182,21 @@ async def _tick_one_view(
         )
         view.last_hash = h
         view.next_edit_after = time.monotonic() + interval
+        LIVE_VIEW_TICKS.inc(outcome="updated")
 
     except RetryAfter as exc:
         ra = exc.retry_after
         wait = ra.total_seconds() if isinstance(ra, timedelta) else float(ra)
         view.next_edit_after = time.monotonic() + wait
+        LIVE_VIEW_TICKS.inc(outcome="flood")
         logger.warning("live_view_retry_after", key=key, wait=wait)
     except TelegramError as exc:
-        logger.warning("live_view_tick_error", key=key, error=str(exc))
+        LIVE_VIEW_TICKS.inc(outcome="disabled")
+        logger.warning(
+            "live_view_disabled_after_error",
+            key=key,
+            error=str(exc),
+        )
         _active_views.pop(key, None)
 
 

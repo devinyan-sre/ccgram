@@ -576,6 +576,28 @@ claude     # or: codex, gemini, pi
 
 手动覆盖会设置 `WindowState.provider_manual_override=True`。`_detect_and_apply_provider` 中的周期性自动检测会跳过被覆盖的窗口，直到 `/agent auto` 清除该标志。
 
+## Provider 迁移与话题休眠
+
+`/agent` 只修正当前窗口的 Provider 标记；需要真正替换运行中的 CLI 时使用 `/handoff`：
+
+```text
+/handoff codex             # 启动并验证 Codex 后再切换话题绑定
+/handoff codex context     # 同时把最近对话压缩成交接上下文
+/park                      # 停止窗口，保留话题、目录和历史消息
+/wake                      # 用原 Provider 在同一目录恢复
+/wake codex                # 用指定 Provider 恢复
+```
+
+迁移是事务式的：旧窗口会一直保留到新 Provider 的前台进程和 session transcript 都确认就绪。创建、登录或绑定失败时，新窗口会被清理，原话题仍指向旧窗口。认证失败通知也会提供 **Codex**、**Codex + context** 和 **Park topic** 按钮；相同认证错误在 10 分钟内只提示一次。
+
+`/park` 不删除 Telegram 话题或历史记录，只停止对应窗口并持久化恢复所需状态。即使 ccgram 重启，也不会把主动休眠误报为崩溃。`/sessions` 中已停止的话题会显示 **Wake** 按钮。
+
+## 话题诊断与回复重放
+
+`/diag` 显示当前话题的窗口存活状态、声明/实际 Provider、前台 PID、session ID、transcript 路径，以及 transcript 文件大小与已提交投递游标。出现 Provider 或 transcript 错配时，周期性一致性守护会自动重新发现并修正绑定。
+
+`/replay [数量]` 从 transcript 重新发送最近 1–10 条助手文本，不会回退监控游标，因此不会影响正常增量投递。默认重放 3 条，长内容自动作为 `.txt` 文件发送。
+
 <a id="live-view"></a>
 
 ## 实时视图
@@ -925,6 +947,10 @@ curl -so /dev/null -w '%{http_code}\n' localhost:9095/healthz
 | `ccgram_poll_cycle_seconds`      | histogram | 状态轮询整轮耗时                           |
 | `ccgram_sessions_tracked`        | gauge     | 当前被 SessionMonitor 跟踪的会话数         |
 | `ccgram_monitor_bytes_read`      | counter   | 增量读取的 transcript 字节数               |
+| `ccgram_delivery_lag_bytes`      | gauge     | 已读取但尚未确认投递的 transcript 字节数   |
+| `ccgram_binding_repairs`         | counter   | 自动修复会话/Provider 错配的次数            |
+| `ccgram_provider_handoffs`       | counter   | Provider 迁移结果                           |
+| `ccgram_live_view_ticks`         | counter   | Live View 更新、限流与熔断结果              |
 | `ccgram_llm_requests`            | counter   | LLM/转写请求,按 `kind`+`provider`+`outcome` |
 | `ccgram_llm_request_seconds`     | histogram | LLM/转写请求耗时                           |
 | `ccgram_topic_create`            | counter   | 话题创建结果:`ok`/`flood`/`permission`/`bad_request`/`error`,可直接定位失败根因 |
