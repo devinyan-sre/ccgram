@@ -233,6 +233,7 @@ class JsonlProvider:
         *,
         max_age: float | None = None,  # noqa: ARG002 — protocol signature
         not_before: float | None = None,  # noqa: ARG002 — protocol signature
+        not_after: float | None = None,  # noqa: ARG002 — protocol signature
     ) -> SessionStartEvent | None:
         return None
 

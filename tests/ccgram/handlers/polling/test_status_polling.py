@@ -1108,7 +1108,7 @@ class TestProviderSwitchChain:
 
 
 class TestMaybeDiscoverTranscript:
-    async def test_rebinds_codex_session_that_predates_foreground_process(
+    async def test_rebinds_codex_session_outside_foreground_start_window(
         self, tmp_path
     ) -> None:
         from ccgram.handlers.recovery.transcript_discovery import (
@@ -1124,7 +1124,7 @@ class TestMaybeDiscoverTranscript:
                     "payload": {
                         "id": "old-id",
                         "cwd": "/proj",
-                        "timestamp": "1970-01-01T00:01:40Z",
+                        "timestamp": "1970-01-01T00:06:40Z",
                     },
                 }
             )
@@ -1170,7 +1170,7 @@ class TestMaybeDiscoverTranscript:
             ),
             patch(
                 "ccgram.handlers.recovery.transcript_discovery._session_id_already_bound",
-                return_value=False,
+                return_value=True,
             ),
             patch(
                 "ccgram.providers.process_detection.foreground_cached",
@@ -1186,6 +1186,7 @@ class TestMaybeDiscoverTranscript:
             )
 
         assert provider.discover_transcript.call_args.kwargs["not_before"] == 198.0
+        assert provider.discover_transcript.call_args.kwargs["not_after"] == 320.0
         session_map.register_hookless_session.assert_called_once_with(
             window_id="@7",
             session_id="new-id",
@@ -1196,7 +1197,7 @@ class TestMaybeDiscoverTranscript:
 
     def test_codex_resume_process_does_not_apply_fresh_session_cutoff(self) -> None:
         from ccgram.handlers.recovery.transcript_discovery import (
-            _codex_process_not_before,
+            _codex_process_time_bounds,
         )
 
         foreground = ForegroundInfo(
@@ -1206,7 +1207,7 @@ class TestMaybeDiscoverTranscript:
             cwd="/proj",
             started_at=200.0,
         )
-        assert _codex_process_not_before("codex", foreground) is None
+        assert _codex_process_time_bounds("codex", foreground) == (None, None)
 
     async def test_noop_when_discovered_session_matches_current(self) -> None:
         from ccgram.handlers.recovery.transcript_discovery import (

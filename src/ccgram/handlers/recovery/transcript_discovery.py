@@ -38,12 +38,13 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 _CODEX_PROCESS_START_SKEW_SECS = 2.0
+_CODEX_SESSION_START_WINDOW_SECS = 120.0
 
 
-def _codex_process_not_before(
+def _codex_process_time_bounds(
     provider_name: str, foreground: "ForegroundInfo | None"
-) -> float | None:
-    """Return the earliest valid session start for a fresh Codex process.
+) -> tuple[float | None, float | None]:
+    """Return valid session start bounds for a fresh Codex process.
 
     Resume commands intentionally attach an older session, so they must not
     receive the fresh-process cutoff.
@@ -54,17 +55,22 @@ def _codex_process_not_before(
         or foreground.started_at <= 0
         or "resume" in foreground.argv
     ):
-        return None
-    return max(0.0, foreground.started_at - _CODEX_PROCESS_START_SKEW_SECS)
+        return None, None
+    return (
+        max(0.0, foreground.started_at - _CODEX_PROCESS_START_SKEW_SECS),
+        foreground.started_at + _CODEX_SESSION_START_WINDOW_SECS,
+    )
 
 
-def _binding_predates_process(
-    identity: identity_state.IdentityProjection, not_before: float | None
+def _binding_outside_process_bounds(
+    identity: identity_state.IdentityProjection,
+    not_before: float | None,
+    not_after: float | None,
 ) -> bool:
-    """Whether a Codex binding belongs to an older process in the same cwd."""
+    """Whether a Codex binding belongs to another process in the same cwd."""
     if (
         identity.provider_name != "codex"
-        or not not_before
+        or (not_before is None and not_after is None)
         or not identity.transcript_path
     ):
         return False
@@ -72,7 +78,12 @@ def _binding_predates_process(
     from ...providers.codex import codex_transcript_started_at
 
     started_at = codex_transcript_started_at(Path(identity.transcript_path))
-    return started_at is not None and started_at < not_before
+    if started_at is None:
+        return False
+    return bool(
+        (not_before is not None and started_at < not_before)
+        or (not_after is not None and started_at > not_after)
+    )
 
 
 async def _codex_foreground(
@@ -214,6 +225,8 @@ async def _find_and_register_transcript(
     providers_to_try: list[tuple[str, "AgentProvider"]],
     pane_alive: bool,
     not_before: float | None = None,
+    not_after: float | None = None,
+    allow_bound_reassignment: bool = False,
 ) -> None:
     """Search for transcripts among candidate providers and register if found."""
     window_key = f"{session_map_prefix()}{window_id}"
@@ -227,6 +240,8 @@ async def _find_and_register_transcript(
         discover_kwargs: dict[str, float | None] = {"max_age": max_age}
         if provider_name == "codex" and not_before is not None:
             discover_kwargs["not_before"] = not_before
+        if provider_name == "codex" and not_after is not None:
+            discover_kwargs["not_after"] = not_after
         event = await asyncio.to_thread(
             provider.discover_transcript,
             identity.cwd,
@@ -236,7 +251,9 @@ async def _find_and_register_transcript(
         if not event:
             continue
 
-        if _session_id_already_bound(event.session_id, window_id):
+        if not allow_bound_reassignment and _session_id_already_bound(
+            event.session_id, window_id
+        ):
             logger.debug(
                 "Skipping discover result for window %s: session_id %s already bound",
                 window_id,
@@ -274,13 +291,16 @@ def _hook_already_resolved(
     identity: identity_state.IdentityProjection,
     *,
     not_before: float | None = None,
+    not_after: float | None = None,
 ) -> bool:
     """True when a hookful provider has already populated transcript_path."""
     if not identity.provider_name:
         return False
     provider = get_provider_for_window(window_id, identity.provider_name)
     resolved = bool(provider.capabilities.supports_hook and identity.transcript_path)
-    return resolved and not _binding_predates_process(identity, not_before)
+    return resolved and not _binding_outside_process_bounds(
+        identity, not_before, not_after
+    )
 
 
 def _foreground_process_restarted(
@@ -373,10 +393,20 @@ async def discover_and_register_transcript(
     # timestamp with the actual foreground process so another live window in
     # the same cwd cannot donate its session.
     foreground = await _codex_foreground(window_id, identity.provider_name, w)
-    not_before = _codex_process_not_before(identity.provider_name, foreground)
+    not_before, not_after = _codex_process_time_bounds(
+        identity.provider_name, foreground
+    )
+    repairing_stale_binding = _binding_outside_process_bounds(
+        identity, not_before, not_after
+    )
 
     if (
-        _hook_already_resolved(window_id, identity, not_before=not_before)
+        _hook_already_resolved(
+            window_id,
+            identity,
+            not_before=not_before,
+            not_after=not_after,
+        )
         and not process_restarted
     ):
         return
@@ -408,4 +438,6 @@ async def discover_and_register_transcript(
         providers_to_try,
         pane_alive,
         not_before=not_before,
+        not_after=not_after,
+        allow_bound_reassignment=repairing_stale_binding,
     )

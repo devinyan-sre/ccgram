@@ -1518,6 +1518,45 @@ class TestCodexDiscoverTranscript:
             )
         assert event is None
 
+    def test_not_after_excludes_session_created_for_later_window(
+        self, tmp_path: Path
+    ) -> None:
+        """An older process must not claim a newer same-cwd session."""
+        sessions_dir = tmp_path / ".codex" / "sessions"
+        correct = _write_codex_session(
+            sessions_dir,
+            "2026/03/02",
+            "current-window",
+            "uuid-current",
+            "/my/project",
+            timestamp="2026-03-02T12:00:01Z",
+        )
+        newer = _write_codex_session(
+            sessions_dir,
+            "2026/03/02",
+            "later-window",
+            "uuid-later",
+            "/my/project",
+            timestamp="2026-03-02T12:08:00Z",
+        )
+        newer_mtime = correct.stat().st_mtime + 10
+        os.utime(newer, (newer_mtime, newer_mtime))
+
+        not_before = datetime.fromisoformat("2026-03-02T12:00:00+00:00").timestamp()
+        not_after = datetime.fromisoformat("2026-03-02T12:02:00+00:00").timestamp()
+        codex = CodexProvider()
+        with patch.object(Path, "home", return_value=tmp_path):
+            event = codex.discover_transcript(
+                "/my/project",
+                "ccgram:@7",
+                max_age=0,
+                not_before=not_before,
+                not_after=not_after,
+            )
+
+        assert event is not None
+        assert event.session_id == "uuid-current"
+
     def test_returns_none_when_no_cwd_match(self, tmp_path: Path) -> None:
         sessions_dir = tmp_path / ".codex" / "sessions"
         _write_codex_session(

@@ -567,6 +567,20 @@ def codex_transcript_started_at(fpath: Path) -> float | None:
         return None
 
 
+def _transcript_started_within(
+    fpath: Path, not_before: float | None, not_after: float | None
+) -> bool:
+    """Whether immutable session metadata falls within optional bounds."""
+    if not_before is None and not_after is None:
+        return True
+    started_at = codex_transcript_started_at(fpath)
+    return bool(
+        started_at is not None
+        and (not_before is None or started_at >= not_before)
+        and (not_after is None or started_at <= not_after)
+    )
+
+
 def _is_primary_codex_session(meta: dict[str, Any]) -> bool:
     """Whether session metadata represents a top-level Codex CLI session.
 
@@ -755,6 +769,7 @@ class CodexProvider(JsonlProvider):
         *,
         max_age: float | None = None,
         not_before: float | None = None,
+        not_after: float | None = None,
     ) -> SessionStartEvent | None:
         """Scan ~/.codex/sessions/ for the most recent transcript matching cwd.
 
@@ -786,10 +801,8 @@ class CodexProvider(JsonlProvider):
                 continue
             if not _is_primary_codex_session(meta):
                 continue
-            if not_before is not None:
-                started_at = codex_transcript_started_at(fpath)
-                if started_at is None or started_at < not_before:
-                    continue
+            if not _transcript_started_within(fpath, not_before, not_after):
+                continue
             file_cwd = meta.get("cwd", "")
             if file_cwd and str(Path(file_cwd).resolve()) == resolved_cwd:
                 session_id = meta.get("id", "")

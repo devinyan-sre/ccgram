@@ -764,6 +764,7 @@ class GeminiProvider(JsonlProvider):
         *,
         max_age: float | None = None,
         not_before: float | None = None,  # noqa: ARG002 — protocol signature
+        not_after: float | None = None,  # noqa: ARG002 — protocol signature
     ) -> SessionStartEvent | None:
         """Discover latest Gemini transcript matching cwd.
 
