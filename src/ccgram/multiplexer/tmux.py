@@ -137,7 +137,7 @@ class TmuxManager:
         self._window_cache_ttl = (
             self.WINDOW_CACHE_TTL if window_cache_ttl is None else window_cache_ttl
         )
-        self._window_cache: tuple[float, list[TmuxWindow]] | None = None
+        self._window_cache: tuple[float, str | None, list[TmuxWindow]] | None = None
 
     def _invalidate_window_cache(self) -> None:
         """Drop the list_windows snapshot (call after any window mutation)."""
@@ -228,12 +228,16 @@ class TmuxManager:
         invalidate the snapshot so post-mutation reads are fresh.
         """
         cached = self._window_cache
-        if cached is not None and time.monotonic() - cached[0] < self._window_cache_ttl:
-            return cached[1]
+        if (
+            cached is not None
+            and cached[1] == config.own_window_id
+            and time.monotonic() - cached[0] < self._window_cache_ttl
+        ):
+            return cached[2]
 
         result = await asyncio.to_thread(self._sync_list_windows)
         if self._window_cache_ttl > 0:
-            self._window_cache = (time.monotonic(), result)
+            self._window_cache = (time.monotonic(), config.own_window_id, result)
         return result
 
     def _sync_list_windows(self) -> list[TmuxWindow]:
@@ -1169,22 +1173,26 @@ class TmuxManager:
         parsed = await self._ps_foreground(window.pane_tty)
         if parsed is None:
             return None
-        pid, pgid, argv = parsed
+        pid, pgid, elapsed_seconds, argv = parsed
         return ForegroundInfo(
             pid=pid,
             pgid=pgid,
             argv=argv,
             cwd=window.cwd,
             tty=window.pane_tty,
+            started_at=max(0.0, time.time() - elapsed_seconds),
         )
 
     @staticmethod
-    async def _ps_foreground(tty_path: str) -> tuple[int, int, list[str]] | None:
+    async def _ps_foreground(
+        tty_path: str,
+    ) -> tuple[int, int, int, list[str]] | None:
         """Parse ``ps -t <tty>`` for the foreground group leader.
 
-        Returns ``(pid, pgid, argv)`` for the group leader (pid == pgid) among
-        foreground processes (``+`` in stat), or the first foreground process
-        as a fallback.  None on any error or no foreground process.
+        Returns ``(pid, pgid, elapsed_seconds, argv)`` for the group leader
+        (pid == pgid) among foreground processes (``+`` in stat), or the first
+        foreground process as a fallback. None on any error or no foreground
+        process.
         """
         proc: asyncio.subprocess.Process | None = None
         try:
@@ -1193,7 +1201,7 @@ class TmuxManager:
                 "-t",
                 tty_path,
                 "-o",
-                "pid=,pgid=,stat=,args=",
+                "pid=,pgid=,stat=,etime=,args=",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -1210,7 +1218,7 @@ class TmuxManager:
         if proc.returncode != 0:
             return None
 
-        fallback: tuple[int, int, list[str]] | None = None
+        fallback: tuple[int, int, int, list[str]] | None = None
         for line in stdout.decode("utf-8", errors="replace").strip().splitlines():
             parsed = TmuxManager._parse_ps_line(line)
             if parsed is None:
@@ -1222,20 +1230,35 @@ class TmuxManager:
         return fallback
 
     @staticmethod
-    def _parse_ps_line(line: str) -> tuple[int, int, list[str]] | None:
-        """Parse one ``ps`` line into ``(pid, pgid, argv)`` if foreground.
+    def _parse_ps_line(line: str) -> tuple[int, int, int, list[str]] | None:
+        """Parse one ``ps`` line into process identity if foreground.
 
         Returns None for non-foreground lines (no ``+`` in stat) or malformed
         rows.
         """
-        parts = line.split(None, 3)
-        if len(parts) < 4:  # noqa: PLR2004
+        parts = line.split(None, 4)
+        if len(parts) < 5:  # noqa: PLR2004
             return None
-        pid_s, pgid_s, stat, args = parts
+        pid_s, pgid_s, stat, elapsed, args = parts
         if "+" not in stat:
             return None
         try:
-            return int(pid_s), int(pgid_s), args.split()
+            if "-" in elapsed:
+                day_text, clock_text = elapsed.split("-", 1)
+                days = int(day_text)
+            else:
+                days = 0
+                clock_text = elapsed
+            clock = clock_text.split(":")
+            if len(clock) == 3:  # noqa: PLR2004
+                hours, minutes, seconds = map(int, clock)
+            elif len(clock) == 2:  # noqa: PLR2004
+                hours = 0
+                minutes, seconds = map(int, clock)
+            else:
+                return None
+            elapsed_seconds = days * 86400 + hours * 3600 + minutes * 60 + seconds
+            return int(pid_s), int(pgid_s), elapsed_seconds, args.split()
         except ValueError:
             return None
 

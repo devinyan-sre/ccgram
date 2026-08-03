@@ -1,3 +1,4 @@
+import json
 import time
 
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
@@ -1107,6 +1108,106 @@ class TestProviderSwitchChain:
 
 
 class TestMaybeDiscoverTranscript:
+    async def test_rebinds_codex_session_that_predates_foreground_process(
+        self, tmp_path
+    ) -> None:
+        from ccgram.handlers.recovery.transcript_discovery import (
+            discover_and_register_transcript,
+        )
+        from ccgram.providers.base import SessionStartEvent
+
+        old_path = tmp_path / "old.jsonl"
+        old_path.write_text(
+            json.dumps(
+                {
+                    "type": "session_meta",
+                    "payload": {
+                        "id": "old-id",
+                        "cwd": "/proj",
+                        "timestamp": "1970-01-01T00:01:40Z",
+                    },
+                }
+            )
+            + "\n"
+        )
+        event = SessionStartEvent(
+            session_id="new-id",
+            cwd="/proj",
+            transcript_path=str(tmp_path / "new.jsonl"),
+            window_key="ccgram:@7",
+        )
+        provider = MagicMock()
+        provider.capabilities.supports_hook = True
+        provider.capabilities.chat_first_command_path = False
+        provider.capabilities.name = "codex"
+        provider.discover_transcript.return_value = event
+        state = MagicMock(
+            session_id="old-id",
+            cwd="/proj",
+            transcript_path=str(old_path),
+            provider_name="codex",
+        )
+        foreground = ForegroundInfo(
+            pid=200,
+            pgid=200,
+            argv=["codex", "--dangerously-bypass-approvals-and-sandbox"],
+            cwd="/proj",
+            started_at=200.0,
+        )
+
+        with (
+            patch("ccgram.window_state_ports.identity_state.window_store") as store,
+            patch(
+                "ccgram.handlers.recovery.transcript_discovery.get_provider_for_window",
+                return_value=provider,
+            ),
+            patch(
+                "ccgram.handlers.recovery.transcript_discovery.session_map_sync"
+            ) as session_map,
+            patch(
+                "ccgram.handlers.recovery.transcript_discovery.session_map_prefix",
+                return_value="ccgram:",
+            ),
+            patch(
+                "ccgram.handlers.recovery.transcript_discovery._session_id_already_bound",
+                return_value=False,
+            ),
+            patch(
+                "ccgram.providers.process_detection.foreground_cached",
+                AsyncMock(return_value=foreground),
+            ),
+        ):
+            store.window_states = {"@7": state}
+            await discover_and_register_transcript(
+                "@7",
+                _window=MagicMock(
+                    pane_current_command="codex", cwd="/proj", pane_tty="/dev/pts/7"
+                ),
+            )
+
+        assert provider.discover_transcript.call_args.kwargs["not_before"] == 198.0
+        session_map.register_hookless_session.assert_called_once_with(
+            window_id="@7",
+            session_id="new-id",
+            cwd="/proj",
+            transcript_path=str(tmp_path / "new.jsonl"),
+            provider_name="codex",
+        )
+
+    def test_codex_resume_process_does_not_apply_fresh_session_cutoff(self) -> None:
+        from ccgram.handlers.recovery.transcript_discovery import (
+            _codex_process_not_before,
+        )
+
+        foreground = ForegroundInfo(
+            pid=200,
+            pgid=200,
+            argv=["codex", "resume", "old-id"],
+            cwd="/proj",
+            started_at=200.0,
+        )
+        assert _codex_process_not_before("codex", foreground) is None
+
     async def test_noop_when_discovered_session_matches_current(self) -> None:
         from ccgram.handlers.recovery.transcript_discovery import (
             discover_and_register_transcript,

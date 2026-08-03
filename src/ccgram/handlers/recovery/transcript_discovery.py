@@ -11,6 +11,7 @@ Key components:
 """
 
 import asyncio
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
@@ -30,10 +31,61 @@ from ...multiplexer import multiplexer as tmux_manager
 from ...window_state_ports import identity_state
 
 if TYPE_CHECKING:
+    from ...multiplexer.base import ForegroundInfo
     from ...providers.base import AgentProvider
     from ...multiplexer.base import WindowRef as TmuxWindow
 
 logger = structlog.get_logger()
+
+_CODEX_PROCESS_START_SKEW_SECS = 2.0
+
+
+def _codex_process_not_before(
+    provider_name: str, foreground: "ForegroundInfo | None"
+) -> float | None:
+    """Return the earliest valid session start for a fresh Codex process.
+
+    Resume commands intentionally attach an older session, so they must not
+    receive the fresh-process cutoff.
+    """
+    if (
+        provider_name != "codex"
+        or foreground is None
+        or foreground.started_at <= 0
+        or "resume" in foreground.argv
+    ):
+        return None
+    return max(0.0, foreground.started_at - _CODEX_PROCESS_START_SKEW_SECS)
+
+
+def _binding_predates_process(
+    identity: identity_state.IdentityProjection, not_before: float | None
+) -> bool:
+    """Whether a Codex binding belongs to an older process in the same cwd."""
+    if (
+        identity.provider_name != "codex"
+        or not not_before
+        or not identity.transcript_path
+    ):
+        return False
+    # Lazy: only the Codex recovery path needs to parse Codex session metadata.
+    from ...providers.codex import codex_transcript_started_at
+
+    started_at = codex_transcript_started_at(Path(identity.transcript_path))
+    return started_at is not None and started_at < not_before
+
+
+async def _codex_foreground(
+    window_id: str,
+    provider_name: str,
+    window: "TmuxWindow | None",
+) -> "ForegroundInfo | None":
+    """Resolve foreground process details only for active Codex windows."""
+    if window is None or provider_name != "codex":
+        return None
+    from ...providers.process_detection import foreground_cached
+
+    return await foreground_cached(window_id)
 
 
 def _session_id_already_bound(session_id: str, window_id: str) -> bool:
@@ -161,6 +213,7 @@ async def _find_and_register_transcript(
     identity: identity_state.IdentityProjection,
     providers_to_try: list[tuple[str, "AgentProvider"]],
     pane_alive: bool,
+    not_before: float | None = None,
 ) -> None:
     """Search for transcripts among candidate providers and register if found."""
     window_key = f"{session_map_prefix()}{window_id}"
@@ -171,11 +224,14 @@ async def _find_and_register_transcript(
 
     for provider_name, provider in providers_to_try:
         max_age = 0 if pane_alive else None
+        discover_kwargs: dict[str, float | None] = {"max_age": max_age}
+        if provider_name == "codex" and not_before is not None:
+            discover_kwargs["not_before"] = not_before
         event = await asyncio.to_thread(
             provider.discover_transcript,
             identity.cwd,
             window_key,
-            max_age=max_age,
+            **discover_kwargs,
         )
         if not event:
             continue
@@ -214,13 +270,17 @@ async def _find_and_register_transcript(
 
 
 def _hook_already_resolved(
-    window_id: str, identity: identity_state.IdentityProjection
+    window_id: str,
+    identity: identity_state.IdentityProjection,
+    *,
+    not_before: float | None = None,
 ) -> bool:
     """True when a hookful provider has already populated transcript_path."""
     if not identity.provider_name:
         return False
     provider = get_provider_for_window(window_id, identity.provider_name)
-    return bool(provider.capabilities.supports_hook and identity.transcript_path)
+    resolved = bool(provider.capabilities.supports_hook and identity.transcript_path)
+    return resolved and not _binding_predates_process(identity, not_before)
 
 
 def _foreground_process_restarted(
@@ -309,7 +369,16 @@ async def discover_and_register_transcript(
             new_identity=identity,
         )
 
-    if _hook_already_resolved(window_id, identity) and not process_restarted:
+    # Codex has no reliable SessionStart hook. Correlate its transcript
+    # timestamp with the actual foreground process so another live window in
+    # the same cwd cannot donate its session.
+    foreground = await _codex_foreground(window_id, identity.provider_name, w)
+    not_before = _codex_process_not_before(identity.provider_name, foreground)
+
+    if (
+        _hook_already_resolved(window_id, identity, not_before=not_before)
+        and not process_restarted
+    ):
         return
 
     if not identity.cwd:
@@ -334,5 +403,9 @@ async def discover_and_register_transcript(
 
     pane_alive = w is not None and not is_shell_prompt(w.pane_current_command)
     await _find_and_register_transcript(
-        window_id, identity, providers_to_try, pane_alive
+        window_id,
+        identity,
+        providers_to_try,
+        pane_alive,
+        not_before=not_before,
     )

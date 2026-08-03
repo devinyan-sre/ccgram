@@ -244,15 +244,19 @@ async def test_foreground_builds_info(mgr: TmuxManager) -> None:
         window_id="@0", window_name="proj", cwd="/work", pane_tty="/dev/ttys003"
     )
     mgr.find_window_by_id = AsyncMock(return_value=win)  # type: ignore[method-assign]
-    mgr._ps_foreground = AsyncMock(return_value=(321, 321, ["claude", "--continue"]))  # type: ignore[method-assign]
+    mgr._ps_foreground = AsyncMock(  # type: ignore[method-assign]
+        return_value=(321, 321, 10, ["claude", "--continue"])
+    )
 
-    info = await mgr.foreground("@0")
+    with patch("ccgram.multiplexer.tmux.time.time", return_value=1000.0):
+        info = await mgr.foreground("@0")
     assert info == ForegroundInfo(
         pid=321,
         pgid=321,
         argv=["claude", "--continue"],
         cwd="/work",
         tty="/dev/ttys003",
+        started_at=990.0,
     )
 
 
@@ -273,22 +277,28 @@ async def test_foreground_none_when_window_gone(mgr: TmuxManager) -> None:
 class TestParsePsLine:
     def test_foreground_leader(self) -> None:
         # pid == pgid, "+" foreground stat
-        line = "321 321 S+ claude --continue"
-        assert TmuxManager._parse_ps_line(line) == (321, 321, ["claude", "--continue"])
+        line = "321 321 S+ 01:02 claude --continue"
+        assert TmuxManager._parse_ps_line(line) == (
+            321,
+            321,
+            62,
+            ["claude", "--continue"],
+        )
 
     def test_non_foreground_skipped(self) -> None:
-        assert TmuxManager._parse_ps_line("100 100 Ss bash") is None
+        assert TmuxManager._parse_ps_line("100 100 Ss 00:01 bash") is None
 
     def test_malformed_line(self) -> None:
         assert TmuxManager._parse_ps_line("garbage") is None
 
     def test_non_numeric_pid(self) -> None:
-        assert TmuxManager._parse_ps_line("abc def S+ claude") is None
+        assert TmuxManager._parse_ps_line("abc def S+ 00:01 claude") is None
 
     def test_foreground_non_leader(self) -> None:
         # foreground but pid != pgid → still parsed (fallback candidate)
-        assert TmuxManager._parse_ps_line("555 321 S+ node x") == (
+        assert TmuxManager._parse_ps_line("555 321 S+ 2-03:04:05 node x") == (
             555,
             321,
+            183845,
             ["node", "x"],
         )

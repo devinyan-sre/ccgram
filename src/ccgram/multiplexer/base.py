@@ -77,6 +77,7 @@ class ForegroundInfo:
     argv: list[str]
     cwd: str
     tty: str = ""  # Empty when not available (herdr on macOS)
+    started_at: float = 0.0  # Unix timestamp; 0 when backend cannot provide it
 
 
 @dataclass

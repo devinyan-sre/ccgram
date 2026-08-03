@@ -2,6 +2,7 @@ import json
 import hashlib
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1429,6 +1430,7 @@ def _write_codex_session(
     *,
     source: object = "cli",
     originator: object = "codex_cli_rs",
+    timestamp: str | None = None,
 ) -> Path:
     """Write a fake Codex session JSONL.
 
@@ -1440,6 +1442,8 @@ def _write_codex_session(
     day_dir.mkdir(parents=True, exist_ok=True)
     fpath = day_dir / f"{name}.jsonl"
     payload: dict[str, object] = {"id": session_id, "cwd": cwd, "source": source}
+    if timestamp is not None:
+        payload["timestamp"] = timestamp
     if originator is not None:
         payload["originator"] = originator
     meta = {"type": "session_meta", "payload": payload}
@@ -1461,6 +1465,58 @@ class TestCodexDiscoverTranscript:
         assert event.cwd == "/my/project"
         assert event.transcript_path == str(fpath)
         assert event.window_key == "ccgram:@7"
+
+    def test_not_before_excludes_recently_written_older_session(
+        self, tmp_path: Path
+    ) -> None:
+        """A live old window may write after the new window starts.
+
+        Discovery must compare immutable session metadata, not file mtime.
+        """
+        sessions_dir = tmp_path / ".codex" / "sessions"
+        old = _write_codex_session(
+            sessions_dir,
+            "2026/03/02",
+            "old-active",
+            "uuid-old",
+            "/my/project",
+            timestamp="2026-03-02T11:59:00Z",
+        )
+        new = _write_codex_session(
+            sessions_dir,
+            "2026/03/02",
+            "new-window",
+            "uuid-new",
+            "/my/project",
+            timestamp="2026-03-02T12:00:01Z",
+        )
+        # Reproduce the race: the old session writes last and wins mtime order.
+        future_mtime = new.stat().st_mtime + 10
+        os.utime(old, (future_mtime, future_mtime))
+
+        cutoff = datetime.fromisoformat("2026-03-02T12:00:00+00:00").timestamp()
+        codex = CodexProvider()
+        with patch.object(Path, "home", return_value=tmp_path):
+            event = codex.discover_transcript(
+                "/my/project", "ccgram:@7", max_age=0, not_before=cutoff
+            )
+
+        assert event is not None
+        assert event.session_id == "uuid-new"
+
+    def test_not_before_rejects_metadata_without_timestamp(
+        self, tmp_path: Path
+    ) -> None:
+        sessions_dir = tmp_path / ".codex" / "sessions"
+        _write_codex_session(
+            sessions_dir, "2026/03/02", "legacy", "uuid-old", "/my/project"
+        )
+        codex = CodexProvider()
+        with patch.object(Path, "home", return_value=tmp_path):
+            event = codex.discover_transcript(
+                "/my/project", "ccgram:@7", max_age=0, not_before=1.0
+            )
+        assert event is None
 
     def test_returns_none_when_no_cwd_match(self, tmp_path: Path) -> None:
         sessions_dir = tmp_path / ".codex" / "sessions"

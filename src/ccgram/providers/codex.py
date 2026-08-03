@@ -14,6 +14,7 @@ Modern Codex ``response_item`` payloads use typed shapes:
 """
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -552,6 +553,20 @@ def _read_codex_session_meta(fpath: Path) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
+def codex_transcript_started_at(fpath: Path) -> float | None:
+    """Return the immutable session start timestamp from Codex metadata."""
+    meta = _read_codex_session_meta(fpath)
+    if not meta:
+        return None
+    raw = meta.get("timestamp")
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
 def _is_primary_codex_session(meta: dict[str, Any]) -> bool:
     """Whether session metadata represents a top-level Codex CLI session.
 
@@ -739,6 +754,7 @@ class CodexProvider(JsonlProvider):
         window_key: str,
         *,
         max_age: float | None = None,
+        not_before: float | None = None,
     ) -> SessionStartEvent | None:
         """Scan ~/.codex/sessions/ for the most recent transcript matching cwd.
 
@@ -770,6 +786,10 @@ class CodexProvider(JsonlProvider):
                 continue
             if not _is_primary_codex_session(meta):
                 continue
+            if not_before is not None:
+                started_at = codex_transcript_started_at(fpath)
+                if started_at is None or started_at < not_before:
+                    continue
             file_cwd = meta.get("cwd", "")
             if file_cwd and str(Path(file_cwd).resolve()) == resolved_cwd:
                 session_id = meta.get("id", "")

@@ -247,13 +247,16 @@ class AgentProvider(Protocol):
         window_key: str,
         *,
         max_age: float | None = None,
+        not_before: float | None = None,
     ) -> SessionStartEvent | None:
         """Discover transcript for a hookless provider session.
 
         Scans the provider's session storage for the most recent transcript
         matching the given working directory. Returns a SessionStartEvent
         if found, None otherwise. Implementations may optionally honor
-        ``max_age`` (seconds) to ignore stale transcript files.
+        ``max_age`` (seconds) to ignore stale transcript files. ``not_before``
+        is a Unix timestamp used to exclude sessions created before the active
+        agent process (important when multiple windows share one cwd).
 
         Only useful for providers without hook support (Codex, Gemini).
         Providers with hooks (Claude) return None.
