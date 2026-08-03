@@ -542,7 +542,7 @@ ccgram-codex-2
 
 Numbers are allocated per directory label and provider, while live, recovering, and `/park` topics retain their slots; concurrent creates reserve names before launching. The same generator covers `claude`, `codex`, `gemini`, `pi`, and `shell` on both tmux and herdr (herdr may still prepend its existing adaptive workspace label). `/handoff` updates the window and Telegram topic after a provider switch, while `/wake` with the same provider retains the existing number.
 
-Legacy and manually edited names are not overwritten. Run `/autoname` inside an older topic to opt into the new scheme. Editing that Telegram topic name manually afterward opts it back out of managed naming.
+Legacy and manually edited names are not overwritten. Run `/autoname` inside an older topic to opt into the new scheme. Legacy topics reserve numbers in their original session order, so migration order cannot swap their numbers. Editing that Telegram topic name manually afterward opts it back out of managed naming.
 
 ## Topic diagnostics and reply replay
 

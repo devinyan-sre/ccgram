@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import re
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import AsyncIterator
 
 import structlog
 
@@ -78,12 +78,52 @@ def _backend_label(name: str) -> str:
     return name.rsplit(_HERDR_TOPIC_SEPARATOR, 1)[-1].strip()
 
 
+def _is_legacy_generated(state: NamingProjection) -> bool:
+    """Recognize the old ``directory`` / ``directory-N`` backend names."""
+    if state.auto_named or not state.cwd or not state.window_name:
+        return False
+    directory = project_slug(state.cwd)
+    label = _backend_label(state.window_name)
+    return bool(
+        label == directory or re.fullmatch(rf"{re.escape(directory)}-\d+", label)
+    )
+
+
+def _window_order_key(state: NamingProjection) -> tuple[tuple[int, ...], str]:
+    """Sort tmux and herdr identifiers by their numeric creation order."""
+    return tuple(
+        int(part) for part in re.findall(r"\d+", state.window_id)
+    ), state.window_id
+
+
+def _legacy_slot_names() -> dict[str, str]:
+    """Assign deterministic provider-aware slots to unmigrated legacy names."""
+    groups: dict[tuple[str, str], list[NamingProjection]] = {}
+    for state in iter_naming():
+        if not (state.auto_named or _is_legacy_generated(state)):
+            continue
+        key = (str(Path(state.cwd).expanduser()), state.provider_name.lower())
+        groups.setdefault(key, []).append(state)
+
+    slots: dict[str, str] = {}
+    for (cwd, provider_name), states in groups.items():
+        states.sort(key=_window_order_key)
+        prefix = automatic_name_prefix(cwd, provider_name or "agent")
+        for number, state in enumerate(states, start=1):
+            if _is_legacy_generated(state):
+                slots[state.window_id] = f"{prefix}-{number}"
+    return slots
+
+
 async def _used_names(exclude_window_id: str) -> set[str]:
     used = set(_reservations)
+    legacy_slots = _legacy_slot_names()
     for state in iter_naming():
         if state.window_id != exclude_window_id and state.window_name:
             used.add(state.window_name)
             used.add(_backend_label(state.window_name))
+        if state.window_id != exclude_window_id and state.window_id in legacy_slots:
+            used.add(legacy_slots[state.window_id])
     for window_id, name in thread_router.window_display_names.items():
         if window_id != exclude_window_id and name:
             used.add(name)
@@ -125,7 +165,10 @@ async def reserve_topic_name(
         automatic = force_automatic or state is None or _looks_system_managed(state)
         used = await _used_names(replacing_window_id)
         prefix = automatic_name_prefix(cwd, provider_name)
-        if (not automatic and current_name) or (
+        legacy_name = _legacy_slot_names().get(replacing_window_id, "")
+        if force_automatic and legacy_name and legacy_name not in used:
+            name = legacy_name
+        elif (not automatic and current_name) or (
             current_name and re.fullmatch(rf"{re.escape(prefix)}-\d+", current_name)
         ):
             name = current_name

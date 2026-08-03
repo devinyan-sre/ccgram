@@ -171,6 +171,98 @@ async def test_legacy_directory_suffix_requires_explicit_migration() -> None:
         assert reserved.automatic is True
 
 
+async def test_legacy_slots_are_stable_regardless_of_migration_order() -> None:
+    window_store.window_states.update(
+        {
+            "@78": WindowState(
+                cwd="/srv/ccgram",
+                provider_name="codex",
+                window_name="ccgram-2",
+            ),
+            "@79": WindowState(
+                cwd="/srv/ccgram",
+                provider_name="codex",
+                window_name="ccgram-3",
+            ),
+        }
+    )
+
+    # Unmigrated legacy topics reserve their future slots for new topics.
+    async with reserve_topic_name("/srv/ccgram", "codex") as reserved:
+        assert reserved.name == "ccgram-codex-3"
+
+    # Migrating the newer topic first must not let it steal the first slot.
+    async with reserve_topic_name(
+        "/srv/ccgram",
+        "codex",
+        replacing_window_id="@79",
+        force_automatic=True,
+    ) as reserved:
+        assert reserved.name == "ccgram-codex-2"
+
+    async with reserve_topic_name(
+        "/srv/ccgram",
+        "codex",
+        replacing_window_id="@78",
+        force_automatic=True,
+    ) as reserved:
+        assert reserved.name == "ccgram-codex-1"
+
+
+async def test_partially_migrated_legacy_topics_keep_later_slots_reserved() -> None:
+    window_store.window_states.update(
+        {
+            "@78": WindowState(
+                cwd="/srv/ccgram",
+                provider_name="codex",
+                window_name="ccgram-codex-1",
+                auto_named=True,
+            ),
+            "@79": WindowState(
+                cwd="/srv/ccgram",
+                provider_name="codex",
+                window_name="ccgram-3",
+            ),
+        }
+    )
+
+    async with reserve_topic_name("/srv/ccgram", "codex") as reserved:
+        assert reserved.name == "ccgram-codex-3"
+
+    async with reserve_topic_name(
+        "/srv/ccgram",
+        "codex",
+        replacing_window_id="@79",
+        force_automatic=True,
+    ) as reserved:
+        assert reserved.name == "ccgram-codex-2"
+
+
+async def test_legacy_slots_sort_numeric_window_ids_naturally() -> None:
+    window_store.window_states.update(
+        {
+            "@100": WindowState(
+                cwd="/srv/ccgram",
+                provider_name="codex",
+                window_name="ccgram-3",
+            ),
+            "@9": WindowState(
+                cwd="/srv/ccgram",
+                provider_name="codex",
+                window_name="ccgram-2",
+            ),
+        }
+    )
+
+    async with reserve_topic_name(
+        "/srv/ccgram",
+        "codex",
+        replacing_window_id="@100",
+        force_automatic=True,
+    ) as reserved:
+        assert reserved.name == "ccgram-codex-2"
+
+
 async def test_concurrent_reservations_cannot_choose_same_name() -> None:
     async with (
         reserve_topic_name("/srv/ccgram", "codex") as first,

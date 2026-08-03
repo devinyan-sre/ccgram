@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Provider-aware `directory-provider-number` names across Claude, Codex,
   Gemini, Pi, and shell on tmux/herdr, including collision-safe concurrent
   allocation, handoff/wake synchronization, manual-name protection, and
-  `/autoname` migration for legacy topics.
+  `/autoname` migration with deterministic slot reservation for legacy topics.
 
 ### Changed
 

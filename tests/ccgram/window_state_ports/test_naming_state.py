@@ -13,6 +13,7 @@ def test_get_and_iter_naming_projection(store: WindowStateStore) -> None:
     store.window_states["@1"] = WindowState(
         cwd="/srv/ccgram",
         window_name="ccgram-codex-1",
+        provider_name="codex",
         auto_named=True,
     )
 
@@ -20,6 +21,7 @@ def test_get_and_iter_naming_projection(store: WindowStateStore) -> None:
         window_id="@1",
         cwd="/srv/ccgram",
         window_name="ccgram-codex-1",
+        provider_name="codex",
         auto_named=True,
     )
     assert get_naming("@1") == expected

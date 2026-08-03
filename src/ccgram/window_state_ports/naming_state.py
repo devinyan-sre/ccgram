@@ -14,6 +14,7 @@ class NamingProjection:
     window_id: str
     cwd: str
     window_name: str
+    provider_name: str
     auto_named: bool
 
 
@@ -26,6 +27,7 @@ def get_naming(window_id: str) -> NamingProjection | None:
         window_id=window_id,
         cwd=state.cwd,
         window_name=state.window_name,
+        provider_name=state.provider_name,
         auto_named=state.auto_named,
     )
 
@@ -37,6 +39,7 @@ def iter_naming() -> list[NamingProjection]:
             window_id=window_id,
             cwd=state.cwd,
             window_name=state.window_name,
+            provider_name=state.provider_name,
             auto_named=state.auto_named,
         )
         for window_id, state in window_store.window_states.items()
