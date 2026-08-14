@@ -21,6 +21,7 @@ from telegram.error import TelegramError
 
 from ...i18n import t
 from ...providers import registry as provider_registry
+from ...provider_readiness import wait_for_provider_ready
 from ...session import session_manager
 from ...session_map import session_map_sync
 from ...thread_router import thread_router
@@ -212,7 +213,7 @@ async def _accept_yolo_confirmation(window_id: str, *, timeout: float = 8.0) -> 
 # ── main entry point ──────────────────────────────────────────────────────────
 
 
-async def launch_window(  # noqa: PLR0915, C901
+async def launch_window(  # noqa: PLR0912, PLR0915, C901
     query: CallbackQuery,
     context: ContextTypes.DEFAULT_TYPE,
     request: WindowLaunchRequest,
@@ -306,8 +307,50 @@ async def launch_window(  # noqa: PLR0915, C901
     if approval_mode == "yolo" and provider.capabilities.has_yolo_confirmation:
         await _accept_yolo_confirmation(created_wid)
 
-    if provider.capabilities.supports_hook:
-        await session_map_sync.wait_for_session_map_entry(created_wid)
+    readiness = await wait_for_provider_ready(
+        created_wid,
+        provider_name,
+        timeout=20.0,
+    )
+    if not readiness.ready:
+        error = t(
+            "{provider} did not become ready, so your pending message was not "
+            "sent. Send it again to retry safely. Details: {error}"
+        ).format(provider=provider_name, error=readiness.reason)
+        logger.warning(
+            "New provider window was not ready; pending text retained",
+            window_id=created_wid,
+            provider=provider_name,
+            reason=readiness.reason,
+        )
+        await safe_edit(query, f"❌ {error}")
+        return WindowLaunchResult(
+            success=False,
+            window_id=created_wid,
+            error_message=error,
+        )
+
+    # Modern Codex creates its thread/transcript lazily on the first prompt,
+    # so requiring SessionStart here would deadlock the pending first message.
+    # Its idle TUI check above is the safe startup boundary.
+    if provider.capabilities.supports_hook and provider_name != "codex":
+        hook_ready = await session_map_sync.wait_for_session_map_entry(created_wid)
+        if not hook_ready:
+            error = t(
+                "{provider} started, but session registration timed out. Your "
+                "pending message was not sent; send it again to retry safely."
+            ).format(provider=provider_name)
+            logger.warning(
+                "Provider hook registration timed out; pending text retained",
+                window_id=created_wid,
+                provider=provider_name,
+            )
+            await safe_edit(query, f"❌ {error}")
+            return WindowLaunchResult(
+                success=False,
+                window_id=created_wid,
+                error_message=error,
+            )
 
     if pending_thread_id is None:
         await safe_edit(query, f"✅ {message}")
@@ -334,10 +377,6 @@ async def launch_window(  # noqa: PLR0915, C901
             created_wname,
             len(pending_text),
         )
-        if context.user_data is not None:
-            context.user_data.pop(PENDING_THREAD_TEXT, None)
-            context.user_data.pop(PENDING_THREAD_ID, None)
-
         # Chat-first providers (shell): route through NL→command approval flow
         if provider_caps.chat_first_command_path:
             # Lazy: telegram_client wraps PTB Bot; shell.shell_commands
@@ -354,6 +393,9 @@ async def launch_window(  # noqa: PLR0915, C901
                 created_wid,
                 pending_text,
             )
+            if context.user_data is not None:
+                context.user_data.pop(PENDING_THREAD_TEXT, None)
+                context.user_data.pop(PENDING_THREAD_ID, None)
         else:
             send_ok, send_msg = await send_to_window(created_wid, pending_text)
             if not send_ok:
@@ -374,6 +416,9 @@ async def launch_window(  # noqa: PLR0915, C901
                     ),
                     message_thread_id=pending_thread_id,
                 )
+            elif context.user_data is not None:
+                context.user_data.pop(PENDING_THREAD_TEXT, None)
+                context.user_data.pop(PENDING_THREAD_ID, None)
     elif context.user_data is not None:
         context.user_data.pop(PENDING_THREAD_ID, None)
     return WindowLaunchResult(success=True, window_id=created_wid)

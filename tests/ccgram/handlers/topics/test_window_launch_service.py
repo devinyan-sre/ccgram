@@ -18,6 +18,7 @@ from ccgram.handlers.user_state import (
     PENDING_WORKTREE_BRANCH,
     PENDING_WORKTREE_PATH,
 )
+from ccgram.provider_readiness import ProviderReadiness
 
 
 # ── _cwd_within ──────────────────────────────────────────────────────────────
@@ -248,7 +249,7 @@ class TestLaunchWindowSuccess:
             patch(
                 "ccgram.handlers.topics.window_launch_service.provider_registry"
             ) as mock_reg,
-            patch("ccgram.providers.resolve_launch_command", return_value="claude"),
+            patch("ccgram.providers.resolve_launch_command", return_value="codex"),
         ):
             mock_mux.create_window = AsyncMock(
                 return_value=(False, "tmux error", "", "")
@@ -258,7 +259,7 @@ class TestLaunchWindowSuccess:
             caps = MagicMock()
             caps.chat_first_command_path = False
             caps.has_yolo_confirmation = False
-            caps.supports_hook = False
+            caps.supports_hook = True
             mock_reg.get.return_value.capabilities = caps
 
             await launch_window(
@@ -267,7 +268,7 @@ class TestLaunchWindowSuccess:
                 WindowLaunchRequest(
                     user_id=100,
                     thread_id=42,
-                    provider_name="claude",
+                    provider_name="codex",
                     cwd=str(tmp_path),
                     mode="normal",
                     pending_text=None,
@@ -311,7 +312,7 @@ class TestLaunchWindowSuccess:
             patch(
                 "ccgram.handlers.topics.window_launch_service.provider_registry"
             ) as mock_reg,
-            patch("ccgram.providers.resolve_launch_command", return_value="claude"),
+            patch("ccgram.providers.resolve_launch_command", return_value="codex"),
             patch(
                 "ccgram.handlers.topics.window_launch_service.send_to_window",
                 new_callable=AsyncMock,
@@ -334,7 +335,7 @@ class TestLaunchWindowSuccess:
             caps = MagicMock()
             caps.chat_first_command_path = False
             caps.has_yolo_confirmation = False
-            caps.supports_hook = False
+            caps.supports_hook = True
             mock_reg.get.return_value.capabilities = caps
 
             await launch_window(
@@ -343,7 +344,7 @@ class TestLaunchWindowSuccess:
                 WindowLaunchRequest(
                     user_id=100,
                     thread_id=42,
-                    provider_name="claude",
+                    provider_name="codex",
                     cwd=str(tmp_path),
                     mode="normal",
                     pending_text="hello agent",
@@ -351,5 +352,76 @@ class TestLaunchWindowSuccess:
             )
 
         mock_send.assert_awaited_once_with("@5", "hello agent")
+        # Codex 0.147 creates the session lazily on this first prompt.
+        mock_sms.wait_for_session_map_entry.assert_not_awaited()
         # Keys consumed after forwarding
         assert PENDING_THREAD_TEXT not in user_data
+
+    async def test_unready_provider_retains_pending_text_and_never_forwards(
+        self, tmp_path
+    ) -> None:
+        user_data = {
+            PENDING_THREAD_ID: 42,
+            PENDING_THREAD_TEXT: "must not reach startup menu",
+        }
+        query = _make_query()
+        context = _make_context(user_data)
+
+        with (
+            patch(
+                "ccgram.handlers.topics.window_launch_service.tmux_manager"
+            ) as mock_mux,
+            patch("ccgram.handlers.topics.window_launch_service.session_manager"),
+            patch(
+                "ccgram.handlers.topics.window_launch_service.thread_router"
+            ) as mock_router,
+            patch("ccgram.handlers.topics.window_launch_service.topic_orchestration"),
+            patch("ccgram.handlers.topics.window_launch_service.user_preferences"),
+            patch(
+                "ccgram.handlers.topics.window_launch_service.safe_edit",
+                new_callable=AsyncMock,
+            ) as mock_edit,
+            patch(
+                "ccgram.handlers.topics.window_launch_service.provider_registry"
+            ) as mock_registry,
+            patch(
+                "ccgram.handlers.topics.window_launch_service.wait_for_provider_ready",
+                new_callable=AsyncMock,
+                return_value=ProviderReadiness(False, "waiting for Codex prompt"),
+            ),
+            patch(
+                "ccgram.handlers.topics.window_launch_service.send_to_window",
+                new_callable=AsyncMock,
+            ) as mock_send,
+            patch("ccgram.providers.resolve_launch_command", return_value="codex"),
+        ):
+            mock_mux.create_window = AsyncMock(
+                return_value=(True, "created", "project-codex-1", "@5")
+            )
+            mock_mux.stamp_pane_title = AsyncMock()
+            mock_mux.capabilities.native_worktrees = False
+            mock_router.resolve_chat_id.return_value = -100999
+            caps = MagicMock(
+                chat_first_command_path=False,
+                has_yolo_confirmation=False,
+                supports_hook=False,
+            )
+            mock_registry.get.return_value.capabilities = caps
+
+            result = await launch_window(
+                query,
+                context,
+                WindowLaunchRequest(
+                    user_id=100,
+                    thread_id=42,
+                    provider_name="codex",
+                    cwd=str(tmp_path),
+                    mode="normal",
+                    pending_text="must not reach startup menu",
+                ),
+            )
+
+        assert result.success is False
+        mock_send.assert_not_awaited()
+        assert user_data[PENDING_THREAD_TEXT] == "must not reach startup menu"
+        assert "not sent" in mock_edit.call_args.args[1]

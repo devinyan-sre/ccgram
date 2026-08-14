@@ -64,6 +64,8 @@ _TOOL_NAME_ALIASES: dict[str, str] = {
 # Minimum line count to trigger stats + expandable quote for tool results.
 _TOOL_RESULT_QUOTE_THRESHOLD = 3
 
+_INTERNAL_USER_ENVELOPES = ("<permissions", "<environment_context")
+
 
 def _format_codex_tool_result(raw_tool_name: str, output_text: str) -> str:
     """Format a Codex tool result with stats summary and expandable quote.
@@ -118,6 +120,15 @@ def _extract_text_blocks(content: Any) -> str:
             if isinstance(text, str) and text:
                 parts.append(text)
     return "".join(parts)
+
+
+def _is_internal_user_payload(text: str) -> bool:
+    """Identify Codex control envelopes recorded with a misleading user role.
+
+    Only a leading envelope is filtered.  A real message that quotes or
+    discusses ``<environment_context>`` remains visible and deliverable.
+    """
+    return text.lstrip().startswith(_INTERNAL_USER_ENVELOPES)
 
 
 def _parse_tool_arguments(arguments: Any) -> dict[str, Any]:
@@ -426,6 +437,8 @@ def _parse_response_message(
     text = _extract_text_blocks(payload.get("content", ""))
     if not text:
         return [], pending
+    if role == "user" and _is_internal_user_payload(text):
+        return [], pending
     phase = payload.get("phase")
     return (
         [
@@ -484,6 +497,8 @@ def _parse_input_item(
         return [], pending
     content = payload.get("content", "")
     if not isinstance(content, str) or not content:
+        return [], pending
+    if _is_internal_user_payload(content):
         return [], pending
     return ([AgentMessage(text=content, role="user", content_type="text")], pending)
 
@@ -702,16 +717,12 @@ class CodexProvider(JsonlProvider):
         if not isinstance(payload, dict):
             return False
         if entry_type == "response_item" and payload.get("role") == "user":
-            # Skip system/developer messages that look like user
-            content = payload.get("content", [])
-            if isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "input_text":
-                        text = block.get("text", "")
-                        if text.startswith(("<permissions", "<environment_context")):
-                            return False
-            return True
-        return entry_type == "input_item" and payload.get("role") == "user"
+            text = _extract_text_blocks(payload.get("content", []))
+            return bool(text and not _is_internal_user_payload(text))
+        if entry_type == "input_item" and payload.get("role") == "user":
+            content = payload.get("content", "")
+            return not (isinstance(content, str) and _is_internal_user_payload(content))
+        return False
 
     def parse_history_entry(self, entry: dict[str, Any]) -> AgentMessage | None:
         """Parse a single Codex transcript entry for history display."""
@@ -726,7 +737,7 @@ class CodexProvider(JsonlProvider):
                 return None
             content = payload.get("content", "")
             text = _extract_text_blocks(content)
-            if not text:
+            if not text or (role == "user" and _is_internal_user_payload(text)):
                 return None
             return AgentMessage(
                 text=text,
@@ -736,7 +747,7 @@ class CodexProvider(JsonlProvider):
         if entry_type == "input_item" and payload.get("role") == "user":
             content = payload.get("content", "")
             text = content if isinstance(content, str) else ""
-            if not text:
+            if not text or _is_internal_user_payload(text):
                 return None
             return AgentMessage(text=text, role="user", content_type="text")
 

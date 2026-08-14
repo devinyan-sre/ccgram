@@ -132,6 +132,12 @@ _ZH: dict[str, str] = {
     "❌ Please use a named topic. Create a new topic to start a session.": (
         "❌ 请使用具名话题。创建一个新话题以开始会话。"
     ),
+    (
+        "❌ {provider} is not ready. Your message was not sent to the terminal; "
+        "send it again to retry. Details: {error}"
+    ): (
+        "❌ {provider} 尚未就绪。消息未发送到终端，请重新发送以安全重试。详情：{error}"
+    ),
     # /start welcome
     "\U0001f916 *CCGram*\n\nEach topic is a session. Create a new topic to start.": (
         "\U0001f916 *CCGram*\n\n每个话题即一个会话。创建新话题即可开始。"
@@ -178,6 +184,14 @@ _ZH: dict[str, str] = {
     "Unknown provider": "未知 provider",
     "Invalid mode": "无效模式",
     "Unknown mode": "未知模式",
+    (
+        "{provider} did not become ready, so your pending message was not sent. "
+        "Send it again to retry safely. Details: {error}"
+    ): ("{provider} 未能就绪，因此待发消息未送出。请重新发送以安全重试。详情：{error}"),
+    (
+        "{provider} started, but session registration timed out. Your pending "
+        "message was not sent; send it again to retry safely."
+    ): ("{provider} 已启动，但会话注册超时。待发消息未送出；请重新发送以安全重试。"),
     "❌ Selection expired. Tap Cancel and retry.": "❌ 选择已过期。请点击取消后重试。",
     "⏳ Creating window, please wait…": "⏳ 窗口创建中,请稍候…",
     # Workspace picker (herdr)

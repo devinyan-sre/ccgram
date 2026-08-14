@@ -63,7 +63,7 @@ from ..user_state import (
     PENDING_WORKTREE_REPO,
     RECOVERY_WINDOW_ID,
 )
-from ... import window_query
+from ... import provider_readiness, window_query
 from ...thread_router import thread_router
 from ...providers import get_provider_for_window
 from ...multiplexer import multiplexer as tmux_manager
@@ -520,7 +520,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await handle_text_message(update, context)
 
 
-async def handle_text_message(
+async def handle_text_message(  # noqa: C901 - explicit routing chain
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Orchestrate text message handling via bool early-return chain.
@@ -598,6 +598,31 @@ async def handle_text_message(
             window_id,
             text,
             message,
+        )
+        return
+
+    readiness = await provider_readiness.wait_for_provider_ready(
+        window_id,
+        provider.capabilities.name,
+        timeout=20.0,
+        restart_if_shell=True,
+    )
+    if not readiness.ready:
+        logger.warning(
+            "Message blocked because provider was not ready",
+            window_id=window_id,
+            provider=provider.capabilities.name,
+            reason=readiness.reason,
+        )
+        await safe_reply(
+            message,
+            t(
+                "❌ {provider} is not ready. Your message was not sent to the "
+                "terminal; send it again to retry. Details: {error}"
+            ).format(
+                provider=provider.capabilities.name,
+                error=readiness.reason,
+            ),
         )
         return
 

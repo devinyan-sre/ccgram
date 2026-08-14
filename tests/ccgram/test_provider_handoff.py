@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
-from ccgram.provider_handoff import handoff_provider
+from ccgram.provider_handoff import _provider_ready, handoff_provider
+from ccgram.provider_readiness import ProviderReadiness
 from ccgram.topic_naming import ReservedTopicName
 
 
@@ -79,6 +80,31 @@ async def test_handoff_binds_only_after_replacement_is_ready(old_view) -> None:
     send.assert_awaited_once_with("@new", "continue here")
     mux.rename_window.assert_awaited_once_with("@new", "project-2")
     mux.kill_window.assert_awaited_once_with("@old")
+
+
+async def test_codex_handoff_accepts_ready_tui_before_lazy_transcript() -> None:
+    with (
+        patch("ccgram.provider_handoff.tmux_manager") as mux,
+        patch(
+            "ccgram.provider_handoff.wait_for_provider_ready",
+            new=AsyncMock(return_value=ProviderReadiness(True)),
+        ),
+        patch(
+            "ccgram.provider_handoff.discover_and_register_transcript",
+            new_callable=AsyncMock,
+        ) as discover,
+        patch(
+            "ccgram.provider_handoff.read_session_map_raw",
+            new_callable=AsyncMock,
+        ) as read_map,
+    ):
+        mux.find_window_by_id = AsyncMock(return_value=MagicMock())
+
+        ready = await _provider_ready("@new", "codex")
+
+    assert ready is True
+    discover.assert_not_awaited()
+    read_map.assert_not_awaited()
 
 
 async def test_handoff_startup_failure_rolls_back_and_keeps_binding(old_view) -> None:

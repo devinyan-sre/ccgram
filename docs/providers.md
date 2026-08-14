@@ -115,6 +115,12 @@ Claude 任务状态源自转录文件，而非抓取终端底栏。CCGram 识别
 
 Codex CLI 支持功能开关控制的 hooks。使用 `ccgram hook --provider codex --install` 安装 ccgram 的生命周期 hooks；ccgram 会在用户级 `~/.codex/hooks.json` 中写入 `SessionStart` 和 `Stop` 条目，并在 `~/.codex/config.toml` 中启用 `[features].codex_hooks = true`。转录发现仍作为回退手段和消息事实来源。
 
+### 启动与消息安全
+
+CCGram 只会在预期 Provider 已接管终端后才转发消息，对 Codex 还会确认 TUI 已就绪。新建 Codex 会话遇到阻塞式版本更新菜单时，机器人会根据当前光标和菜单标签选择 **Skip until next version**，避免首条用户消息误选 **Update now**。CLI 升级应由运维流程单独执行。
+
+已绑定的 AI Provider 意外退回 Bash 时，下一条消息会先按持久化的 Provider 和会话模式尝试重启，确认就绪后再转发原消息。如果重启或就绪检查失败，消息会被拦截并在话题中返回错误，不会落入 Bash 执行。Codex transcript 中以 `<environment_context>` 或 `<permissions>` 开头的内部控制块也不会被回推或计入用户历史；正常讨论这些标签的用户文本不受影响。
+
 <a id="interactive-prompts"></a>
 
 ### 交互式提示

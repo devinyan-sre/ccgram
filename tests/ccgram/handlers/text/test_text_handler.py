@@ -14,6 +14,7 @@ from ccgram.handlers.text.text_handler import (
     _reply_quote_send_text,
 )
 from ccgram.handlers.polling.polling_state import lifecycle_strategy
+from ccgram.provider_readiness import ProviderReadiness
 from ccgram.handlers.topics.directory_browser import (
     STATE_BROWSING_DIRECTORY,
     STATE_KEY,
@@ -33,6 +34,16 @@ def _clean_lifecycle_state():
     lifecycle_strategy._states.clear()
     yield
     lifecycle_strategy._states.clear()
+
+
+@pytest.fixture(autouse=True)
+def _provider_is_ready_by_default():
+    with patch(
+        f"{_TH}.provider_readiness.wait_for_provider_ready",
+        new_callable=AsyncMock,
+        return_value=ProviderReadiness(True),
+    ):
+        yield
 
 
 class TestCheckUiGuards:
@@ -456,6 +467,98 @@ class TestShellProviderRouting:
             await handle_text_message(update, context)
 
             mock_shell.assert_not_called()
+
+
+class TestProviderReadinessRouting:
+    @patch(f"{_TH}._forward_message", new_callable=AsyncMock)
+    @patch(f"{_TH}._handle_unbound_topic", new_callable=AsyncMock, return_value=False)
+    @patch(f"{_TH}._handle_dead_window", new_callable=AsyncMock, return_value=False)
+    @patch(f"{_TH}.get_provider_for_window")
+    @patch(f"{_TH}.thread_router")
+    async def test_relaunched_provider_receives_original_message_only_when_ready(
+        self,
+        mock_router: MagicMock,
+        mock_get_provider: MagicMock,
+        _mock_dead: AsyncMock,
+        _mock_unbound: AsyncMock,
+        mock_forward: AsyncMock,
+    ) -> None:
+        from ccgram.handlers.text.text_handler import handle_text_message
+
+        provider = MagicMock()
+        provider.capabilities.name = "codex"
+        provider.capabilities.chat_first_command_path = False
+        mock_get_provider.return_value = provider
+        mock_router.get_window_for_thread.return_value = "@7"
+
+        update = MagicMock()
+        update.effective_user.id = 100
+        message = AsyncMock()
+        message.text = "continue the task"
+        message.message_thread_id = 42
+        message.chat.type = "supergroup"
+        message.chat.id = -100
+        message.reply_to_message = None
+        update.message = message
+        context = MagicMock(user_data={}, bot=AsyncMock())
+
+        with patch(
+            f"{_TH}.provider_readiness.wait_for_provider_ready",
+            new_callable=AsyncMock,
+            return_value=ProviderReadiness(True, restarted=True),
+        ) as mock_ready:
+            await handle_text_message(update, context)
+
+        mock_ready.assert_awaited_once_with(
+            "@7", "codex", timeout=20.0, restart_if_shell=True
+        )
+        mock_forward.assert_awaited_once()
+        assert mock_forward.call_args.args[0] == "@7"
+        assert mock_forward.call_args.args[3] == "continue the task"
+
+    @patch(f"{_TH}.safe_reply", new_callable=AsyncMock)
+    @patch(f"{_TH}._forward_message", new_callable=AsyncMock)
+    @patch(f"{_TH}._handle_unbound_topic", new_callable=AsyncMock, return_value=False)
+    @patch(f"{_TH}._handle_dead_window", new_callable=AsyncMock, return_value=False)
+    @patch(f"{_TH}.get_provider_for_window")
+    @patch(f"{_TH}.thread_router")
+    async def test_unready_provider_blocks_message_from_reaching_terminal(
+        self,
+        mock_router: MagicMock,
+        mock_get_provider: MagicMock,
+        _mock_dead: AsyncMock,
+        _mock_unbound: AsyncMock,
+        mock_forward: AsyncMock,
+        mock_reply: AsyncMock,
+    ) -> None:
+        from ccgram.handlers.text.text_handler import handle_text_message
+
+        provider = MagicMock()
+        provider.capabilities.name = "codex"
+        provider.capabilities.chat_first_command_path = False
+        mock_get_provider.return_value = provider
+        mock_router.get_window_for_thread.return_value = "@7"
+
+        update = MagicMock()
+        update.effective_user.id = 100
+        message = AsyncMock()
+        message.text = "must not reach bash"
+        message.message_thread_id = 42
+        message.chat.type = "supergroup"
+        message.chat.id = -100
+        update.message = message
+        context = MagicMock(user_data={}, bot=AsyncMock())
+
+        with patch(
+            f"{_TH}.provider_readiness.wait_for_provider_ready",
+            new_callable=AsyncMock,
+            return_value=ProviderReadiness(False, "expected codex, found shell"),
+        ):
+            await handle_text_message(update, context)
+
+        mock_forward.assert_not_awaited()
+        mock_reply.assert_awaited_once()
+        assert "not sent" in mock_reply.call_args.args[1]
 
 
 def _reply_message(

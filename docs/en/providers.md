@@ -93,6 +93,12 @@ Claude task state is derived from the transcript, not from terminal footer scrap
 
 Codex CLI supports feature-flagged hooks. Install ccgram's lifecycle hooks with `ccgram hook --provider codex --install`; ccgram writes user-level `~/.codex/hooks.json` entries for `SessionStart` and `Stop` and enables `[features].codex_hooks = true` in `~/.codex/config.toml`. Transcript discovery remains as fallback and as the source of message truth.
 
+### Startup and Delivery Safety
+
+CCGram forwards a message only after the expected provider owns the terminal; for Codex it also verifies that the TUI is ready. If a new Codex session shows the blocking version-update menu, the bot locates **Skip until next version** from the current cursor and option labels. This prevents the first user message from accidentally selecting **Update now**; CLI upgrades should run as a separate operator workflow.
+
+If a bound AI provider unexpectedly exits to Bash, the next message first attempts to relaunch the persisted provider with its saved approval mode. The original message is forwarded only after readiness succeeds. A failed relaunch or readiness check blocks the message and reports the error in the topic, so user text is never executed by Bash. Internal Codex transcript control envelopes beginning with `<environment_context>` or `<permissions>` are also excluded from Telegram delivery and user history; ordinary user text that discusses those tags remains visible.
+
 ### Interactive Prompts
 
 Codex interactive prompts (question lists, permission prompts, and other selection UIs) are detected from terminal screen content via pyte and shown with inline keyboard controls.

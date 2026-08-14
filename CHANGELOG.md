@@ -28,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failed media refresh disables only that view so ordinary messages retain
   priority.
 
+### Fixed
+
+- Gate provider delivery on the expected CLI and Codex's ready TUI, safely skip its
+  blocking update menu before the first prompt, and relaunch bound AI providers
+  that unexpectedly fall back to Bash. Failed recovery now blocks the message
+  instead of typing user text into a shell.
+- Exclude Codex `<environment_context>` and `<permissions>` control envelopes
+  from Telegram delivery, recall history, and human-turn detection without
+  hiding real user messages that merely discuss those tags.
+
 ## [4.7.1] - 2026-07-24
 
 ### Fixed

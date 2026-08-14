@@ -367,6 +367,63 @@ class TestCodexTranscriptParsing:
         }
         assert codex.is_user_transcript_entry(entry) is False
 
+    @pytest.mark.parametrize("envelope", ["permissions", "environment_context"])
+    def test_internal_user_envelope_is_filtered_everywhere(self, envelope: str) -> None:
+        codex = CodexProvider()
+        entry = {
+            "type": "response_item",
+            "payload": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": f"<{envelope}>internal</{envelope}>",
+                    }
+                ],
+            },
+        }
+
+        messages, _ = codex.parse_transcript_entries([entry], {})
+
+        assert messages == []
+        assert codex.is_user_transcript_entry(entry) is False
+        assert codex.parse_history_entry(entry) is None
+
+    def test_human_message_discussing_environment_context_is_preserved(self) -> None:
+        codex = CodexProvider()
+        text = "Why did I receive an <environment_context> block?"
+        entry = {
+            "type": "response_item",
+            "payload": {
+                "role": "user",
+                "content": [{"type": "input_text", "text": text}],
+            },
+        }
+
+        messages, _ = codex.parse_transcript_entries([entry], {})
+
+        assert [message.text for message in messages] == [text]
+        assert codex.is_user_transcript_entry(entry) is True
+        history = codex.parse_history_entry(entry)
+        assert history is not None
+        assert history.text == text
+
+    def test_internal_input_item_is_filtered(self) -> None:
+        codex = CodexProvider()
+        entry = {
+            "type": "input_item",
+            "payload": {
+                "role": "user",
+                "content": "  <environment_context>internal</environment_context>",
+            },
+        }
+
+        messages, _ = codex.parse_transcript_entries([entry], {})
+
+        assert messages == []
+        assert codex.is_user_transcript_entry(entry) is False
+        assert codex.parse_history_entry(entry) is None
+
 
 class TestFormatCodexToolResult:
     @pytest.mark.parametrize(

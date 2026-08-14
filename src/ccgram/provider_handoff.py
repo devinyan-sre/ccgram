@@ -17,11 +17,11 @@ from .metrics import PROVIDER_HANDOFFS
 from .multiplexer import multiplexer as tmux_manager
 from .multiplexer.window_ops import send_to_window
 from .providers import (
-    detect_provider_from_pane,
     get_provider_for_window,
     has_yolo_mode,
     resolve_launch_command,
 )
+from .provider_readiness import wait_for_provider_ready
 from .session import session_manager
 from .session_map import read_session_map_raw, session_map_prefix
 from .thread_router import thread_router
@@ -57,12 +57,19 @@ async def _provider_ready(window_id: str, provider_name: str) -> bool:
     if window is None:
         return False
 
-    detected = await detect_provider_from_pane(
-        window.pane_current_command, window_id=window_id
+    readiness = await wait_for_provider_ready(
+        window_id,
+        provider_name,
+        timeout=0.0,
     )
-    if detected and detected != provider_name:
+    if not readiness.ready:
         return False
     if provider_name == "shell":
+        return True
+
+    if provider_name == "codex":
+        # Modern Codex creates its thread/transcript lazily on the first prompt;
+        # a stable TUI is sufficient for a safe context send.
         return True
 
     await discover_and_register_transcript(window_id, _window=window)
