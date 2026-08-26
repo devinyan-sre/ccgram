@@ -76,9 +76,9 @@ __all__ = [
 logger = structlog.get_logger()
 
 # Supported herdr socket protocols (``herdr status`` → ``server.protocol``).
-# 14–16 are accepted without warnings. Other versions are attempted with a
+# 14–17 and 19–20 are accepted without warnings. Other versions are attempted with a
 # warning so ccgram remains usable across herdr upgrades and downgrades.
-HERDR_SUPPORTED_PROTOCOLS = frozenset({14, 15, 16})
+HERDR_SUPPORTED_PROTOCOLS = frozenset({14, 15, 16, 17, 19, 20})
 HERDR_PROTOCOL_VERSION = max(HERDR_SUPPORTED_PROTOCOLS)
 
 # Static capability declaration for the herdr backend (design Task 7).

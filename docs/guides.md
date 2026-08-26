@@ -211,6 +211,7 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_WHISPER_BASE_URL` / `--whisper-base-url`     | _（提供方默认值）_             | 自定义 OpenAI 兼容端点 URL                                                                           |
 | `CCGRAM_WHISPER_MODEL` / `--whisper-model`           | _（提供方默认值）_             | 模型覆盖（例如 `whisper-large-v3-turbo`）                                                            |
 | `CCGRAM_WHISPER_LANGUAGE` / `--whisper-language`     | _（自动检测）_                 | 强制指定语言代码（例如 `en`、`zh`）                                                                  |
+| `CCGRAM_VOICE_AUTOSEND`                              | `false`                        | 语音转写成功后直接发给代理，跳过确认/丢弃按钮；仅建议在可信的低摩擦听写场景开启                       |
 | `CCGRAM_LLM_PROVIDER`                                | _（空 = 禁用）_                | 用于 shell 命令生成的 LLM 提供方                                                                     |
 | `CCGRAM_LLM_API_KEY`                                 | _（空）_                       | LLM 提供方的 API 密钥（仅环境变量）                                                                  |
 | `CCGRAM_LLM_BASE_URL`                                | _（取自提供方）_               | 自定义 LLM API 端点                                                                                  |
@@ -219,6 +220,7 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_LIVE_VIEW_INTERVAL` / `--live-view-interval` | `5`                            | 实时视图刷新间隔（秒，最小 1）                                                                       |
 | `CCGRAM_LIVE_VIEW_TIMEOUT` / `--live-view-timeout`   | `300`                          | 实时视图自动停止超时（秒，最小 1）                                                                   |
 | `CCGRAM_STATUS_MODE` / `--status-mode`               | `system`                       | 话题表情配色方案：`system`（绿=工作中）或 `user`（绿=就绪）                                          |
+| `CCGRAM_HIDE_STATUS`                                 | `false`                        | 隐藏临时的 working/idle 状态气泡；代理回复、话题表情和命令仍正常工作                                  |
 | `CCGRAM_HIDE_TOOL_CALLS` / `--hide-tool-calls`       | `false`                        | 设为 `true` 全局隐藏 `tool_use`/`tool_result` 消息（每窗口可用 `/toolcalls` 覆盖）                   |
 | `CCGRAM_PROMPT_MODE` / `--prompt-mode`               | `wrap`                         | Shell 提示符标记：`wrap`（追加 `⌘N⌘`）或 `replace`（旧式 `{prefix}:N❯`）                             |
 | `CCGRAM_PROMPT_MARKER`                               | `ccgram`                       | 仅 `replace` 模式使用的标记前缀                                                                      |
@@ -335,6 +337,8 @@ CCGRAM_WHISPER_LANGUAGE=en                     # omit for auto-detect
 3. 转写结果显示，并附带 **✓ 发送给代理** 和 **✗ 丢弃** 按钮
 4. 点击 **发送** 将文本转发给代理，或点击 **丢弃** 取消
 
+如需免确认听写，可设置 `CCGRAM_VOICE_AUTOSEND=true`。这是显式选择项；默认仍保留确认步骤，避免转写错误直接成为代理指令。
+
 在 shell 话题中，语音转写会自动经过 LLM 生成命令（需设置 `CCGRAM_LLM_PROVIDER`）。在代理话题中，转写文本直接发送给代理。
 
 将 `CCGRAM_WHISPER_PROVIDER` 留空（默认）即可禁用语音转写。
@@ -369,6 +373,8 @@ CCGRAM_WHISPER_LANGUAGE=en                     # omit for auto-detect
 ## Herdr 后端（可选复用器）
 
 ccgram 通过一个后端中立的接缝与终端复用器通信。tmux 是默认后端；[herdr](https://github.com/ogulcancelik/herdr) 是可选替代方案，通过 `CCGRAM_MULTIPLEXER=herdr` 启用。其他一切 —— 话题、提供方、hooks、状态、恢复 —— 行为完全相同；只有底层复用器变了。
+
+已验证并静默接受 Herdr socket protocol `14、15、16、17、19、20`；未知版本仍会尽力运行并记录兼容性警告。
 
 <a id="setup-1"></a>
 
@@ -617,6 +623,8 @@ ccgram-codex-2
 `/replay [数量]` 从 transcript 重新发送最近 1–10 条助手文本，不会回退监控游标，因此不会影响正常增量投递。默认重放 3 条，长内容自动作为 `.txt` 文件发送。
 
 `/ops` 汇总所有话题的队列数量、未完成任务、持久化 outbox、重试数和 transcript 投递积压。助手文本在进入内存队列前会写入 `~/.ccgram/outbox.json`，Telegram 明确确认后才删除；服务重启会自动恢复未确认项。队列按 `用户 + 话题` 隔离，一个话题遭遇 Telegram 超时不会阻塞同一用户的其他话题。积压超过 30 秒还会向运营者发送一次告警，恢复后记录恢复指标。
+
+助手产生未完成的流式文本时，ccgram 会先使用 Telegram 原生草稿显示实时预览；最终回复仍进入持久化 Outbox，只有 Telegram 确认后才完成投递。草稿停滞 25 秒会自动清理，且草稿 API 不可用时自动降级，不影响最终回复。
 
 <a id="live-view"></a>
 

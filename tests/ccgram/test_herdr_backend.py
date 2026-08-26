@@ -1505,7 +1505,7 @@ async def test_ensure_session_raises_on_non_object_json_status() -> None:
         await _manager(fake).ensure_session()
 
 
-@pytest.mark.parametrize("protocol", [13, 17, "17", None, []])
+@pytest.mark.parametrize("protocol", [13, 18, "17", None, []])
 async def test_ensure_session_warns_and_continues_for_unverified_protocol(
     protocol: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:

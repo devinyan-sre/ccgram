@@ -1,7 +1,9 @@
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from ccgram.handlers.messaging_pipeline import message_routing
 from ccgram.handlers.messaging_pipeline.message_routing import handle_new_message
 from ccgram.session_monitor import NewMessage
 
@@ -32,6 +34,19 @@ def _make_msg(
 @pytest.fixture
 def bot() -> MagicMock:
     return MagicMock()
+
+
+@pytest.fixture(autouse=True)
+async def _clear_drafts():
+    yield
+    for task in message_routing._draft_expiry_tasks.values():
+        task.cancel()
+    if message_routing._draft_expiry_tasks:
+        await asyncio.gather(
+            *message_routing._draft_expiry_tasks.values(), return_exceptions=True
+        )
+    message_routing._draft_expiry_tasks.clear()
+    message_routing._active_drafts.clear()
 
 
 @pytest.fixture
@@ -149,3 +164,46 @@ async def test_complete_message_enqueues_content(bot, mock_deps):
     assert kwargs["user_id"] == 100
     assert kwargs["window_id"] == "@5"
     assert kwargs["thread_id"] == 42
+
+
+async def test_incomplete_assistant_text_streams_then_final_enqueues(bot, mock_deps):
+    draft = MagicMock(mode="streaming")
+    draft.start = AsyncMock()
+    draft.replace = AsyncMock()
+    draft.abort = AsyncMock()
+    with (
+        patch.object(message_routing, "unwrap_bot", return_value=bot),
+        patch.object(message_routing, "DraftStream", return_value=draft) as draft_cls,
+    ):
+        await handle_new_message(_make_msg(text="first", is_complete=False), bot)
+        await handle_new_message(_make_msg(text="second", is_complete=False), bot)
+        await handle_new_message(_make_msg(text="final", is_complete=True), bot)
+
+    draft_cls.assert_called_once()
+    draft.start.assert_awaited_once_with("first")
+    draft.replace.assert_awaited_once_with("second")
+    draft.abort.assert_awaited_once()
+    mock_deps["eq"].assert_awaited_once()
+
+
+async def test_stalled_assistant_draft_expires(bot, mock_deps, monkeypatch):
+    monkeypatch.setattr(message_routing, "_DRAFT_TTL_SECONDS", 0.01)
+    draft = MagicMock(mode="streaming")
+    draft.start = AsyncMock()
+    draft.abort = AsyncMock()
+    with (
+        patch.object(message_routing, "unwrap_bot", return_value=bot),
+        patch.object(message_routing, "DraftStream", return_value=draft),
+    ):
+        await handle_new_message(_make_msg(text="partial", is_complete=False), bot)
+        await asyncio.sleep(0.02)
+
+    assert message_routing._active_drafts == {}
+    draft.abort.assert_awaited_once()
+
+
+async def test_incomplete_user_message_is_not_streamed(bot, mock_deps):
+    await handle_new_message(
+        _make_msg(text="partial", role="user", is_complete=False), bot
+    )
+    mock_deps["eq"].assert_not_called()

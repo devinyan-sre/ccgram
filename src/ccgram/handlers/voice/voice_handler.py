@@ -118,6 +118,34 @@ async def _send_confirm_message(
         context.user_data.setdefault(VOICE_PENDING, {})[key] = text
 
 
+async def _deliver_transcription(
+    message: Message,
+    text: str,
+    user_id: int,
+    thread_id: int | None,
+    window_id: str,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Show confirmation, or auto-send when explicitly enabled."""
+    if config.voice_autosend is not True:
+        await _send_confirm_message(message, text, context)
+        return
+
+    await safe_reply(message, t("🎤 Transcribed:\n\n{text}").format(text=text))
+    from ...telegram_client import PTBTelegramClient
+    from .voice_callbacks import send_transcribed_text
+    from ..messaging_pipeline.message_sender import ack_reaction
+
+    client = PTBTelegramClient(message.get_bot())
+    success, error = await send_transcribed_text(
+        client, user_id, thread_id, window_id, text
+    )
+    if success:
+        await ack_reaction(client, message.chat.id, message.message_id)
+    else:
+        await safe_reply(message, f"❌ {error or t('Failed to send')}")
+
+
 async def handle_voice_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -177,4 +205,11 @@ async def handle_voice_message(
         await safe_reply(message, t("⚠️ Could not transcribe audio (empty result)."))
         return
 
-    await _send_confirm_message(message, result.text, context)
+    await _deliver_transcription(
+        message,
+        result.text,
+        user.id,
+        thread_id,
+        window_id,
+        context,
+    )

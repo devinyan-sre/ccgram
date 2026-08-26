@@ -18,6 +18,7 @@ import structlog
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import TelegramError
 
+from ...config import config
 from ...session_state_ports.live_session_state import get_task_snapshot, get_wait_header
 from ...expandable_quote import format_expandable_quote
 from ...i18n import t
@@ -291,6 +292,9 @@ async def send_status_text(
     in-place via ``edit_with_fallback`` (entity-formatted, plain-text fallback
     on TelegramError).  Same-window same-text calls are a no-op.
     """
+    if config.hide_status is True:
+        return
+
     skey = (user_id, thread_id_or_0)
     thread_id: int | None = thread_id_or_0 if thread_id_or_0 != 0 else None
     chat_id = thread_router.resolve_chat_id(user_id, thread_id)

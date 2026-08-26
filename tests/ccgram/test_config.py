@@ -46,6 +46,19 @@ class TestConfigValid:
         cfg = Config()
         assert cfg.group_id == -1001234567890
 
+    @pytest.mark.parametrize(
+        ("env_var", "attribute"),
+        [
+            ("CCGRAM_VOICE_AUTOSEND", "voice_autosend"),
+            ("CCGRAM_HIDE_STATUS", "hide_status"),
+        ],
+    )
+    def test_optional_visibility_flags(self, monkeypatch, env_var, attribute):
+        monkeypatch.delenv(env_var, raising=False)
+        assert getattr(Config(), attribute) is False
+        monkeypatch.setenv(env_var, "true")
+        assert getattr(Config(), attribute) is True
+
 
 @pytest.mark.usefixtures("_base_env")
 class TestOwnWindowId:

@@ -189,6 +189,7 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_WHISPER_BASE_URL` / `--whisper-base-url`     | _(provider default)_           | Custom OpenAI-compatible endpoint URL                                                                |
 | `CCGRAM_WHISPER_MODEL` / `--whisper-model`           | _(provider default)_           | Model override (e.g., `whisper-large-v3-turbo`)                                                      |
 | `CCGRAM_WHISPER_LANGUAGE` / `--whisper-language`     | _(auto-detect)_                | Force language code (e.g., `en`, `zh`)                                                               |
+| `CCGRAM_VOICE_AUTOSEND`                              | `false`                        | Send successful voice transcriptions directly, skipping confirm/discard; enable only for trusted dictation workflows |
 | `CCGRAM_LLM_PROVIDER`                                | _(empty = disabled)_           | LLM provider for shell command generation                                                            |
 | `CCGRAM_LLM_API_KEY`                                 | _(empty)_                      | API key for LLM provider (env only)                                                                  |
 | `CCGRAM_LLM_BASE_URL`                                | _(from provider)_              | Custom LLM API endpoint                                                                              |
@@ -197,6 +198,7 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_LIVE_VIEW_INTERVAL` / `--live-view-interval` | `5`                            | Live view refresh interval in seconds (min 1)                                                        |
 | `CCGRAM_LIVE_VIEW_TIMEOUT` / `--live-view-timeout`   | `300`                          | Live view auto-stop timeout in seconds (min 1)                                                       |
 | `CCGRAM_STATUS_MODE` / `--status-mode`               | `system`                       | Topic emoji color scheme: `system` (green=working) or `user` (green=ready)                           |
+| `CCGRAM_HIDE_STATUS`                                 | `false`                        | Hide transient working/idle bubbles; replies, topic emoji, and commands remain available             |
 | `CCGRAM_HIDE_TOOL_CALLS` / `--hide-tool-calls`       | `false`                        | Set `true` to globally hide `tool_use`/`tool_result` messages (per-window override via `/toolcalls`) |
 | `CCGRAM_PROMPT_MODE` / `--prompt-mode`               | `wrap`                         | Shell prompt marker: `wrap` (append `⌘N⌘`) or `replace` (legacy `{prefix}:N❯`)                       |
 | `CCGRAM_PROMPT_MARKER`                               | `ccgram`                       | Marker prefix used only by `replace` mode                                                            |
@@ -303,6 +305,8 @@ CCGRAM_WHISPER_LANGUAGE=en                     # omit for auto-detect
 3. Transcription appears with **✓ Send to agent** and **✗ Discard** buttons
 4. Tap **Send** to forward the text to the agent, or **Discard** to cancel
 
+Set `CCGRAM_VOICE_AUTOSEND=true` for confirmation-free dictation. It is opt-in; confirmation remains the default so transcription mistakes do not become agent instructions.
+
 In shell topics, voice transcriptions are automatically routed through the LLM for command generation (if `CCGRAM_LLM_PROVIDER` is set). In agent topics, the transcribed text is sent directly to the agent.
 
 Leave `CCGRAM_WHISPER_PROVIDER` empty (the default) to disable voice transcription.
@@ -334,6 +338,8 @@ When ccgram starts inside an existing tmux session, it auto-detects the session 
 
 ccgram talks to the terminal multiplexer through a backend-neutral seam. tmux is the default; [herdr](https://github.com/ogulcancelik/herdr) is an opt-in alternative selected with `CCGRAM_MULTIPLEXER=herdr`. Everything else — topics, providers, hooks, status, recovery — works the same; only the multiplexer underneath changes.
 
+Herdr socket protocols `14`, `15`, `16`, `17`, `19`, and `20` are verified and accepted without warnings. Unknown versions remain best-effort and emit a compatibility warning.
+
 ### Setup
 
 1. **Install herdr** and make sure the `herdr` binary is in `PATH`. Start its server so the control socket exists.
@@ -350,7 +356,7 @@ CCGRAM_MULTIPLEXER=herdr
 
 ### Protocol version pinning
 
-ccgram accepts herdr socket protocols 14, 15, and 16 without warnings. On the first call it reads `herdr status`; an older, newer, missing, or otherwise unknown protocol emits a warning and ccgram continues in best-effort mode, so CLI-backed operations can still work after a herdr upgrade or downgrade. A stopped server, failed status command, or malformed status response still prevents startup. Run the live herdr contract suite before relying on an untested protocol.
+ccgram accepts herdr socket protocols 14–17 and 19–20 without warnings. On the first call it reads `herdr status`; an older, newer, missing, or otherwise unknown protocol emits a warning and ccgram continues in best-effort mode, so CLI-backed operations can still work after a herdr upgrade or downgrade. A stopped server, failed status command, or malformed status response still prevents startup. Run the live herdr contract suite before relying on an untested protocol.
 
 ### Differences from tmux
 
@@ -555,6 +561,8 @@ Legacy and manually edited names are not overwritten. Run `/autoname` inside an 
 `/replay [count]` safely resends the latest 1–10 assistant text replies without moving the monitor cursor. It defaults to three replies and sends oversized output as a `.txt` document.
 
 `/ops` summarizes topic queues, unfinished tasks, durable outbox entries, retries, and transcript delivery lag. Assistant text is atomically journaled to `~/.ccgram/outbox.json` before entering memory and removed only after Telegram acknowledges it; unconfirmed entries are restored on restart. Queues are isolated by user and topic, so one Telegram timeout cannot block another topic. A lag persisting for 30 seconds sends one operator alert and records a recovery metric when it clears.
+
+Incomplete assistant snapshots use Telegram-native drafts for a live preview. The final reply still goes through the durable Outbox and completes only after Telegram acknowledges it. Stalled drafts expire after 25 seconds; unavailable draft APIs degrade without affecting final delivery.
 
 ## Live View
 

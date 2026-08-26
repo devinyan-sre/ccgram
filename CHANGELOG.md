@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Telegram-native streaming drafts for incomplete assistant snapshots; final
+  replies still use the crash-safe persistent Outbox. Stalled drafts expire
+  automatically and unsupported Bot API deployments degrade safely.
+- Optional `CCGRAM_VOICE_AUTOSEND` and `CCGRAM_HIDE_STATUS` controls, plus
+  verified Herdr protocol compatibility for 17, 19, and 20.
+
 - Transactional `/handoff <provider> [context]` replacement that preserves the
   old topic/window until the new process and transcript are verified.
 - Persistent `/park`, plus `/wake`, `/diag`, and `/replay` topic lifecycle and
@@ -29,6 +35,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   priority.
 
 ### Fixed
+
+- Harden Telegram HTTP recovery against concurrent stale-client failures and
+  use bounded per-chat topic probes with flood-control backoff.
+- Preserve the original provider when an agent exits to a shell, and ensure
+  list-based resume never launches a session with the wrong provider.
+- Detect transcript truncation, atomic replacement, in-place rewrite, and
+  mid-read races without replaying append-only history; delivery IDs now carry
+  a content-generation fingerprint.
+- Preserve Unicode upload filenames, split Herdr literal input from Enter, and
+  suppress Mini App WebApp buttons in group topics where Telegram rejects them.
 
 - Gate provider delivery on the expected CLI and Codex's ready TUI, safely skip its
   blocking update menu before the first prompt, and relaunch bound AI providers

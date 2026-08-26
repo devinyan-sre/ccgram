@@ -173,6 +173,18 @@ class Config:
         self.whisper_base_url: str = os.getenv("CCGRAM_WHISPER_BASE_URL", "")
         self.whisper_model: str = os.getenv("CCGRAM_WHISPER_MODEL", "")
         self.whisper_language: str = os.getenv("CCGRAM_WHISPER_LANGUAGE", "")
+        # Voice confirmation is safer by default; trusted dictation workflows
+        # can opt into immediate delivery.
+        self.voice_autosend: bool = os.getenv(
+            "CCGRAM_VOICE_AUTOSEND", "false"
+        ).lower() in ("1", "true", "yes")
+        # Hide only transient working/idle status bubbles. Replies and command
+        # controls remain available through their normal paths.
+        self.hide_status: bool = os.getenv("CCGRAM_HIDE_STATUS", "false").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
 
         # Voice replies (text-to-speech)
         # CCGRAM_TTS_PROVIDER: empty = disabled; "edge" = edge-tts; "openai" = OpenAI TTS

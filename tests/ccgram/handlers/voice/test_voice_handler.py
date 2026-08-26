@@ -57,6 +57,43 @@ def _make_callback_query(data: str, message_id: int = 42) -> MagicMock:
 
 
 class TestHandleVoiceMessage:
+    @patch(f"{_VH}.config")
+    @patch(f"{_VH}.safe_reply", new_callable=AsyncMock)
+    async def test_voice_autosend_skips_confirmation(
+        self, mock_reply: AsyncMock, mock_config: MagicMock
+    ) -> None:
+        from ccgram.handlers.voice import voice_handler
+
+        mock_config.voice_autosend = True
+        message = _make_update().message
+        mock_reply.return_value = MagicMock()
+        with (
+            patch(
+                f"{_VC}.send_transcribed_text",
+                new_callable=AsyncMock,
+                return_value=(True, None),
+            ) as mock_send,
+            patch(
+                "ccgram.handlers.messaging_pipeline.message_sender.ack_reaction",
+                new_callable=AsyncMock,
+            ) as mock_ack,
+        ):
+            await voice_handler._deliver_transcription(
+                message,
+                "deploy it",
+                100,
+                42,
+                "@0",
+                MagicMock(user_data={}),
+            )
+
+        mock_send.assert_awaited_once()
+        mock_ack.assert_awaited_once()
+        assert all(
+            call.kwargs.get("reply_markup") is None
+            for call in mock_reply.call_args_list
+        )
+
     @patch(f"{_VH}._download_voice", new_callable=AsyncMock)
     @patch(f"{_VH}.thread_router")
     @patch(f"{_VH}.config")
