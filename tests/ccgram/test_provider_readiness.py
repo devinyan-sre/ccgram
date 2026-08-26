@@ -5,11 +5,26 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 import pytest
 
 from ccgram.provider_readiness import (
+    StrategyInspection,
     _codex_update_navigation,
+    get_readiness_strategy,
+    register_readiness_strategy,
     wait_for_provider_ready,
 )
 
 _MOD = "ccgram.provider_readiness"
+
+
+async def test_custom_provider_readiness_strategy_can_be_registered() -> None:
+    class CustomStrategy:
+        async def inspect(self, window_id: str, pane_text: str) -> StrategyInspection:
+            assert window_id == "@custom"
+            assert pane_text == "READY"
+            return StrategyInspection(True)
+
+    register_readiness_strategy("custom", CustomStrategy())
+    result = await get_readiness_strategy("custom").inspect("@custom", "READY")
+    assert result.ready is True
 
 
 def _window(command: str) -> MagicMock:
