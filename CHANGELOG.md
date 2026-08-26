@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a content-generation fingerprint.
 - Preserve Unicode upload filenames, split Herdr literal input from Enter, and
   suppress Mini App WebApp buttons in group topics where Telegram rejects them.
+- Make health-gated deployment record the last known-good Git commit so an
+  automatic rollback installs the actual prior deployment instead of HEAD.
 
 - Gate provider delivery on the expected CLI and Codex's ready TUI, safely skip its
   blocking update menu before the first prompt, and relaunch bound AI providers

@@ -58,7 +58,10 @@ exit 0
         bindir / "uv",
         """#!/usr/bin/env bash
 # record each install target so the test can assert what was installed
-echo "$*" >>"$UV_CALLS"
+target="${@: -1}"
+marker=""
+if [[ -f "${target}/marker" ]]; then marker="|$(<"${target}/marker")"; fi
+echo "$*${marker}" >>"$UV_CALLS"
 exit 0
 """,
     )
@@ -117,6 +120,25 @@ def test_healthy_deploy_succeeds(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "deploy" in result.stdout.lower()
     assert "complete" in result.stdout.lower()
+    deployed_ref = tmp_path / "home" / ".ccgram" / "deployed-ref"
+    assert deployed_ref.read_text().strip()
+
+
+def test_healthy_deploy_records_exact_commit(tmp_path):
+    bindir = _make_stub_bin(tmp_path, active="active", healthz="ok")
+    first = _run(tmp_path, bindir)
+    assert first.returncode == 0
+    deployed_ref = tmp_path / "home" / ".ccgram" / "deployed-ref"
+    recorded = deployed_ref.read_text().strip()
+
+    expected = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=tmp_path / "repo",
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert recorded == expected
 
 
 def test_unhealthy_deploy_triggers_rollback(tmp_path):
@@ -128,6 +150,8 @@ def test_unhealthy_deploy_triggers_rollback(tmp_path):
     # Two installs: the new commit, then the rollback build.
     calls = (tmp_path / "uv_calls.txt").read_text().strip().splitlines()
     assert len(calls) == 2, calls
+    assert calls[0].endswith("|v2")
+    assert calls[1].endswith("|v1"), "rollback must install the previous commit"
 
 
 def test_no_rollback_flag_leaves_new_version(tmp_path):

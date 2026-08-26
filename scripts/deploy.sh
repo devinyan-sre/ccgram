@@ -21,6 +21,7 @@ SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SERVICE="${CCGRAM_SERVICE:-ccgram}"
 TIMEOUT=60
 AUTO_ROLLBACK=1
+DEPLOY_REF_FILE="${CCGRAM_DEPLOY_REF_FILE:-${HOME}/.ccgram/deployed-ref}"
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -90,6 +91,13 @@ install_from() {
 	uv tool install --force --reinstall "$1" >/dev/null
 }
 
+record_deployed_ref() {
+	mkdir -p "$(dirname "${DEPLOY_REF_FILE}")"
+	local tmp_ref="${DEPLOY_REF_FILE}.tmp.$$"
+	printf '%s\n' "$1" >"${tmp_ref}"
+	mv -f "${tmp_ref}" "${DEPLOY_REF_FILE}"
+}
+
 diagnostics() {
 	echo "--- systemctl status ---" >&2
 	systemctl --user status "${SERVICE}" --no-pager 2>&1 | tail -20 >&2
@@ -102,8 +110,20 @@ diagnostics() {
 command -v uv >/dev/null || fail "uv not found in PATH"
 git -C "${SRC_DIR}" rev-parse --git-dir >/dev/null 2>&1 || fail "${SRC_DIR} is not a git repo"
 
-PREV_REF="$(git -C "${SRC_DIR}" rev-parse HEAD)"
-NEW_REF="$(git -C "${SRC_DIR}" rev-parse --short HEAD)"
+NEW_FULL_REF="$(git -C "${SRC_DIR}" rev-parse HEAD)"
+NEW_REF="${NEW_FULL_REF:0:8}"
+PREV_REF=""
+if [[ -s "${DEPLOY_REF_FILE}" ]]; then
+	RECORDED_REF="$(tr -d '[:space:]' <"${DEPLOY_REF_FILE}")"
+	if git -C "${SRC_DIR}" cat-file -e "${RECORDED_REF}^{commit}" 2>/dev/null; then
+		PREV_REF="${RECORDED_REF}"
+	fi
+fi
+if [[ -z "${PREV_REF}" ]]; then
+	# First run after adopting the marker: the parent is the best recoverable
+	# approximation of the version that was deployed before this commit.
+	PREV_REF="$(git -C "${SRC_DIR}" rev-parse HEAD^ 2>/dev/null || printf '%s' "${NEW_FULL_REF}")"
+fi
 BASELINE_RESTARTS="$(restart_count)"
 
 log "deploying ${NEW_REF} (rollback target: ${PREV_REF:0:8})"
@@ -116,6 +136,7 @@ if wait_for_health; then
 	if [[ "$(restart_count)" != "${BASELINE_RESTARTS}" ]]; then
 		log "WARNING: NRestarts changed (${BASELINE_RESTARTS} -> $(restart_count)); the service crashed at least once"
 	fi
+	record_deployed_ref "${NEW_FULL_REF}"
 	log "healthy — deploy of ${NEW_REF} complete"
 	exit 0
 fi
@@ -146,6 +167,7 @@ install_from "${ROLLBACK_TREE}"
 systemctl --user restart "${SERVICE}"
 
 if wait_for_health; then
+	record_deployed_ref "${PREV_REF}"
 	log "rolled back to ${PREV_REF:0:8} and healthy"
 	exit 1 # deploy still failed, even though recovery worked
 fi
