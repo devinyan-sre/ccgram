@@ -79,6 +79,8 @@ CCGRAM_GEMINI_COMMAND=gemini --yolo
 - **Gemini**：`/chat`、`/clear`、`/compress`、`/model`、`/memory`、`/vim`……
 - **Pi**：`/new`、`/compact`、`/followup`、`/scoped_models`、`/export`、`/name`、`/reload`、`/session`、`/share`、`/changelog`……（外加动态发现的 skills/prompts/extensions）
 
+所有结构化转录 Provider 共用轮次级最终回复去重：同一会话、同一用户轮次内，完全相同的完整助手文本只会投递一次；新的用户消息会重置签名，因此后续轮次有意重复回答不会被吞掉。Provider 仍负责把流式快照标记为未完成，公共边界则作为 CLI 转录格式升级时的兼容兜底。触发兜底时会写入 warning 日志并递增 `ccgram_transcript_duplicates{provider=...}`，便于发现上游格式变化。
+
 ---
 
 <a id="claude-code"></a>

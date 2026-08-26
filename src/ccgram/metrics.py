@@ -343,6 +343,11 @@ DELIVERY_STALLS = registry.counter(
     "Delivery cursor stalls and recoveries",
     ("outcome",),
 )
+TRANSCRIPT_DUPLICATES = registry.counter(
+    "ccgram_transcript_duplicates",
+    "Duplicate complete assistant texts suppressed at the provider boundary",
+    ("provider",),
+)
 TOPIC_QUEUE_DEPTH = registry.gauge(
     "ccgram_topic_queue_depth",
     "Outbound queue depth isolated by user and topic",

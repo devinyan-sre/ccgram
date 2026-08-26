@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import aiofiles
 import structlog
 
+from .metrics import TRANSCRIPT_DUPLICATES
 from .monitor_events import NewMessage, SessionInfo
 from .monitor_state import MonitorState, TrackedSession
 from .token_watch import token_watch
@@ -35,6 +36,7 @@ from .utils import log_throttle_reset, log_throttled, read_cwd_from_jsonl
 
 if TYPE_CHECKING:
     from .idle_tracker import IdleTracker
+    from .providers.base import AgentMessage
 
 logger = structlog.get_logger()
 
@@ -134,6 +136,10 @@ class TranscriptReader:
         self._state = state
         self._idle_tracker = idle_tracker
         self._pending_tools: dict[str, dict[str, Any]] = {}
+        # Last durable assistant text in the current user turn. This is a
+        # provider-agnostic safety net for CLIs that record both an event
+        # snapshot and a final transcript item for the same answer.
+        self._last_complete_assistant_signature: dict[str, tuple[int, bytes]] = {}
         self._file_mtimes: dict[str, float] = {}
         self._file_ctimes: dict[str, int] = {}
         self._file_sizes: dict[str, int] = {}
@@ -181,6 +187,7 @@ class TranscriptReader:
         tracked.delivered_byte_offset = 0
         self._pending_commits.pop(session_id, None)
         self._pending_tools.pop(session_id, None)
+        self._last_complete_assistant_signature.pop(session_id, None)
         token_watch.clear_session(session_id)
 
     def _prefix_covers_consumed(self, session_id: str, consumed: int, st: Any) -> bool:
@@ -356,6 +363,7 @@ class TranscriptReader:
         self._file_markers.pop(session_id, None)
         self._pending_tools.pop(session_id, None)
         self._pending_commits.pop(session_id, None)
+        self._last_complete_assistant_signature.pop(session_id, None)
         token_watch.clear_session(session_id)
         log_throttle_reset(f"partial-jsonl:{session_id}")
 
@@ -429,6 +437,10 @@ class TranscriptReader:
                 self._pending_commits[session_id] = self._pending_commits.pop(
                     old_session_id
                 )
+            if old_session_id in self._last_complete_assistant_signature:
+                self._last_complete_assistant_signature[session_id] = (
+                    self._last_complete_assistant_signature.pop(old_session_id)
+                )
             log_throttle_reset(f"partial-jsonl:{old_session_id}")
             logger.debug(
                 "Adopted transcript offset for refreshed session: %s -> %s (%s)",
@@ -438,6 +450,52 @@ class TranscriptReader:
             )
             return tracked
         return None
+
+    def _deduplicate_complete_assistant_text(
+        self,
+        session_id: str,
+        provider_name: str,
+        messages: list[AgentMessage],
+    ) -> list[AgentMessage]:
+        """Drop exact duplicate final texts within one user turn.
+
+        Provider transcript formats evolve independently. Some CLIs may emit
+        both an assistant event and a final message for the same answer. The
+        provider parser should model snapshots with ``is_complete=False``, but
+        this common boundary prevents a parser regression from reaching
+        Telegram. A user message resets the signature, so an intentionally
+        repeated answer in a later turn is still delivered.
+        """
+        deduplicated: list[AgentMessage] = []
+        last_signature = self._last_complete_assistant_signature.get(session_id)
+        for message in messages:
+            if message.role == "user":
+                last_signature = None
+            elif (
+                message.role == "assistant"
+                and message.content_type == "text"
+                and message.is_complete
+            ):
+                signature = (
+                    len(message.text),
+                    hashlib.sha256(message.text.encode()).digest(),
+                )
+                if signature == last_signature:
+                    TRANSCRIPT_DUPLICATES.inc(provider=provider_name)
+                    logger.warning(
+                        "Suppressed duplicate complete assistant text",
+                        session_id=session_id,
+                        provider=provider_name,
+                    )
+                    continue
+                last_signature = signature
+            deduplicated.append(message)
+
+        if last_signature is None:
+            self._last_complete_assistant_signature.pop(session_id, None)
+        else:
+            self._last_complete_assistant_signature[session_id] = last_signature
+        return deduplicated
 
     async def _process_session_file(  # noqa: PLR0915
         self,
@@ -555,6 +613,11 @@ class TranscriptReader:
             new_entries,
             pending_tools=carry,
             cwd=session_cwd,
+        )
+        agent_messages = self._deduplicate_complete_assistant_text(
+            session_id,
+            provider.capabilities.name,
+            agent_messages,
         )
         if remaining:
             self._pending_tools[session_id] = remaining

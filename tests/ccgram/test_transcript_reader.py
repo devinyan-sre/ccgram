@@ -2,9 +2,81 @@
 
 import os
 
+import pytest
+
 from ccgram.idle_tracker import IdleTracker
 from ccgram.monitor_state import MonitorState, TrackedSession
+from ccgram.providers.base import AgentMessage, MessageRole
 from ccgram.transcript_reader import TranscriptReader
+
+
+def _agent_message(
+    text: str,
+    *,
+    role: MessageRole = "assistant",
+    is_complete: bool = True,
+) -> AgentMessage:
+    return AgentMessage(
+        text=text,
+        role=role,
+        content_type="text",
+        is_complete=is_complete,
+    )
+
+
+@pytest.mark.parametrize("provider_name", ["claude", "codex", "gemini", "pi"])
+def test_complete_assistant_text_is_deduplicated_within_user_turn(
+    tmp_path, provider_name: str
+) -> None:
+    reader = TranscriptReader(
+        MonitorState(state_file=tmp_path / "monitor_state.json"), IdleTracker()
+    )
+
+    first = reader._deduplicate_complete_assistant_text(
+        "session", provider_name, [_agent_message("same answer")]
+    )
+    duplicate = reader._deduplicate_complete_assistant_text(
+        "session", provider_name, [_agent_message("same answer")]
+    )
+
+    assert [message.text for message in first] == ["same answer"]
+    assert duplicate == []
+
+
+def test_user_turn_allows_same_assistant_text_again(tmp_path) -> None:
+    reader = TranscriptReader(
+        MonitorState(state_file=tmp_path / "monitor_state.json"), IdleTracker()
+    )
+    reader._deduplicate_complete_assistant_text(
+        "session", "claude", [_agent_message("same answer")]
+    )
+
+    messages = reader._deduplicate_complete_assistant_text(
+        "session",
+        "claude",
+        [
+            _agent_message("repeat it", role="user"),
+            _agent_message("same answer"),
+        ],
+    )
+
+    assert [message.text for message in messages] == ["repeat it", "same answer"]
+
+
+def test_stream_snapshot_does_not_hide_matching_final_text(tmp_path) -> None:
+    reader = TranscriptReader(
+        MonitorState(state_file=tmp_path / "monitor_state.json"), IdleTracker()
+    )
+
+    stream = reader._deduplicate_complete_assistant_text(
+        "session", "codex", [_agent_message("answer", is_complete=False)]
+    )
+    final = reader._deduplicate_complete_assistant_text(
+        "session", "codex", [_agent_message("answer")]
+    )
+
+    assert [message.is_complete for message in stream] == [False]
+    assert [message.is_complete for message in final] == [True]
 
 
 async def test_same_transcript_reuses_offset_after_session_map_refresh(

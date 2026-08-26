@@ -891,6 +891,7 @@ Exported metrics (names are a public contract — renaming breaks dashboards and
 | `ccgram_monitor_bytes_read`      | counter   | Transcript bytes read incrementally              |
 | `ccgram_delivery_lag_bytes`      | gauge     | Transcript bytes read but not yet delivery-committed |
 | `ccgram_delivery_stalls`         | counter   | Delivery cursor stalls and recoveries                |
+| `ccgram_transcript_duplicates`   | counter   | Duplicate complete replies suppressed, by provider   |
 | `ccgram_topic_queue_depth`       | gauge     | Outbound depth isolated by user and topic             |
 | `ccgram_outbox_items`            | gauge     | Durable outbox items in pending/retrying state        |
 | `ccgram_binding_repairs`         | counter   | Automatic session/provider binding repairs       |

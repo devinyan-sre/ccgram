@@ -67,6 +67,8 @@ Each provider exposes its own slash commands to the Telegram menu. Examples:
 - **Gemini**: `/chat`, `/clear`, `/compress`, `/model`, `/memory`, `/vim`...
 - **Pi**: `/new`, `/compact`, `/followup`, `/scoped_models`, `/export`, `/name`, `/reload`, `/session`, `/share`, `/changelog`... (plus discovered skills/prompts/extensions)
 
+All structured-transcript providers share turn-level final-reply deduplication: within one session and user turn, an identical complete assistant text is delivered only once. A new user message resets the signature, so an intentionally repeated answer in a later turn is preserved. Providers still mark streaming snapshots as incomplete; the common boundary is a compatibility safety net for future CLI transcript changes. When it activates, ccgram writes a warning and increments `ccgram_transcript_duplicates{provider=...}` so upstream format drift remains observable.
+
 ---
 
 ## Claude Code

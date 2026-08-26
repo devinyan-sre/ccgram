@@ -255,4 +255,5 @@ def test_metric_kinds_are_what_call_sites_assume():
 
     assert isinstance(metrics.QUEUE_DEPTH, Gauge)
     assert isinstance(metrics.QUEUE_TASKS, Counter)
+    assert isinstance(metrics.TRANSCRIPT_DUPLICATES, Counter)
     assert isinstance(metrics.POLL_DURATION, Histogram)

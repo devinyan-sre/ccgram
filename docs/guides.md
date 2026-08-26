@@ -977,6 +977,7 @@ curl -so /dev/null -w '%{http_code}\n' localhost:9095/healthz
 | `ccgram_monitor_bytes_read`      | counter   | 增量读取的 transcript 字节数               |
 | `ccgram_delivery_lag_bytes`      | gauge     | 已读取但尚未确认投递的 transcript 字节数   |
 | `ccgram_delivery_stalls`         | counter   | 投递游标停滞/恢复次数                      |
+| `ccgram_transcript_duplicates`   | counter   | 按 Provider 统计被公共边界拦截的重复完整回复 |
 | `ccgram_topic_queue_depth`       | gauge     | 按用户和话题隔离的出站队列深度             |
 | `ccgram_outbox_items`            | gauge     | 持久化 outbox 的 pending/retrying 项数      |
 | `ccgram_binding_repairs`         | counter   | 自动修复会话/Provider 错配的次数            |
