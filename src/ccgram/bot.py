@@ -70,6 +70,8 @@ __all__ = [
 
 logger = structlog.get_logger()
 
+_GET_UPDATES_READ_TIMEOUT_S = 20.0
+
 
 def is_user_allowed(user_id: int | None) -> bool:
     """Thin wrapper around ``config.is_user_allowed`` for None-safety."""
@@ -211,8 +213,16 @@ def create_bot() -> Application:
         Application.builder()
         .token(config.telegram_bot_token)
         .rate_limiter(AIORateLimiter(max_retries=5))
-        .request(ResilientPollingHTTPXRequest())
-        .get_updates_request(ResilientPollingHTTPXRequest(connection_pool_size=1))
+        .request(
+            ResilientPollingHTTPXRequest(read_timeout=10, request_name="Bot API")
+        )
+        .get_updates_request(
+            ResilientPollingHTTPXRequest(
+                connection_pool_size=1,
+                read_timeout=_GET_UPDATES_READ_TIMEOUT_S,
+                request_name="getUpdates",
+            )
+        )
         .post_init(post_init)
         .post_stop(post_stop)
         .post_shutdown(post_shutdown)

@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from telegram import Bot
-from telegram.error import BadRequest, TelegramError
+from telegram.error import BadRequest, RetryAfter, TelegramError
 
 from ccgram.destructive_audit import (
     ACTION_TOPIC_RETIRED,
@@ -15,11 +15,13 @@ from ccgram.destructive_audit import (
 from ccgram.window_view import WindowView
 
 from ccgram.handlers.topics.topic_lifecycle import (
+    PROBE_MAX_PER_CYCLE,
     _archive_notified,
     check_autoclose_timers,
     check_unbound_window_ttl,
     probe_topic_existence,
     prune_stale_state,
+    reset_probe_schedule,
 )
 from ccgram.handlers.polling.polling_state import (
     lifecycle_strategy,
@@ -29,11 +31,13 @@ from ccgram.handlers.polling.polling_state import (
 
 @pytest.fixture(autouse=True)
 def _clean_strategy_state():
+    reset_probe_schedule()
     terminal_poll_state._states.clear()
     lifecycle_strategy._states.clear()
     lifecycle_strategy._dead_notified.clear()
     _archive_notified.clear()
     yield
+    reset_probe_schedule()
     terminal_poll_state._states.clear()
     lifecycle_strategy._states.clear()
     lifecycle_strategy._dead_notified.clear()
@@ -564,6 +568,73 @@ class TestPruneStaleState:
 
 
 class TestProbeTopicExistence:
+    async def test_flood_control_backs_off_without_suspending(self):
+        from ccgram.handlers.topics import topic_lifecycle as tl
+
+        bot = AsyncMock(spec=Bot)
+        bot.unpin_all_forum_topic_messages = AsyncMock(
+            side_effect=[RetryAfter(3), None]
+        )
+        with (
+            patch.object(tl, "thread_router") as mock_router,
+            patch.object(tl, "lifecycle_strategy") as mock_strategy,
+            patch.object(tl.time, "monotonic", return_value=100.0),
+        ):
+            mock_router.iter_thread_bindings.return_value = [(1, 100, "@0")]
+            mock_router.resolve_chat_id.return_value = 42
+            mock_strategy.should_skip_probe.return_value = False
+
+            await probe_topic_existence(bot)
+            mock_strategy.record_probe_failure.assert_not_called()
+
+            bot.unpin_all_forum_topic_messages.reset_mock()
+            await probe_topic_existence(bot)
+            bot.unpin_all_forum_topic_messages.assert_not_called()
+
+            tl._probe_backoff_until[42] = 0.0
+            await probe_topic_existence(bot)
+            bot.unpin_all_forum_topic_messages.assert_called_once()
+
+    async def test_probe_budget_allows_only_one_topic_per_chat(self):
+        bot = AsyncMock(spec=Bot)
+        bot.unpin_all_forum_topic_messages = AsyncMock()
+        bindings = [(1, 100 + i, f"@{i}") for i in range(4)]
+        with patch(
+            "ccgram.handlers.topics.topic_lifecycle.thread_router"
+        ) as mock_router:
+            mock_router.iter_thread_bindings.return_value = bindings
+            mock_router.resolve_chat_id.return_value = 42
+            await probe_topic_existence(bot)
+
+        bot.unpin_all_forum_topic_messages.assert_called_once()
+
+    async def test_probe_budget_rotates_across_chats(self):
+        bot = AsyncMock(spec=Bot)
+        bot.unpin_all_forum_topic_messages = AsyncMock()
+        bindings = [(1, 100 + i, f"@{i}") for i in range(3 * PROBE_MAX_PER_CYCLE)]
+        chat_by_thread = {100 + i: 1000 + i for i in range(len(bindings))}
+        with patch(
+            "ccgram.handlers.topics.topic_lifecycle.thread_router"
+        ) as mock_router:
+            mock_router.iter_thread_bindings.return_value = bindings
+            mock_router.resolve_chat_id.side_effect = (
+                lambda _user_id, thread_id: chat_by_thread[thread_id]
+            )
+            probed: list[int] = []
+            for _ in range(3):
+                bot.unpin_all_forum_topic_messages.reset_mock()
+                await probe_topic_existence(bot)
+                assert (
+                    bot.unpin_all_forum_topic_messages.call_count
+                    == PROBE_MAX_PER_CYCLE
+                )
+                probed.extend(
+                    call.kwargs["message_thread_id"]
+                    for call in bot.unpin_all_forum_topic_messages.call_args_list
+                )
+
+        assert sorted(probed) == [binding[1] for binding in bindings]
+
     async def test_deleted_topic_unbinds(self):
         bot = AsyncMock(spec=Bot)
         bot.unpin_all_forum_topic_messages = AsyncMock(

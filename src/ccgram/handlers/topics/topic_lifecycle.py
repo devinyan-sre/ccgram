@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 from telegram import Update
-from telegram.error import BadRequest, TelegramError
+from telegram.error import BadRequest, RetryAfter, TelegramError
 from ... import window_query
 from ...config import config
 from ...destructive_audit import (
@@ -300,6 +300,71 @@ async def prune_stale_state(live_windows: "list[TmuxWindow]") -> None:
 # handlers/status/topic_emoji.py.
 _probe_pin_disabled: set[str] = set()
 
+# The probe is an admin API call and Telegram flood-limits it per chat.  Bound
+# topics used to be probed on every polling pass, which could stall unrelated
+# Bot API traffic behind AIORateLimiter.  Rotate a small, per-chat slice instead.
+PROBE_INTERVAL = 300.0
+PROBE_MAX_PER_CYCLE = 2
+_NEVER_PROBED = float("-inf")
+_probe_last_ts: dict[tuple[int, int, int], float] = {}
+_probe_backoff_until: dict[int, float] = {}
+
+
+def reset_probe_schedule() -> None:
+    """Clear the in-memory probe schedule (restart/testing)."""
+    _probe_last_ts.clear()
+    _probe_backoff_until.clear()
+
+
+def _due_probe_targets(
+    bindings: list[tuple[int, int, int, str]], now: float
+) -> list[tuple[int, int, int, str]]:
+    """Select due topics, with at most one admin probe per chat."""
+
+    def probe_key(binding: tuple[int, int, int, str]) -> tuple[int, int, int]:
+        user_id, chat_id, thread_id, _wid = binding
+        return user_id, chat_id, thread_id
+
+    active_keys = {probe_key(binding) for binding in bindings}
+    for key in _probe_last_ts.keys() - active_keys:
+        del _probe_last_ts[key]
+
+    active_chat_ids = {binding[1] for binding in bindings}
+    for chat_id in _probe_backoff_until.keys() - active_chat_ids:
+        del _probe_backoff_until[chat_id]
+
+    def last_probe(binding: tuple[int, int, int, str]) -> float:
+        return _probe_last_ts.get(probe_key(binding), _NEVER_PROBED)
+
+    due = [
+        binding
+        for binding in bindings
+        if binding[3] not in _probe_pin_disabled
+        and not lifecycle_strategy.should_skip_probe(binding[3])
+        and now - last_probe(binding) >= PROBE_INTERVAL
+        and now >= _probe_backoff_until.get(binding[1], 0.0)
+    ]
+    due.sort(key=last_probe)
+
+    selected: list[tuple[int, int, int, str]] = []
+    selected_chat_ids: set[int] = set()
+    for binding in due:
+        chat_id = binding[1]
+        if chat_id in selected_chat_ids:
+            continue
+        selected.append(binding)
+        selected_chat_ids.add(chat_id)
+        if len(selected) >= PROBE_MAX_PER_CYCLE:
+            break
+    return selected
+
+
+def _retry_after_seconds(exc: RetryAfter) -> float:
+    retry_after = exc.retry_after
+    if hasattr(retry_after, "total_seconds"):
+        return max(0.0, float(retry_after.total_seconds()))
+    return max(0.0, float(retry_after))
+
 
 async def _confirm_topic_gone(
     client: TelegramClient, chat_id: int, thread_id: int
@@ -397,13 +462,23 @@ async def _handle_probe_topic_gone(
 
 
 async def probe_topic_existence(client: TelegramClient) -> None:
-    """Probe all bound topics via Telegram API; detect deleted topics."""
-    for user_id, thread_id, wid in list(thread_router.iter_thread_bindings()):
-        if wid in _probe_pin_disabled or lifecycle_strategy.should_skip_probe(wid):
-            continue
+    """Probe a bounded rotating slice of topics; detect deleted topics."""
+    now = time.monotonic()
+    bindings = [
+        (
+            user_id,
+            thread_router.resolve_chat_id(user_id, thread_id),
+            thread_id,
+            wid,
+        )
+        for user_id, thread_id, wid in thread_router.iter_thread_bindings()
+    ]
+    for user_id, chat_id, thread_id, wid in _due_probe_targets(bindings, now):
+        probe_key = (user_id, chat_id, thread_id)
+        _probe_last_ts[probe_key] = time.monotonic()
         try:
             await client.unpin_all_forum_topic_messages(
-                chat_id=thread_router.resolve_chat_id(user_id, thread_id),
+                chat_id=chat_id,
                 message_thread_id=thread_id,
             )
             terminal_poll_state.reset_probe_failures(wid)
@@ -420,6 +495,19 @@ async def probe_topic_existence(client: TelegramClient) -> None:
                 logger.info(
                     "Topic probe disabled for window_id '%s': bot lacks pin rights",
                     wid,
+                )
+            elif isinstance(e, RetryAfter):
+                # Flood control is chat-wide and is not evidence that this
+                # topic is unhealthy. Return its slot and back off the chat.
+                _probe_last_ts.pop(probe_key, None)
+                delay = _retry_after_seconds(e)
+                _probe_backoff_until[chat_id] = time.monotonic() + delay
+                log_throttled(
+                    logger,
+                    f"topic-probe-flood:{chat_id}",
+                    "Topic probe hit flood control for chat %s; backing off %.0fs",
+                    chat_id,
+                    delay,
                 )
             else:
                 lifecycle_strategy.record_probe_failure(wid)
