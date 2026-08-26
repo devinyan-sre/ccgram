@@ -26,6 +26,9 @@ class ContentTask:
     session_id: str | None = None
     delivery_id: str | None = None
     next_part: int = 0
+    # Original operator message. Final assistant text replies to this message
+    # so concurrent answers in one forum topic remain visually attributable.
+    reply_to_message_id: int | None = None
     # Correlation id, carried so the queue worker (a different task) can rebind
     # it into the log context and keep a message traceable end to end.
     cid: str | None = None

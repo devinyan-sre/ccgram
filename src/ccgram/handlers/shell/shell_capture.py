@@ -26,6 +26,8 @@ from typing import Any, Protocol
 from ...telegram_client import TelegramClient
 
 from ...providers.shell import match_prompt
+from ...request_context import clear_window as clear_request_window
+from ...task_scheduler import task_scheduler
 from ...thread_router import thread_router
 from ...multiplexer import multiplexer as tmux_manager
 from ...multiplexer.base import CaptureResult
@@ -445,6 +447,7 @@ async def _relay_output(
     output: str,
     *,
     msg_id: int | None = None,
+    reply_to_message_id: int = 0,
 ) -> int | None:
     """Send or edit the output message in Telegram (monospace formatted).
 
@@ -470,6 +473,8 @@ async def _relay_output(
             chat_id,
             formatted,
             message_thread_id=thread_id,
+            reply_to_message_id=reply_to_message_id or None,
+            allow_sending_without_reply=True,
         )
         if sent:
             return sent.message_id
@@ -699,7 +704,12 @@ async def _relay_passive_output(
         cmd = _command_from_echo(passive.command_echo)
         combined = f"❯ {cmd}\n{passive.text}" if cmd else passive.text
         state.msg_id = await _relay_output(
-            client, chat_id, thread_id, combined, msg_id=state.msg_id
+            client,
+            chat_id,
+            thread_id,
+            combined,
+            msg_id=state.msg_id,
+            reply_to_message_id=state.telegram_message_id,
         )
 
     if (
@@ -747,3 +757,7 @@ async def _relay_passive_output(
             output=passive.text,
             generation=tg_gen,
         )
+
+    if passive.exit_code is not None:
+        clear_request_window(window_id)
+        await task_scheduler.release_window(window_id)

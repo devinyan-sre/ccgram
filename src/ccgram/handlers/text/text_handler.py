@@ -65,12 +65,16 @@ from ..user_state import (
 )
 from ... import provider_readiness, window_query
 from ...provider_handoff import handoff_provider
+from ...request_context import clear_window as clear_request_window
+from ...request_context import record_request
+from ...task_scheduler import TaskAdmission, task_scheduler
 from ...thread_router import thread_router
 from ...providers import get_provider_for_window
 from ...multiplexer import multiplexer as tmux_manager
 from ...multiplexer.window_ops import send_to_window
 from ...utils import handle_general_topic_message, is_general_topic, task_done_callback
 from ...window_state_ports import lifecycle_state
+from .member_lanes import ensure_member_lane
 
 if TYPE_CHECKING:
     from telegram.ext import ContextTypes
@@ -275,6 +279,27 @@ async def _handle_unbound_topic(
     if window_id is not None:
         return False
 
+    # In a shared group topic, the first allow-listed operator owns the
+    # workspace template. Every later operator gets an isolated provider
+    # process/session rooted at that same workspace automatically.
+    chat = getattr(message, "chat", None)
+    if chat is not None and chat.type in ("group", "supergroup"):
+        lane = await ensure_member_lane(
+            user_id=user_id,
+            chat_id=chat.id,
+            thread_id=thread_id,
+        )
+        if lane.handled:
+            if lane.ready:
+                return False
+            await safe_reply(
+                message,
+                t("❌ Could not start your isolated workspace lane: {error}").format(
+                    error=lane.error
+                ),
+            )
+            return True
+
     all_windows = await tmux_manager.list_windows()
     bound_ids = {bound_wid for _, _, bound_wid in thread_router.iter_thread_bindings()}
     unbound = [
@@ -303,7 +328,7 @@ async def _handle_unbound_topic(
             user_data[PENDING_THREAD_ID] = thread_id
             user_data[PENDING_THREAD_TEXT] = text
         await safe_reply(message, msg_text, reply_markup=keyboard)
-        await safe_reply(message, t(PENDING_DELIVERY_NOTICE))
+        await safe_reply(message, t("\U0001f4ac Will deliver once the agent starts."))
         return True
 
     # No unbound windows — show directory browser to create a new session
@@ -322,7 +347,7 @@ async def _handle_unbound_topic(
         user_data[PENDING_THREAD_ID] = thread_id
         user_data[PENDING_THREAD_TEXT] = text
     await safe_reply(message, msg_text, reply_markup=keyboard)
-    await safe_reply(message, t(PENDING_DELIVERY_NOTICE))
+    await safe_reply(message, t("\U0001f4ac Will deliver once the agent starts."))
     return True
 
 
@@ -496,8 +521,18 @@ async def _forward_message(
 
     lifecycle_strategy.clear_probe_failures(window_id)
 
+    admission = await _admit_request(
+        window_id=window_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        message=message,
+    )
+
     success, err_message = await send_to_window(window_id, send_text or text)
     if not success:
+        clear_request_window(window_id)
+        if not admission.continuation:
+            await task_scheduler.release_window(window_id)
         await safe_reply(message, f"\u274c {err_message}")
         return
 
@@ -524,6 +559,50 @@ async def _forward_message(
         await handle_interactive_ui(client, user_id, window_id, thread_id)
 
 
+async def _admit_request(
+    *, window_id: str, user_id: int, thread_id: int, message: Message
+) -> TaskAdmission:
+    """Admit and correlate a task through the provider-neutral scheduler."""
+    admission_task = asyncio.create_task(
+        task_scheduler.acquire(
+            chat_id=message.chat.id,
+            thread_id=thread_id,
+            user_id=user_id,
+            window_id=window_id,
+        )
+    )
+    # acquire() completes synchronously when capacity exists. If it remains
+    # pending after one loop turn, the request is queued and the operator gets
+    # an immediate, explicit acknowledgement instead of silence.
+    await asyncio.sleep(0)
+    if not admission_task.done():
+        position = await task_scheduler.queue_position(
+            chat_id=message.chat.id,
+            thread_id=thread_id,
+            user_id=user_id,
+        )
+        await safe_reply(
+            message,
+            t("⏳ Task queued (position {position}).").format(
+                position=max(1, position)
+            ),
+        )
+    admission = await admission_task
+
+    # Record before sending: fast providers can write their transcript almost
+    # immediately, and the outbound monitor needs the original Telegram
+    # message ID to route the answer back to the right operator.
+    record_request(
+        window_id,
+        user_id=user_id,
+        chat_id=message.chat.id,
+        thread_id=thread_id,
+        message_id=message.message_id,
+        preserve_existing=admission.continuation,
+    )
+    return admission
+
+
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Top-level ``MessageHandler(filters.TEXT & ~filters.COMMAND)`` callback.
 
@@ -533,7 +612,10 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """
     user = update.effective_user
     if not user or not config.is_user_allowed(user.id):
-        if update.message:
+        # In groups, fail closed and silent: replying to an unauthorized
+        # mention leaks bot presence and lets non-members create notification
+        # spam. Private chats still receive an actionable denial.
+        if update.message and update.message.chat.type == "private":
             await safe_reply(
                 update.message, t("You are not authorized to use this bot.")
             )
@@ -542,12 +624,45 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not update.message or not update.message.text:
         return
 
+    text = update.message.text
+    if config.require_mention_in_groups is True and update.message.chat.type in (
+        "group",
+        "supergroup",
+    ):
+        client = PTBTelegramClient(context.bot)
+        username = (client.username or "").strip()
+        mention = f"@{username}" if username else ""
+        reply = update.message.reply_to_message
+        replies_to_bot = bool(
+            reply and reply.from_user and reply.from_user.id == client.id
+        )
+        contains_mention = bool(mention and mention.lower() in text.lower())
+        if not contains_mention and not replies_to_bot:
+            return
+        if contains_mention:
+            # Telegram usernames are case-insensitive. Avoid regex so unusual
+            # display text can never influence replacement semantics.
+            lower = text.lower()
+            start = lower.find(mention.lower())
+            text = (text[:start] + text[start + len(mention) :]).strip()
+        if not text:
+            await safe_reply(
+                update.message, t("Please include a question after the mention.")
+            )
+            return
+
     await sync_scoped_menu_for_text_context(update, user.id)
-    await handle_text_message(update, context)
+    if text == update.message.text:
+        await handle_text_message(update, context)
+    else:
+        await handle_text_message(update, context, text_override=text)
 
 
 async def handle_text_message(  # noqa: C901 - explicit routing chain
-    update: Update, context: ContextTypes.DEFAULT_TYPE
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    text_override: str | None = None,
 ) -> None:
     """Orchestrate text message handling via bool early-return chain.
 
@@ -558,7 +673,7 @@ async def handle_text_message(  # noqa: C901 - explicit routing chain
     assert user is not None  # guaranteed by caller
     assert message is not None and message.text  # guaranteed by caller
 
-    text = message.text
+    text = text_override if text_override is not None else message.text
     thread_id = _get_thread_id(update)
 
     # Store group chat_id for forum topic message routing
@@ -617,14 +732,26 @@ async def handle_text_message(  # noqa: C901 - explicit routing chain
         # Lazy: shell.shell_commands ↔ text_handler via approval callback.
         from ..shell.shell_commands import handle_shell_message
 
-        await handle_shell_message(
-            PTBTelegramClient(context.bot),
-            user.id,
-            thread_id,
-            window_id,
-            text,
-            message,
+        admission = await _admit_request(
+            window_id=window_id,
+            user_id=user.id,
+            thread_id=thread_id,
+            message=message,
         )
+        try:
+            await handle_shell_message(
+                PTBTelegramClient(context.bot),
+                user.id,
+                thread_id,
+                window_id,
+                text,
+                message,
+            )
+        except BaseException:
+            clear_request_window(window_id)
+            if not admission.continuation:
+                await task_scheduler.release_window(window_id)
+            raise
         return
 
     readiness = await provider_readiness.wait_for_provider_ready(

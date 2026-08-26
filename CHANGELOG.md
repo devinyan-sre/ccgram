@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Opt-in multi-operator topic lanes: allow-listed group members can mention the
+  bot in one physical topic while ccgram provisions an independent provider
+  session and clean Git worktree for each member. Updates run concurrently
+  across operators, remain ordered per operator, and final output replies to
+  the originating Telegram message. The provider-neutral path supports Claude,
+  Codex, Gemini, Pi, and Shell without relying on native sub-agent APIs.
+
 - Telegram-native streaming drafts for incomplete assistant snapshots; final
   replies still use the crash-safe persistent Outbox. Stalled drafts expire
   automatically and unsupported Bot API deployments degrade safely.

@@ -1,10 +1,84 @@
 # ccgram Architecture
 
-Generated from code state 2026-05-21.
+Generated from code state 2026-08-26.
 
 ## System Overview
 
 ccgram maps each Telegram Forum topic to one terminal-multiplexer window running one agent CLI (Claude Code, Codex, Gemini, Pi, or Shell). All internal routing is keyed by window ID (`@0`, `@12`). Multiplexer access goes through the `multiplexer/` seam (`Multiplexer` Protocol); tmux is the default backend and herdr is selectable via `CCGRAM_MULTIPLEXER=herdr`.
+
+When `CCGRAM_MEMBER_LANES=true`, the physical forum topic remains one canonical
+workspace, but each allow-listed operator is routed to an isolated derived
+window/session. In eligible Git repositories, every derived lane runs in its
+own worktree and branch. This mode is provider-neutral and does not depend on a
+CLI exposing native sub-agents.
+
+## Multi-Operator Topic Architecture
+
+![Multi-operator topic architecture](images/multi-operator-topic-architecture.png)
+
+The routing identities are deliberately separate:
+
+| Concern | Stable key | Meaning |
+| --- | --- | --- |
+| Physical workspace | `(chat_id, thread_id)` | Hard boundary; a topic never discovers or reuses another topic's workspace |
+| Operator lane | `(chat_id, thread_id, user_id)` | One provider process, transcript, context, queue, and optional worktree per member |
+| Request correlation | `(window_id, user_id, message_id)` | Final assistant text replies to the exact Telegram question that started it |
+| Access control | `ALLOWED_USERS` | Authentication only; it never selects a different topic workspace |
+
+### Inbound execution
+
+1. Group text is accepted only from an `ALLOWED_USERS` member and, by default,
+   only when it mentions the bot or replies to a bot message. Unauthorized
+   group input is ignored silently.
+2. `OperatorUpdateProcessor` permits different users to run concurrently but
+   serializes one user's updates. This preserves PTB `user_data` state-machine
+   safety while removing the previous global one-update bottleneck.
+3. The first topic binding is canonical. A later member is provisioned by
+   `handlers/text/member_lanes.py`, using the canonical lane's cwd and provider.
+4. The derived lane always starts in normal approval mode. YOLO/bypass flags
+   are never inherited automatically across operators.
+5. A clean Git workspace gets a `ccg/member-<thread>-<user>` worktree branch.
+   Dirty, detached, merging/rebasing, or non-Git workspaces fail closed unless
+   `CCGRAM_ALLOW_SHARED_MEMBER_CWD=true` is explicitly configured.
+
+### Outbound execution
+
+Each derived window owns a different provider session ID, so transcript routing
+resolves to exactly one `(user_id, window_id, thread_id)` binding. The outbound
+queue remains isolated by `(user_id, thread_id)`. `request_context.py` carries
+the original Telegram `message_id` into `ContentTask`; the first final response
+part is sent as a reply to that message. Durable outbox replay preserves this
+field across a ccgram restart.
+
+### Provider compatibility
+
+The scheduler launches a separate multiplexer window through the common
+`Multiplexer.create_window()` and `resolve_launch_command()` seams. Claude,
+Codex, Gemini, Pi, and Shell therefore share identical isolation semantics.
+Provider-native Sub-Agent/Multi-Agent features may still be used *inside* one
+lane, but are optional acceleration, never a correctness dependency.
+
+### Failure and lifecycle policy
+
+- Persistent topic capacity defaults to eight member lanes.
+- Active execution defaults to two different operators per topic and four
+  globally. `CCGRAM_MAX_PARALLEL_PER_TOPIC` and
+  `CCGRAM_MAX_PARALLEL_GLOBAL` configure both limits; excess work waits FIFO.
+- More input from one active operator is a continuation in the same CLI lane,
+  not another task or capacity slot. The original root-message correlation is
+  preserved while supplemental reply text is appended as explicit context.
+- Telegram handler concurrency defaults to eight, while window creation obeys
+  the configurable global task limit.
+- A failed provider startup remains bound and reports a retryable error; the
+  original message is not typed into an unexpected shell.
+- Closing a physical topic unbinds every member. Derived provider windows are
+  stopped so they cannot be adopted by another topic; their Git worktrees and
+  branches remain on disk for recovery. The canonical workspace window keeps
+  the historic unbound/rebind behavior.
+- One member lane is one interactive CLI conversation. If the same member sends
+  another prompt while that CLI is busy, it supplements that active task using
+  the provider's steer/follow-up semantics and never starts a parallel session.
+  Independent concurrent jobs from the same person should use separate topics.
 
 ```mermaid
 graph TB

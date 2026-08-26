@@ -30,8 +30,11 @@ from telegram.constants import ChatAction
 from telegram.error import TelegramError
 from ...telegram_client import PTBTelegramClient, TelegramClient
 
+from ...config import config
 from ...llm import get_completer
 from ...llm import CommandResult
+from ...request_context import clear_window as clear_request_window
+from ...task_scheduler import task_scheduler
 from ...thread_router import thread_router
 from ...multiplexer import multiplexer as tmux_manager
 from ...multiplexer.window_ops import send_to_window
@@ -61,8 +64,9 @@ logger = structlog.get_logger()
 
 # pending entry = (command, user_id, source_message_id) — the message id
 # powers ⚡/✅/❌ reaction feedback over the command lifecycle.
-_shell_pending: dict[tuple[int, int], tuple[str, int, int]] = {}
-_generation_counter: dict[tuple[int, int], int] = {}
+_ShellKey = tuple[int, int] | tuple[int, int, int]
+_shell_pending: dict[_ShellKey, tuple[str, int, int]] = {}
+_generation_counter: dict[_ShellKey, int] = {}
 _shell_hint_seen: set[tuple[int, int]] = set()
 
 _BANG_HINT_TEXT = (
@@ -118,14 +122,40 @@ from .shell_context import (  # noqa: E402
 )
 
 
-def has_shell_pending(chat_id: int, thread_id: int) -> bool:
+def _shell_key(chat_id: int, thread_id: int, user_id: int) -> _ShellKey:
+    """Use legacy topic scope unless member lanes make that unsafe."""
+    if config.member_lanes_enabled is True:
+        return chat_id, thread_id, user_id
+    return chat_id, thread_id
+
+
+def has_shell_pending(chat_id: int, thread_id: int, user_id: int | None = None) -> bool:
     """Check if there is a pending shell command for this topic."""
+    if config.member_lanes_enabled is True:
+        if user_id is not None:
+            return _shell_key(chat_id, thread_id, user_id) in _shell_pending
+        return any(key[:2] == (chat_id, thread_id) for key in _shell_pending)
     return (chat_id, thread_id) in _shell_pending
 
 
 @topic_state.register("chat")
-def clear_shell_pending(chat_id: int, thread_id: int) -> None:
+def clear_shell_pending(
+    chat_id: int, thread_id: int, user_id: int | None = None
+) -> None:
     """Clear any pending shell command for this topic (used by cleanup)."""
+    if config.member_lanes_enabled is True:
+        if user_id is not None:
+            keys: tuple[_ShellKey, ...] = (_shell_key(chat_id, thread_id, user_id),)
+        else:
+            keys = tuple(
+                key
+                for key in _shell_pending | _generation_counter
+                if key[:2] == (chat_id, thread_id)
+            )
+        for key in keys:
+            _shell_pending.pop(key, None)
+            _generation_counter.pop(key, None)
+        return
     _shell_pending.pop((chat_id, thread_id), None)
     _generation_counter.pop((chat_id, thread_id), None)
 
@@ -212,7 +242,7 @@ async def handle_shell_message(
     lifecycle_strategy.clear_probe_failures(window_id)
 
     chat_id = thread_router.resolve_chat_id(user_id, thread_id)
-    clear_shell_pending(chat_id, thread_id)
+    clear_shell_pending(chat_id, thread_id, user_id)
     await _ensure_prompt_marker(window_id)
 
     # Immediate ``typing`` action so the user sees the bot is processing
@@ -230,6 +260,8 @@ async def handle_shell_message(
     if text.startswith("!"):
         raw = text[1:].lstrip()
         if not raw:
+            clear_request_window(window_id)
+            await task_scheduler.release_window(window_id)
             return
         await _execute_raw_command(
             client, user_id, thread_id, window_id, raw, message_id=msg_id
@@ -246,6 +278,8 @@ async def handle_shell_message(
             "⚠ LLM misconfigured — command not sent.\nUse `!` prefix for raw commands.",
             message_thread_id=thread_id,
         )
+        clear_request_window(window_id)
+        await task_scheduler.release_window(window_id)
         return
 
     if not completer:
@@ -262,7 +296,7 @@ async def handle_shell_message(
         lines = raw_pane.strip().splitlines()
         recent_output = redact_for_llm("\n".join(lines[-10:]))
 
-    gen_key = (chat_id, thread_id)
+    gen_key = _shell_key(chat_id, thread_id, user_id)
     gen_id = _generation_counter.get(gen_key, 0) + 1
     _generation_counter[gen_key] = gen_id
 
@@ -284,6 +318,8 @@ async def handle_shell_message(
             "Use `!` prefix for raw commands.",
             message_thread_id=thread_id,
         )
+        clear_request_window(window_id)
+        await task_scheduler.release_window(window_id)
         return
 
     if _generation_counter.get(gen_key) != gen_id:
@@ -339,6 +375,8 @@ async def _execute_raw_command(
             f"❌ {err_message}",
             message_thread_id=thread_id,
         )
+        clear_request_window(window_id)
+        await task_scheduler.release_window(window_id)
         return
 
     # Lazy: sibling cycle — shell_capture imports show_command_approval
@@ -363,7 +401,7 @@ async def show_command_approval(
     Returns True if the command was stored, False if the slot was already
     occupied (avoids overwriting a user's pending command with an auto-fix).
     """
-    key = (chat_id, thread_id)
+    key = _shell_key(chat_id, thread_id, user_id)
     if key in _shell_pending:
         return False
 
@@ -450,7 +488,7 @@ async def handle_shell_callback(
         return
 
     chat_id = thread_router.resolve_chat_id(user_id, thread_id)
-    pending = _shell_pending.get((chat_id, thread_id))
+    pending = _shell_pending.get(_shell_key(chat_id, thread_id, user_id))
 
     if data.startswith(CB_SHELL_RUN) or data.startswith(CB_SHELL_CONFIRM_DANGER):
         await _cb_run(query, client, user_id, thread_id, chat_id, pending)
@@ -482,11 +520,11 @@ async def _cb_run(
     # Use window from thread binding (authoritative), not callback data
     window_id = thread_router.get_window_for_thread(user_id, thread_id)
     if not window_id:
-        clear_shell_pending(chat_id, thread_id)
+        clear_shell_pending(chat_id, thread_id, user_id)
         await safe_edit(query, "❌ No session bound")
         return
 
-    clear_shell_pending(chat_id, thread_id)
+    clear_shell_pending(chat_id, thread_id, user_id)
     await safe_edit(query, f"▶ `{command}`")
     await _execute_raw_command(
         client, user_id, thread_id, window_id, command, message_id=msg_id
@@ -505,7 +543,11 @@ async def _cb_edit(
     if pending and pending[1] != user_id:
         await safe_edit(query, "❌ Not your command")
         return
-    clear_shell_pending(chat_id, thread_id)
+    clear_shell_pending(chat_id, thread_id, user_id)
+    window_id = thread_router.get_window_for_thread(user_id, thread_id)
+    if window_id:
+        clear_request_window(window_id)
+        await task_scheduler.release_window(window_id)
     if pending:
         await safe_edit(
             query,
@@ -527,7 +569,11 @@ async def _cb_cancel(
         await query.answer("Not your command", show_alert=True)
         return
     await query.answer("Cancelled")
-    clear_shell_pending(chat_id, thread_id)
+    clear_shell_pending(chat_id, thread_id, user_id)
+    window_id = thread_router.get_window_for_thread(user_id, thread_id)
+    if window_id:
+        clear_request_window(window_id)
+        await task_scheduler.release_window(window_id)
     await safe_edit(query, "Cancelled")
 
 

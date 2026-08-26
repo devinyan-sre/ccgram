@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from telegram import Bot, CallbackQuery, InlineKeyboardMarkup, Message
 
+from ccgram.config import config
 from ccgram.handlers.callback_data import (
     CB_SHELL_CANCEL,
     CB_SHELL_CONFIRM_DANGER,
@@ -49,6 +50,26 @@ class TestPendingState:
 
     def test_clear_nonexistent_no_error(self) -> None:
         clear_shell_pending(999, 999)
+
+    def test_member_lanes_isolate_pending_commands_by_user(self) -> None:
+        with patch.object(config, "member_lanes_enabled", True):
+            _shell_pending[(-100, 42, 1)] = ("ls", 1, 0)
+            _shell_pending[(-100, 42, 2)] = ("pwd", 2, 0)
+
+            clear_shell_pending(-100, 42, user_id=1)
+
+            assert has_shell_pending(-100, 42, user_id=1) is False
+            assert has_shell_pending(-100, 42, user_id=2) is True
+            assert has_shell_pending(-100, 42) is True
+
+    def test_topic_cleanup_clears_all_member_pending_commands(self) -> None:
+        with patch.object(config, "member_lanes_enabled", True):
+            _shell_pending[(-100, 42, 1)] = ("ls", 1, 0)
+            _shell_pending[(-100, 42, 2)] = ("pwd", 2, 0)
+
+            clear_shell_pending(-100, 42)
+
+            assert has_shell_pending(-100, 42) is False
 
 
 class TestBuildApprovalKeyboard:

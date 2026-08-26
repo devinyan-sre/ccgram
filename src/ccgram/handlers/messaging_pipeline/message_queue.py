@@ -302,6 +302,8 @@ async def _merge_content_tasks(
             session_id=first.session_id,
             delivery_id=first.delivery_id,
             next_part=first.next_part,
+            reply_to_message_id=first.reply_to_message_id,
+            cid=first.cid,
         ),
         merge_count,
     )
@@ -532,7 +534,7 @@ async def _message_queue_worker(client: TelegramClient, key: QueueKey | int) -> 
             )
 
 
-async def _process_content_task(
+async def _process_content_task(  # noqa: PLR0912 - explicit delivery fallbacks
     client: TelegramClient, user_id: int, task: ContentTask
 ) -> None:
     """Process a content message task."""
@@ -562,27 +564,33 @@ async def _process_content_task(
 
         if first_part:
             first_part = False
-            converted_msg_id = await convert_status_to_content(
-                client,
-                user_id,
-                tkey,
-                task.window_id,
-                part,
-            )
+            # A multi-operator answer must be a Telegram reply to the exact
+            # question. Editing a generic status bubble would lose that
+            # attribution, so only unattributed output converts the bubble.
+            converted_msg_id = None
+            if task.reply_to_message_id is None:
+                converted_msg_id = await convert_status_to_content(
+                    client,
+                    user_id,
+                    tkey,
+                    task.window_id,
+                    part,
+                )
             if converted_msg_id is not None:
                 last_msg_id = converted_msg_id
                 if task.delivery_id:
                     await delivery_outbox.advance(task.delivery_id, part_index + 1)
                 continue
 
+        kwargs = send_kwargs(task.thread_id)
+        if last_msg_id is None and task.reply_to_message_id is not None:
+            kwargs["reply_to_message_id"] = task.reply_to_message_id
+            kwargs["allow_sending_without_reply"] = True
+
         if task.delivery_id:
-            sent = await reliable_send_message(
-                client, chat_id, part, **send_kwargs(task.thread_id)
-            )
+            sent = await reliable_send_message(client, chat_id, part, **kwargs)
         else:
-            sent = await rate_limit_send_message(
-                client, chat_id, part, **send_kwargs(task.thread_id)
-            )
+            sent = await rate_limit_send_message(client, chat_id, part, **kwargs)
 
         if sent:
             last_msg_id = sent.message_id
@@ -656,6 +664,7 @@ async def enqueue_content_message(
     thread_id: int | None = None,
     session_id: str | None = None,
     delivery_id: str | None = None,
+    reply_to_message_id: int | None = None,
 ) -> None:
     """Enqueue a content message task."""
     if _is_ghost_window_task_at_enqueue(window_id):
@@ -674,6 +683,7 @@ async def enqueue_content_message(
         thread_id=thread_id,
         session_id=session_id,
         delivery_id=delivery_id,
+        reply_to_message_id=reply_to_message_id,
         cid=current_cid(),
     )
     if not await delivery_outbox.add(task, user_id):

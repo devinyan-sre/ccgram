@@ -56,6 +56,16 @@ def _reset_destructive_guard():
 
 
 @pytest.fixture(autouse=True)
+def _reset_task_scheduler():
+    """Prevent active/queued task admissions from leaking between tests."""
+    from ccgram.task_scheduler import task_scheduler
+
+    task_scheduler.reset_for_testing()
+    yield
+    task_scheduler.reset_for_testing()
+
+
+@pytest.fixture(autouse=True)
 def _clear_window_store():
     from ccgram.claude_task_state import claude_task_state
     from ccgram.window_state_store import get_window_store

@@ -71,6 +71,7 @@ graph LR
 - **实时监控** — 按需截取终端截图,或每 5 秒自动刷新
 - **多种输入方式** — 斜杠命令、语音消息(经 Whisper 转写)、原始 shell 输入
 - **多 agent 并行** — 每个话题相互独立,可同时运行不同 agent
+- **多人同话题并行** — 白名单成员 @机器人后自动获得独立 CLI 会话和 Git worktree；结果精确回复原问题
 - **优雅恢复** — 会话崩溃后可 resume、continue 或重新开始
 - **跨 Provider 迁移** — 在原话题内事务式切换 Claude/Codex/Gemini/Pi，支持上下文交接
 - **可靠性诊断** — `/diag` 检查进程、会话、transcript 与投递游标；`/replay` 安全重放
@@ -101,6 +102,8 @@ uv tool install ccgram          # 推荐
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 ALLOWED_USERS=your_telegram_user_id
 CCGRAM_GROUP_ID=your_telegram_group_id
+CCGRAM_MEMBER_LANES=true
+CCGRAM_REQUIRE_MENTION=true
 ```
 
 用户 ID 可从 [@userinfobot](https://t.me/userinfobot) 获取。群组 ID 可通过 [@RawDataBot](https://t.me/RawDataBot) 获取(在 Peer ID 前加 `-100` 前缀)。

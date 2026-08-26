@@ -56,6 +56,10 @@ class ThreadRouter:
         self.group_chat_ids: dict[str, int] = {}
         # window_id -> display name (window_name)
         self.window_display_names: dict[str, str] = {}
+        # Derived per-operator execution windows. Values are owning user IDs.
+        # Kept separate from bindings so lifecycle code can distinguish the
+        # canonical topic workspace from disposable parallel lanes.
+        self.member_lane_windows: dict[str, int] = {}
         # Reverse index: (user_id, window_id) -> thread_id for O(1) lookups
         self._window_to_thread: dict[tuple[int, str], int] = {}
         self._schedule_save: Callable[[], None] = schedule_save
@@ -66,6 +70,7 @@ class ThreadRouter:
         self.thread_bindings.clear()
         self.group_chat_ids.clear()
         self.window_display_names.clear()
+        self.member_lane_windows.clear()
         self._window_to_thread.clear()
 
     # ------------------------------------------------------------------
@@ -112,6 +117,7 @@ class ThreadRouter:
             },
             "group_chat_ids": self.group_chat_ids,
             "window_display_names": self.window_display_names,
+            "member_lane_windows": self.member_lane_windows,
         }
 
     def from_dict(self, data: dict[str, Any]) -> None:
@@ -126,6 +132,10 @@ class ThreadRouter:
         }
         self.group_chat_ids = data.get("group_chat_ids", {})
         self.window_display_names = data.get("window_display_names", {})
+        self.member_lane_windows = {
+            str(window_id): int(user_id)
+            for window_id, user_id in data.get("member_lane_windows", {}).items()
+        }
         self._dedup_thread_bindings()
         self._rebuild_reverse_index()
 
@@ -291,15 +301,53 @@ class ThreadRouter:
 
     def get_window_for_chat_thread(self, chat_id: int, thread_id: int) -> str | None:
         """Resolve window_id for a specific Telegram chat/thread pair."""
-        for user_id, bindings in self.thread_bindings.items():
-            window_id = bindings.get(thread_id)
+        bindings = self.get_bindings_for_chat_thread(chat_id, thread_id)
+        if bindings:
+            return bindings[0][1]
+        return None
+
+    def get_workspace_window_for_chat_thread(
+        self, chat_id: int, thread_id: int
+    ) -> str | None:
+        """Return the canonical (non-member-lane) workspace window."""
+        bindings = self.get_bindings_for_chat_thread(chat_id, thread_id)
+        for _user_id, window_id in bindings:
+            if window_id not in self.member_lane_windows:
+                return window_id
+        return bindings[0][1] if bindings else None
+
+    def get_bindings_for_chat_thread(
+        self, chat_id: int, thread_id: int
+    ) -> list[tuple[int, str]]:
+        """Return every ``(user_id, window_id)`` lane in a physical topic.
+
+        A forum topic may have one provider window per allow-listed operator.
+        The physical identity is ``chat_id + thread_id``; user ID is only the
+        lane owner and must never be used as a workspace boundary.
+        """
+        result: list[tuple[int, str]] = []
+        for user_id, user_bindings in self.thread_bindings.items():
+            window_id = user_bindings.get(thread_id)
             if not window_id:
                 continue
             key = f"{user_id}:{thread_id}"
             resolved_chat = self.group_chat_ids.get(key, user_id)
             if resolved_chat == chat_id:
-                return window_id
-        return None
+                result.append((user_id, window_id))
+        return sorted(result)
+
+    def mark_member_lane(self, window_id: str, user_id: int) -> None:
+        """Persist ownership of an automatically derived operator lane."""
+        if self.member_lane_windows.get(window_id) != user_id:
+            self.member_lane_windows[window_id] = user_id
+            self._schedule_save()
+
+    def is_member_lane(self, window_id: str) -> bool:
+        return window_id in self.member_lane_windows
+
+    def clear_member_lane(self, window_id: str) -> None:
+        if self.member_lane_windows.pop(window_id, None) is not None:
+            self._schedule_save()
 
     # ------------------------------------------------------------------
     # Display name management

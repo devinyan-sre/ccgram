@@ -105,6 +105,39 @@ class Config:
                 "Expected comma-separated Telegram user IDs."
             ) from e
 
+        # Multi-operator topic lanes.  A Telegram forum topic remains the
+        # workspace boundary while every allow-listed member receives an
+        # independent provider process/session.  Keeping this opt-in preserves
+        # the historic one-user/one-window behaviour for existing installs.
+        self.member_lanes_enabled: bool = os.getenv(
+            "CCGRAM_MEMBER_LANES", "false"
+        ).lower() in ("1", "true", "yes")
+        self.require_mention_in_groups: bool = os.getenv(
+            "CCGRAM_REQUIRE_MENTION",
+            "true" if self.member_lanes_enabled else "false",
+        ).lower() in ("1", "true", "yes")
+        self.max_concurrent_updates: int = max(
+            1, _parse_int_env("CCGRAM_MAX_CONCURRENT_UPDATES", 8)
+        )
+        self.max_member_lanes_per_topic: int = max(
+            1, _parse_int_env("CCGRAM_MAX_MEMBER_LANES_PER_TOPIC", 8)
+        )
+        self.max_parallel_per_topic: int = max(
+            1, _parse_int_env("CCGRAM_MAX_PARALLEL_PER_TOPIC", 2)
+        )
+        self.max_parallel_global: int = max(
+            1, _parse_int_env("CCGRAM_MAX_PARALLEL_GLOBAL", 4)
+        )
+        self.task_lease_seconds: int = max(
+            60, _parse_int_env("CCGRAM_TASK_LEASE_SECONDS", 7200)
+        )
+        self.member_lane_worktrees: bool = os.getenv(
+            "CCGRAM_MEMBER_LANE_WORKTREES", "true"
+        ).lower() in ("1", "true", "yes")
+        self.allow_shared_member_cwd: bool = os.getenv(
+            "CCGRAM_ALLOW_SHARED_MEMBER_CWD", "false"
+        ).lower() in ("1", "true", "yes")
+
         # Tmux session name and window naming
         self.tmux_session_name = os.getenv("TMUX_SESSION_NAME", "ccgram")
         self.tmux_main_window_name = "__main__"

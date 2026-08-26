@@ -60,6 +60,11 @@ _ZH: dict[str, str] = {
     "Use this command inside a topic.": "请在话题内使用此命令。",
     "No session bound to this topic.": "此话题尚未绑定会话。",
     "You are not authorized to use this bot.": "你没有权限使用此机器人。",
+    "Please include a question after the mention.": "请在 @机器人 后写上问题内容。",
+    "⏳ Task queued (position {position}).": "⏳ 任务已排队（第 {position} 位）。",
+    "❌ Could not start your isolated workspace lane: {error}": (
+        "❌ 无法启动你的隔离工作通道：{error}"
+    ),
     "Not authorized.": "未授权。",
     # Shared toasts / buttons
     "Not your session": "不是你的会话",

@@ -137,6 +137,17 @@ class TestGetWindowForChatThread:
         router.bind_thread(100, 1, "@1")
         assert router.get_window_for_chat_thread(100, 1) == "@1"
 
+    def test_lists_isolated_member_lanes(self, router: ThreadRouter) -> None:
+        router.bind_thread(200, 7, "@2")
+        router.set_group_chat_id(200, 7, -999)
+        router.bind_thread(100, 7, "@1")
+        router.set_group_chat_id(100, 7, -999)
+
+        assert router.get_bindings_for_chat_thread(-999, 7) == [
+            (100, "@1"),
+            (200, "@2"),
+        ]
+
 
 class TestDisplayNames:
     def test_get_fallback(self, router: ThreadRouter) -> None:
@@ -180,6 +191,22 @@ class TestToDictRoundtrip:
         assert new_router.resolve_chat_id(100, 1) == -999
         assert new_router.get_display_name("@1") == "proj"
         assert new_router.get_thread_for_window(100, "@1") == 1
+
+    def test_member_lane_metadata_roundtrip(self, router: ThreadRouter) -> None:
+        router.bind_thread(100, 1, "@1")
+        router.bind_thread(200, 1, "@2")
+        router.set_group_chat_id(100, 1, -999)
+        router.set_group_chat_id(200, 1, -999)
+        router.mark_member_lane("@2", 200)
+
+        new_router = ThreadRouter(
+            schedule_save=lambda: None,
+            has_window_state=lambda _wid: False,
+        )
+        new_router.from_dict(router.to_dict())
+
+        assert new_router.is_member_lane("@2") is True
+        assert new_router.get_workspace_window_for_chat_thread(-999, 1) == "@1"
 
     def test_from_dict_dedup(self, router: ThreadRouter) -> None:
         data = {

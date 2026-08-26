@@ -535,7 +535,9 @@ async def topic_closed_handler(
     the configured TTL (autoclose_done_minutes) by the status polling loop.
     """
     user = update.effective_user
-    if not user or not config.is_user_allowed(user.id):
+    if not user:
+        return
+    if not config.is_user_allowed(user.id) and config.member_lanes_enabled is not True:
         return
 
     # Lazy: callback_helpers ↔ topic_lifecycle through bootstrap wiring.
@@ -545,24 +547,40 @@ async def topic_closed_handler(
     if thread_id is None:
         return
 
-    window_id = thread_router.get_window_for_thread(user.id, thread_id)
-    if window_id:
-        display = thread_router.get_display_name(window_id)
-        await clear_topic_state(
-            user.id,
-            thread_id,
-            PTBTelegramClient(context.bot),
-            context.user_data,
-            window_id=window_id,
-            window_dead=False,
-        )
-        thread_router.unbind_thread(user.id, thread_id)
-        logger.info(
-            "Topic closed: window %s unbound (kept alive for rebinding, user=%d, thread=%d)",
-            display,
-            user.id,
-            thread_id,
-        )
+    chat = update.effective_chat
+    bindings = []
+    if config.member_lanes_enabled is True and chat is not None:
+        bindings = thread_router.get_bindings_for_chat_thread(chat.id, thread_id)
+    if not bindings:
+        window_id = thread_router.get_window_for_thread(user.id, thread_id)
+        bindings = [(user.id, window_id)] if window_id else []
+
+    if bindings:
+        for owner_id, window_id in bindings:
+            display = thread_router.get_display_name(window_id)
+            await clear_topic_state(
+                owner_id,
+                thread_id,
+                PTBTelegramClient(context.bot),
+                context.user_data if owner_id == user.id else None,
+                window_id=window_id,
+                window_dead=False,
+            )
+            thread_router.unbind_thread(owner_id, thread_id)
+            member_lane = thread_router.is_member_lane(window_id)
+            if member_lane:
+                # A derived lane must never become an adoptable, unbound
+                # window in another topic. Its worktree/branch remains on disk
+                # for recovery, but the provider process is stopped.
+                await tmux_manager.kill_window(window_id)
+                thread_router.clear_member_lane(window_id)
+            logger.info(
+                "Topic closed: window %s unbound (user=%d, thread=%d, member_lane=%s)",
+                display,
+                owner_id,
+                thread_id,
+                member_lane,
+            )
     else:
         logger.debug(
             "Topic closed: no binding (user=%d, thread=%d)", user.id, thread_id
@@ -603,7 +621,11 @@ async def topic_edited_handler(
     if chat_id is None:
         return
 
-    window_id = thread_router.get_window_for_chat_thread(chat_id, thread_id)
+    window_id = (
+        thread_router.get_workspace_window_for_chat_thread(chat_id, thread_id)
+        if config.member_lanes_enabled is True
+        else thread_router.get_window_for_chat_thread(chat_id, thread_id)
+    )
     if not window_id:
         logger.debug("Topic edited: no binding (thread=%d)", thread_id)
         return

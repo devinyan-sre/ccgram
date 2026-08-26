@@ -41,6 +41,7 @@ from .handlers.topics.directory_browser import clear_browse_state
 from .session import session_manager
 from .telegram_request import ResilientPollingHTTPXRequest
 from .thread_router import thread_router
+from .update_processor import OperatorUpdateProcessor
 
 # Re-export the moved handler callables and supporting singletons so
 # existing tests and integration suites that import them from
@@ -209,6 +210,10 @@ def create_bot() -> Application:
     import warnings
 
     warnings.filterwarnings("ignore", message=".*JobQueue.*", category=UserWarning)
+    configured_updates = config.max_concurrent_updates
+    max_concurrent_updates = (
+        configured_updates if isinstance(configured_updates, int) else 1
+    )
     application = (
         Application.builder()
         .token(config.telegram_bot_token)
@@ -221,6 +226,7 @@ def create_bot() -> Application:
                 request_name="getUpdates",
             )
         )
+        .concurrent_updates(OperatorUpdateProcessor(max_concurrent_updates))
         .post_init(post_init)
         .post_stop(post_stop)
         .post_shutdown(post_shutdown)

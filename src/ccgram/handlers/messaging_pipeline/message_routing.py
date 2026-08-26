@@ -14,9 +14,11 @@ import structlog
 from ... import session_query
 from ...session_monitor import NewMessage
 from ...correlation import new_cid
+from ...request_context import reply_message_id
 from ...telegram_client import TelegramClient, unwrap_bot
 from ...telegram_draft import DRAFT_UNSET, DraftStream
 from ...thread_router import thread_router
+from ...task_scheduler import task_scheduler
 from ...user_preferences import user_preferences
 from ..interactive import (
     INTERACTIVE_TOOL_NAMES,
@@ -109,7 +111,9 @@ async def _handle_assistant_stream(
     return True
 
 
-async def handle_new_message(msg: NewMessage, client: TelegramClient) -> None:  # noqa: C901
+async def handle_new_message(  # noqa: C901, PLR0912 - explicit routing stages
+    msg: NewMessage, client: TelegramClient
+) -> None:
     """Handle a new assistant message — enqueue for sequential processing.
 
     Messages are queued per-user to ensure status messages always appear last.
@@ -193,6 +197,15 @@ async def handle_new_message(msg: NewMessage, client: TelegramClient) -> None:  
                     if msg.delivery_id and msg.content_type == "text"
                     else None
                 ),
+                reply_to_message_id=(
+                    reply_message_id(
+                        window_id,
+                        user_id=user_id,
+                        thread_id=thread_id,
+                    )
+                    if msg.content_type == "text" and msg.role == "assistant"
+                    else None
+                ),
             )
 
             session = await session_query.resolve_session_for_window(window_id)
@@ -204,3 +217,5 @@ async def handle_new_message(msg: NewMessage, client: TelegramClient) -> None:  
                     )
                 except OSError:
                     pass
+            if msg.content_type == "text" and msg.role == "assistant":
+                await task_scheduler.release_window(window_id)

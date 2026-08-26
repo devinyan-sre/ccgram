@@ -160,6 +160,15 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | ---------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `TELEGRAM_BOT_TOKEN`                                 | _(required)_                   | Bot token from @BotFather (env only)                                                                 |
 | `ALLOWED_USERS` / `--allowed-users`                  | _(required)_                   | Comma-separated Telegram user IDs                                                                    |
+| `CCGRAM_MEMBER_LANES`                                | `false`                        | Give each allow-listed member an isolated CLI lane inside one physical topic                         |
+| `CCGRAM_REQUIRE_MENTION`                             | `true` in member-lane mode     | Group text must mention the bot or reply to a bot message                                             |
+| `CCGRAM_MAX_CONCURRENT_UPDATES`                      | `8`                            | Telegram handler concurrency; updates from one operator remain ordered                               |
+| `CCGRAM_MAX_MEMBER_LANES_PER_TOPIC`                  | `8`                            | Maximum persistent operator lanes in one physical topic                                               |
+| `CCGRAM_MAX_PARALLEL_PER_TOPIC`                      | `2`                            | Active tasks from different operators per topic; supplements from one operator reuse its task        |
+| `CCGRAM_MAX_PARALLEL_GLOBAL`                         | `4`                            | Active operator tasks across this ccgram instance                                                      |
+| `CCGRAM_TASK_LEASE_SECONDS`                          | `7200`                         | Safety lease that releases a task slot if no provider completion event arrives                        |
+| `CCGRAM_MEMBER_LANE_WORKTREES`                       | `true`                         | Create an isolated clean Git worktree/branch for every derived member lane                            |
+| `CCGRAM_ALLOW_SHARED_MEMBER_CWD`                     | `false`                        | Explicitly permit non-Git lanes to share a cwd; safe only for trusted read-only work                  |
 | `CCGRAM_DIR` / `--config-dir`                        | `~/.ccgram`                    | Config and state directory                                                                           |
 | `CLAUDE_CONFIG_DIR` / `--claude-config-dir`          | `~/.claude`                    | Override Claude config directory (for wrappers like ce, cc-mirror)                                   |
 | `TMUX_SESSION_NAME` / `--tmux-session`               | `ccgram`                       | tmux session name                                                                                    |

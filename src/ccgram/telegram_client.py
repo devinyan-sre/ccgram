@@ -51,6 +51,12 @@ class TelegramClient(Protocol):
     all.
     """
 
+    @property
+    def id(self) -> int: ...
+
+    @property
+    def username(self) -> str | None: ...
+
     async def send_message(
         self,
         chat_id: int | str,
@@ -202,6 +208,14 @@ class PTBTelegramClient:
         the ``TelegramClient`` Protocol instead.
         """
         return self._bot
+
+    @property
+    def id(self) -> int:
+        return self._bot.id
+
+    @property
+    def username(self) -> str | None:
+        return self._bot.username
 
     async def send_message(
         self, chat_id: int | str, text: str, **kwargs: Any
@@ -373,6 +387,8 @@ class FakeTelegramClient:
 
     calls: list[_FakeCall] = field(default_factory=list)
     returns: dict[str, Any] = field(default_factory=dict)
+    id: int = 999
+    username: str | None = "ccgram_test_bot"
 
     def _record(self, method: str, kwargs: dict[str, Any]) -> Any:
         self.calls.append(_FakeCall(method=method, kwargs=dict(kwargs)))

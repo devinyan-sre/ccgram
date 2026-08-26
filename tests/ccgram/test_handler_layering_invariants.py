@@ -126,6 +126,9 @@ _SINGLETON_ALLOWLIST = frozenset(
         "status/status_bubble.py",
         "status/topic_emoji.py",
         "sync_command.py",
+        # Multi-operator provisioning owns the same routing/state writes as
+        # topics/window_launch_service, but for derived per-member windows.
+        "text/member_lanes.py",
         "text/text_handler.py",
         "toolbar/toolbar_callbacks.py",
         "topics/directory_browser.py",

@@ -12,6 +12,7 @@ from ccgram.handlers.text.text_handler import (
     _handle_dead_window,
     _handle_unbound_topic,
     _reply_quote_send_text,
+    text_handler,
 )
 from ccgram.handlers.polling.polling_state import lifecycle_strategy
 from ccgram.provider_readiness import ProviderReadiness
@@ -27,6 +28,62 @@ from ccgram.handlers.user_state import (
 )
 
 _TH = "ccgram.handlers.text.text_handler"
+
+
+class TestGroupActivation:
+    async def test_allowlisted_group_member_must_mention_bot(self) -> None:
+        update = MagicMock()
+        update.effective_user.id = 100
+        update.message.text = "check the logs"
+        update.message.chat.type = "supergroup"
+        context = MagicMock()
+        context.bot.id = 999
+        context.bot.username = "ops_bot"
+
+        with (
+            patch(f"{_TH}.config.is_user_allowed", return_value=True),
+            patch(f"{_TH}.config.require_mention_in_groups", True),
+            patch(f"{_TH}.handle_text_message", new_callable=AsyncMock) as handle,
+        ):
+            await text_handler(update, context)
+
+        handle.assert_not_awaited()
+
+    async def test_mention_is_stripped_before_forwarding(self) -> None:
+        update = MagicMock()
+        update.effective_user.id = 100
+        update.message.text = "@OPS_BOT check the logs"
+        update.message.chat.type = "supergroup"
+        update.message.reply_to_message = None
+        context = MagicMock()
+        context.bot.id = 999
+        context.bot.username = "ops_bot"
+
+        with (
+            patch(f"{_TH}.config.is_user_allowed", return_value=True),
+            patch(f"{_TH}.config.require_mention_in_groups", True),
+            patch(
+                f"{_TH}.sync_scoped_menu_for_text_context",
+                new_callable=AsyncMock,
+            ),
+            patch(f"{_TH}.handle_text_message", new_callable=AsyncMock) as handle,
+        ):
+            await text_handler(update, context)
+
+        handle.assert_awaited_once_with(update, context, text_override="check the logs")
+
+    async def test_unauthorized_group_member_is_ignored_silently(self) -> None:
+        update = MagicMock()
+        update.effective_user.id = 100
+        update.message.chat.type = "supergroup"
+
+        with (
+            patch(f"{_TH}.config.is_user_allowed", return_value=False),
+            patch(f"{_TH}.safe_reply", new_callable=AsyncMock) as reply,
+        ):
+            await text_handler(update, MagicMock())
+
+        reply.assert_not_awaited()
 
 
 @pytest.fixture(autouse=True)

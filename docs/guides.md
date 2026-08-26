@@ -182,6 +182,15 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | ---------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `TELEGRAM_BOT_TOKEN`                                 | _（必填）_                     | 来自 @BotFather 的机器人 token（仅环境变量）                                                         |
 | `ALLOWED_USERS` / `--allowed-users`                  | _（必填）_                     | 逗号分隔的 Telegram 用户 ID                                                                          |
+| `CCGRAM_MEMBER_LANES`                                | `false`                        | 开启同一话题的多白名单成员独立 CLI 并行通道                                                          |
+| `CCGRAM_REQUIRE_MENTION`                             | 多人模式下为 `true`            | 群内文本必须 @机器人或回复机器人消息；私聊不受影响                                                   |
+| `CCGRAM_MAX_CONCURRENT_UPDATES`                      | `8`                            | Telegram handler 并发上限；同一成员的更新仍严格顺序处理                                               |
+| `CCGRAM_MAX_MEMBER_LANES_PER_TOPIC`                  | `8`                            | 单个物理话题可持久存在的成员通道上限                                                                  |
+| `CCGRAM_MAX_PARALLEL_PER_TOPIC`                      | `2`                            | 一个话题同时运行的不同成员任务数；同一成员的补充消息不另占槽位                                        |
+| `CCGRAM_MAX_PARALLEL_GLOBAL`                         | `4`                            | 本 ccgram 实例同时运行的成员任务总数；跨话题统一限制                                                   |
+| `CCGRAM_TASK_LEASE_SECONDS`                          | `7200`                         | provider 未产生完成事件时的任务槽安全租约；到期自动释放，防止永久堵塞                                 |
+| `CCGRAM_MEMBER_LANE_WORKTREES`                       | `true`                         | 为派生成员通道自动创建独立 Git worktree/分支                                                         |
+| `CCGRAM_ALLOW_SHARED_MEMBER_CWD`                     | `false`                        | 允许非 Git 多人通道共享目录；仅适合可信只读任务，并发写入可能冲突                                    |
 | `CCGRAM_DIR` / `--config-dir`                        | `~/.ccgram`                    | 配置与状态目录                                                                                       |
 | `CLAUDE_CONFIG_DIR` / `--claude-config-dir`          | `~/.claude`                    | 覆盖 Claude 配置目录（用于 ce、cc-mirror 等封装工具）                                                |
 | `TMUX_SESSION_NAME` / `--tmux-session`               | `ccgram`                       | tmux 会话名                                                                                          |
@@ -438,6 +447,56 @@ ccgram --autoclose-done 0 --autoclose-dead 0
 
 ## 隔离模型与硬性约束(部署前必读)
 
+### 多运维同话题并行
+
+启用 `CCGRAM_MEMBER_LANES=true` 后，一个 Telegram 物理话题仍然只代表一个
+工作空间边界，但每个白名单成员会拥有独立 CLI 窗口、会话、上下文和出站队列。
+该能力适用于 Claude、Codex、Gemini、Pi 和 Shell，不依赖各 CLI 是否提供
+Sub-Agent API。
+
+![多人同话题并行架构](images/multi-operator-topic-architecture.png)
+
+推荐生产配置：
+
+```ini
+ALLOWED_USERS=123456789,987654321,555555555
+CCGRAM_GROUP_ID=-1001234567890
+CCGRAM_MEMBER_LANES=true
+CCGRAM_REQUIRE_MENTION=true
+CCGRAM_MAX_CONCURRENT_UPDATES=8
+CCGRAM_MAX_MEMBER_LANES_PER_TOPIC=8
+CCGRAM_MAX_PARALLEL_PER_TOPIC=2
+CCGRAM_MAX_PARALLEL_GLOBAL=4
+CCGRAM_TASK_LEASE_SECONDS=7200
+CCGRAM_MEMBER_LANE_WORKTREES=true
+CCGRAM_ALLOW_SHARED_MEMBER_CWD=false
+```
+
+使用规则：
+
+- 只有 `ALLOWED_USERS` 中的成员可以触发机器人；群内普通聊天不会交给 CLI。
+- 新问题使用 `@机器人 问题内容`；也可以回复机器人上一条消息继续自己的通道。
+- 第一个成员建立话题与目录绑定。后续成员第一次 @时，ccgram 自动根据这个
+  工作空间和 provider 创建独立通道。
+- 派生通道不继承 YOLO/绕过审批模式，始终从普通权限启动。
+- 干净 Git 仓库自动创建 `ccg/member-<话题ID>-<用户ID>` 分支和 worktree。
+  原工作区有未提交修改时会拒绝派生，防止新通道看到不完整快照。
+- 非 Git 目录默认拒绝共享可写并行。只有明确确认任务是只读时，才建议设置
+  `CCGRAM_ALLOW_SHARED_MEMBER_CWD=true`。
+- 每个回答都会回复对应成员的原始 Telegram 消息；话题内其他成员的结果不会
+  被投递到你的 CLI 会话。
+- 同一成员的第一条消息占用一个任务槽；任务结束前继续发送或回复任何消息，
+  都会作为当前任务的补充进入同一个 CLI 会话，不会创建第二个并行任务，也不会
+  覆盖最终回答所回复的根问题。
+- 不同成员超过每话题或全局并行上限后会进入 FIFO 等待队列，并立即收到排队位置；
+  前一个任务产生最终回答后自动释放槽位。
+- 关闭话题时，所有成员绑定一起解除；派生 CLI 进程停止，但 worktree 和分支
+  保留，避免未合并成果丢失。
+
+> 当前并发粒度是“每个成员一个交互式 CLI 通道”。同一成员在自己的 CLI 尚忙时
+> 连续发送消息，仍遵循该 CLI 的 steering/follow-up 语义；若同一个人也需要两个
+> 完全独立的并行任务，请建立两个话题。
+
 CCGram 的一切隔离都建立在**三道边界**上。理解它们,就能明白什么可以随意放、什么必须遵守。
 
 ### 三道隔离边界
@@ -453,7 +512,7 @@ CCGram 的一切隔离都建立在**三道边界**上。理解它们,就能明�
 - **窗口必须位于 ccgram 自己的 tmux 会话内**。无论通过 Telegram 创建还是终端手动创建,自动收养只扫描本会话;其它会话里跑的 agent 不会变成话题。
 - **项目目录没有位置要求**。任何路径都能作为话题的工作目录,不需要放在特定目录下;同一目录也可以同时开多个窗口。
 - **worktree 话题有固定目录约定**:自动创建在 `<仓库>.worktrees/<分支slug>`(与仓库同级,不在仓库内部),例如 `~/code/myapp` 的 `fix/login` 分支 → `~/code/myapp.worktrees/fix-login`。
-- **1 话题 = 1 窗口 = 1 会话**。窗口 ID(`@N`)是内部主键,tmux 服务器重启后会重排(靠显示名重新匹配);窗口名只是显示标签,允许重复。
+- **默认模式：1 话题 = 1 窗口 = 1 会话**。多人通道模式下扩展为“1 物理话题 = 1 工作空间定义 + 每个成员 1 个隔离窗口/会话”。窗口 ID(`@N`)仍是内部主键；不同物理话题绝不复用绑定。
 - **agent CLI 必须在 bot 进程的 `PATH` 里**(systemd 部署时注意单元文件的 `Environment=PATH`)。
 
 ### 文件访问边界
