@@ -105,13 +105,17 @@ async def test_metadata_only_ctime_bump_does_not_replay(tmp_path) -> None:
     assert messages == []
 
 
-async def test_append_during_read_does_not_replay_history(tmp_path, monkeypatch) -> None:
+async def test_append_during_read_does_not_replay_history(
+    tmp_path, monkeypatch
+) -> None:
     history = "".join(
         '{"type":"assistant","message":{"content":[{"type":"text","text":"h%d"}]}}\n'
         % index
         for index in range(5)
     )
-    fresh = '{"type":"assistant","message":{"content":[{"type":"text","text":"fresh"}]}}\n'
+    fresh = (
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"fresh"}]}}\n'
+    )
     session_file = tmp_path / "transcript.jsonl"
     session_file.write_text(history)
     state = MonitorState(state_file=tmp_path / "monitor_state.json")
@@ -137,7 +141,9 @@ async def test_append_during_read_does_not_replay_history(tmp_path, monkeypatch)
     assert [message.text for message in messages] == ["fresh"]
 
 
-async def test_rewrite_during_read_retries_new_generation(tmp_path, monkeypatch) -> None:
+async def test_rewrite_during_read_retries_new_generation(
+    tmp_path, monkeypatch
+) -> None:
     history = "".join(
         '{"type":"assistant","message":{"content":[{"type":"text","text":"h%d"}]}}\n'
         % index

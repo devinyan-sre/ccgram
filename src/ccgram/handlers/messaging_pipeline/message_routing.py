@@ -34,9 +34,7 @@ logger = structlog.get_logger()
 _MIN_THINKING_LENGTH = 20
 _DRAFT_TTL_SECONDS = 25.0
 _active_drafts: dict[tuple[int, str, int | None, int], DraftStream] = {}
-_draft_expiry_tasks: dict[
-    tuple[int, str, int | None, int], asyncio.Task[None]
-] = {}
+_draft_expiry_tasks: dict[tuple[int, str, int | None, int], asyncio.Task[None]] = {}
 
 
 def _arm_draft_expiry(
@@ -168,9 +166,7 @@ async def handle_new_message(msg: NewMessage, client: TelegramClient) -> None:  
         if get_interactive_msg_id(user_id, thread_id):
             await clear_interactive_msg(user_id, client, thread_id)
 
-        if await _handle_assistant_stream(
-            msg, client, user_id, thread_id, chat_id
-        ):
+        if await _handle_assistant_stream(msg, client, user_id, thread_id, chat_id):
             continue
 
         parts = build_response_parts(

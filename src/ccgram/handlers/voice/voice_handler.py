@@ -132,8 +132,13 @@ async def _deliver_transcription(
         return
 
     await safe_reply(message, t("🎤 Transcribed:\n\n{text}").format(text=text))
+    # Lazy: the PTB adapter is needed only by the opt-in autosend path.
     from ...telegram_client import PTBTelegramClient
+
+    # Lazy: voice_callbacks owns the shared provider-aware delivery path.
     from .voice_callbacks import send_transcribed_text
+
+    # Lazy: acknowledgement machinery otherwise pulls in the send pipeline.
     from ..messaging_pipeline.message_sender import ack_reaction
 
     client = PTBTelegramClient(message.get_bot())

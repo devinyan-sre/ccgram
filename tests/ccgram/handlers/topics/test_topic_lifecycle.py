@@ -617,16 +617,15 @@ class TestProbeTopicExistence:
             "ccgram.handlers.topics.topic_lifecycle.thread_router"
         ) as mock_router:
             mock_router.iter_thread_bindings.return_value = bindings
-            mock_router.resolve_chat_id.side_effect = (
-                lambda _user_id, thread_id: chat_by_thread[thread_id]
+            mock_router.resolve_chat_id.side_effect = lambda _user_id, thread_id: (
+                chat_by_thread[thread_id]
             )
             probed: list[int] = []
             for _ in range(3):
                 bot.unpin_all_forum_topic_messages.reset_mock()
                 await probe_topic_existence(bot)
                 assert (
-                    bot.unpin_all_forum_topic_messages.call_count
-                    == PROBE_MAX_PER_CYCLE
+                    bot.unpin_all_forum_topic_messages.call_count == PROBE_MAX_PER_CYCLE
                 )
                 probed.extend(
                     call.kwargs["message_thread_id"]

@@ -48,6 +48,7 @@ async def send_transcribed_text(
         window_id, provider_name=get_window_provider(window_id)
     )
     if provider.capabilities.chat_first_command_path and thread_id is not None:
+        # Lazy: shell command handling imports the voice callback registry.
         from ..shell.shell_commands import handle_shell_message
 
         try:

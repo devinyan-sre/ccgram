@@ -261,6 +261,7 @@ _ZH: dict[str, str] = {
     "Continuing previous session.": "正在继续上次会话。",
     "Resuming session: {summary}": "正在恢复会话:{summary}",
     "Failed": "失败",
+    "Failed to send": "发送失败",
     "Created": "已创建",
     "Chat unavailable": "聊天不可用",
     "Stale recovery (topic mismatch)": "恢复已失效(话题不匹配)",

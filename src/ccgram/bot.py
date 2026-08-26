@@ -213,9 +213,7 @@ def create_bot() -> Application:
         Application.builder()
         .token(config.telegram_bot_token)
         .rate_limiter(AIORateLimiter(max_retries=5))
-        .request(
-            ResilientPollingHTTPXRequest(read_timeout=10, request_name="Bot API")
-        )
+        .request(ResilientPollingHTTPXRequest(read_timeout=10, request_name="Bot API"))
         .get_updates_request(
             ResilientPollingHTTPXRequest(
                 connection_pool_size=1,

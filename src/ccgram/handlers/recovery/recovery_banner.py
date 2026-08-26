@@ -225,9 +225,10 @@ def build_recovery_keyboard(window_id: str) -> InlineKeyboardMarkup:
 
 def _supports_resume_picker(caps: object) -> bool:
     """Capability check that remains compatible with older test/provider doubles."""
-    return getattr(caps, "supports_resume", False) is True and getattr(
-        caps, "supports_resume_picker", True
-    ) is not False
+    return (
+        getattr(caps, "supports_resume", False) is True
+        and getattr(caps, "supports_resume_picker", True) is not False
+    )
 
 
 async def _create_and_bind_window(  # noqa: C901 - recovery transaction branches

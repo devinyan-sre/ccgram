@@ -9,6 +9,7 @@ Periodic tasks that manage topic and window lifecycle:
 
 from __future__ import annotations
 import time
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import structlog
@@ -361,7 +362,7 @@ def _due_probe_targets(
 
 def _retry_after_seconds(exc: RetryAfter) -> float:
     retry_after = exc.retry_after
-    if hasattr(retry_after, "total_seconds"):
+    if isinstance(retry_after, timedelta):
         return max(0.0, float(retry_after.total_seconds()))
     return max(0.0, float(retry_after))
 

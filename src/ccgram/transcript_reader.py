@@ -338,15 +338,11 @@ class TranscriptReader:
         try:
             marker, digest = await asyncio.gather(
                 asyncio.to_thread(_tail_marker, file_path, tracked.last_byte_offset),
-                asyncio.to_thread(
-                    _prefix_digest, file_path, stable_read.stat.st_size
-                ),
+                asyncio.to_thread(_prefix_digest, file_path, stable_read.stat.st_size),
             )
         except OSError:
             return None
-        self._cache_file_identity(
-            session_id, tracked, stable_read.stat, digest, marker
-        )
+        self._cache_file_identity(session_id, tracked, stable_read.stat, digest, marker)
         return digest
 
     def clear_session(self, session_id: str) -> None:
@@ -411,15 +407,20 @@ class TranscriptReader:
             self._state.update_session(tracked)
             if old_session_id in self._file_mtimes:
                 self._file_mtimes[session_id] = self._file_mtimes.pop(old_session_id)
-            for cache in (
-                self._file_ctimes,
-                self._file_sizes,
-                self._file_prefixes,
-                self._file_generations,
-                self._file_markers,
-            ):
-                if old_session_id in cache:
-                    cache[session_id] = cache.pop(old_session_id)
+            if old_session_id in self._file_ctimes:
+                self._file_ctimes[session_id] = self._file_ctimes.pop(old_session_id)
+            if old_session_id in self._file_sizes:
+                self._file_sizes[session_id] = self._file_sizes.pop(old_session_id)
+            if old_session_id in self._file_prefixes:
+                self._file_prefixes[session_id] = self._file_prefixes.pop(
+                    old_session_id
+                )
+            if old_session_id in self._file_generations:
+                self._file_generations[session_id] = self._file_generations.pop(
+                    old_session_id
+                )
+            if old_session_id in self._file_markers:
+                self._file_markers[session_id] = self._file_markers.pop(old_session_id)
             if old_session_id in self._pending_tools:
                 self._pending_tools[session_id] = self._pending_tools.pop(
                     old_session_id
@@ -486,9 +487,7 @@ class TranscriptReader:
                 except OSError:
                     pass
                 else:
-                    self._cache_file_identity(
-                        session_id, tracked, st, digest, marker
-                    )
+                    self._cache_file_identity(session_id, tracked, st, digest, marker)
             if provider.capabilities.supports_task_tracking and window_id:
                 await provider.seed_task_state(window_id, session_id, str(file_path))
             logger.debug("Started tracking session: %s", session_id)
