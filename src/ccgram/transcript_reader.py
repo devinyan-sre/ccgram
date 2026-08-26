@@ -14,10 +14,11 @@ Key class: TranscriptReader.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import aiofiles
 import structlog
@@ -38,6 +39,45 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 _PathResolveError = (OSError, ValueError)
+
+
+class _StableRead(NamedTuple):
+    entries: list[dict]
+    stat: Any
+    reset_generation: bool
+    start_offset: int
+
+
+class _GenerationCheck(NamedTuple):
+    changed: bool
+    consumed_intact: bool
+
+
+_MARKER_BYTES = 128
+
+
+def _prefix_digest(file_path: Path, size: int) -> bytes:
+    """Hash exactly the first *size* bytes without loading the file at once."""
+    digest = hashlib.sha256()
+    with file_path.open("rb") as transcript:
+        remaining = size
+        while remaining:
+            chunk = transcript.read(min(64 * 1024, remaining))
+            if not chunk:
+                break
+            digest.update(chunk)
+            remaining -= len(chunk)
+    return digest.digest()
+
+
+def _tail_marker(file_path: Path, offset: int) -> bytes:
+    """Read a small marker immediately before a consumed byte offset."""
+    if offset <= 0:
+        return b""
+    start = max(0, offset - _MARKER_BYTES)
+    with file_path.open("rb") as transcript:
+        transcript.seek(start)
+        return transcript.read(offset - start)
 
 
 def _resolve_provider_for_file(window_id: str, file_path: Path) -> Any:
@@ -95,14 +135,229 @@ class TranscriptReader:
         self._idle_tracker = idle_tracker
         self._pending_tools: dict[str, dict[str, Any]] = {}
         self._file_mtimes: dict[str, float] = {}
+        self._file_ctimes: dict[str, int] = {}
+        self._file_sizes: dict[str, int] = {}
+        self._file_prefixes: dict[str, tuple[int, bytes]] = {}
+        self._file_generations: dict[str, tuple[int, int]] = {}
+        self._file_markers: dict[str, tuple[int, bytes]] = {}
         # session_id → read offset awaiting delivery confirmation. Promoted to
         # TrackedSession.delivered_byte_offset by commit_delivered().
         self._pending_commits: dict[str, int] = {}
+        self._snapshot_tracked_files()
+
+    def _snapshot_tracked_files(self) -> None:
+        """Seed rewrite-detection caches for sessions restored at startup."""
+        for session_id, tracked in self._state.tracked_sessions.items():
+            file_path = Path(tracked.file_path)
+            try:
+                st = file_path.stat()
+                digest = _prefix_digest(file_path, st.st_size)
+                marker = _tail_marker(file_path, tracked.last_byte_offset)
+            except OSError:
+                continue
+            self._cache_file_identity(session_id, tracked, st, digest, marker)
+            # Force one startup reconciliation pass. The persisted cursor may
+            # trail EOF after a crash even though the file itself is unchanged.
+            self._file_mtimes.pop(session_id, None)
+
+    def _cache_file_identity(
+        self,
+        session_id: str,
+        tracked: TrackedSession,
+        st: Any,
+        digest: bytes,
+        marker: bytes,
+    ) -> None:
+        self._file_mtimes[session_id] = st.st_mtime
+        self._file_ctimes[session_id] = st.st_ctime_ns
+        self._file_sizes[session_id] = st.st_size
+        self._file_prefixes[session_id] = (st.st_size, digest)
+        self._file_generations[session_id] = (st.st_dev, st.st_ino)
+        self._file_markers[session_id] = (tracked.last_byte_offset, marker)
+
+    def _reset_generation(self, session_id: str, tracked: TrackedSession) -> None:
+        """Invalidate cursors and parser carry after a real file replacement."""
+        tracked.last_byte_offset = 0
+        tracked.delivered_byte_offset = 0
+        self._pending_commits.pop(session_id, None)
+        self._pending_tools.pop(session_id, None)
+        token_watch.clear_session(session_id)
+
+    def _prefix_covers_consumed(self, session_id: str, consumed: int, st: Any) -> bool:
+        saved = self._file_prefixes.get(session_id)
+        return (
+            consumed > 0
+            and saved is not None
+            and saved[0] >= consumed
+            and st.st_size >= consumed
+        )
+
+    async def _consumed_prefix_intact(
+        self, session_id: str, consumed: int, file_path: Path, st: Any
+    ) -> bool:
+        """Whether all bytes already consumed remain byte-identical."""
+        if not self._prefix_covers_consumed(session_id, consumed, st):
+            return False
+        size, digest = self._file_prefixes[session_id]
+        try:
+            current = await asyncio.to_thread(_prefix_digest, file_path, size)
+        except OSError:
+            return False
+        return current == digest
+
+    async def _prepare_observed_generation(
+        self,
+        session_id: str,
+        tracked: TrackedSession,
+        file_path: Path,
+        st: Any,
+        *,
+        check_marker: bool,
+    ) -> _GenerationCheck:
+        """Detect replacements while ignoring append-only metadata churn."""
+        generation = (st.st_dev, st.st_ino)
+        previous_generation = self._file_generations.get(session_id)
+        previous_ctime = self._file_ctimes.get(session_id)
+        previous_size = self._file_sizes.get(session_id)
+        previous_prefix = self._file_prefixes.get(session_id)
+
+        prefix_changed = False
+        prefix_verified = False
+        if previous_prefix is not None and st.st_size >= previous_prefix[0]:
+            try:
+                current_prefix = await asyncio.to_thread(
+                    _prefix_digest, file_path, previous_prefix[0]
+                )
+            except OSError:
+                pass
+            else:
+                prefix_verified = True
+                prefix_changed = current_prefix != previous_prefix[1]
+
+        changed = (
+            (previous_generation is not None and previous_generation != generation)
+            or prefix_changed
+            or (
+                previous_ctime is not None
+                and previous_ctime != st.st_ctime_ns
+                and previous_size is not None
+                and st.st_size <= previous_size
+            )
+            or st.st_size < tracked.last_byte_offset
+        )
+        if not changed and check_marker:
+            saved_marker = self._file_markers.get(session_id)
+            if saved_marker is not None and saved_marker[0] == tracked.last_byte_offset:
+                try:
+                    current_marker = await asyncio.to_thread(
+                        _tail_marker, file_path, tracked.last_byte_offset
+                    )
+                except OSError:
+                    pass
+                else:
+                    changed = current_marker != saved_marker[1]
+
+        consumed_intact = False
+        if changed:
+            consumed_intact = (
+                check_marker
+                and prefix_verified
+                and not prefix_changed
+                and self._prefix_covers_consumed(
+                    session_id, tracked.last_byte_offset, st
+                )
+            )
+            if consumed_intact:
+                logger.debug(
+                    "Ignoring transcript replacement signal; consumed bytes intact: %s",
+                    session_id,
+                )
+            else:
+                logger.info("Transcript generation replaced: %s", session_id)
+                self._reset_generation(session_id, tracked)
+        return _GenerationCheck(changed and not consumed_intact, consumed_intact)
+
+    async def _read_session_entries(
+        self,
+        session_id: str,
+        tracked: TrackedSession,
+        file_path: Path,
+        window_id: str,
+        provider: Any,
+        *,
+        check_marker: bool,
+    ) -> _StableRead | None:
+        """Read one stable generation, retrying once across a write race."""
+        reset_generation = False
+        for _attempt in range(2):
+            try:
+                before = file_path.stat()
+                start_offset = tracked.last_byte_offset
+                entries = await self._read_new_lines(
+                    tracked, file_path, window_id, provider=provider
+                )
+                after = file_path.stat()
+            except OSError:
+                return None
+
+            same_generation = (before.st_dev, before.st_ino) == (
+                after.st_dev,
+                after.st_ino,
+            )
+            rewritten_in_place = before.st_ctime_ns != after.st_ctime_ns
+            marker_changed = False
+            saved_marker = self._file_markers.get(session_id) if check_marker else None
+            if saved_marker is not None and saved_marker[0] == start_offset:
+                try:
+                    marker = await asyncio.to_thread(
+                        _tail_marker, file_path, start_offset
+                    )
+                except OSError:
+                    return None
+                marker_changed = marker != saved_marker[1]
+
+            if same_generation and not rewritten_in_place and not marker_changed:
+                return _StableRead(entries, after, reset_generation, start_offset)
+            if check_marker and await self._consumed_prefix_intact(
+                session_id, start_offset, file_path, after
+            ):
+                return _StableRead(entries, after, reset_generation, start_offset)
+
+            self._reset_generation(session_id, tracked)
+            reset_generation = True
+        return None
+
+    async def _commit_stable_read(
+        self,
+        session_id: str,
+        tracked: TrackedSession,
+        file_path: Path,
+        stable_read: _StableRead,
+    ) -> bytes | None:
+        """Capture a content fingerprint and update caches after a stable read."""
+        try:
+            marker, digest = await asyncio.gather(
+                asyncio.to_thread(_tail_marker, file_path, tracked.last_byte_offset),
+                asyncio.to_thread(
+                    _prefix_digest, file_path, stable_read.stat.st_size
+                ),
+            )
+        except OSError:
+            return None
+        self._cache_file_identity(
+            session_id, tracked, stable_read.stat, digest, marker
+        )
+        return digest
 
     def clear_session(self, session_id: str) -> None:
         """Remove all per-session state for a cleaned-up session."""
         self._state.remove_session(session_id)
         self._file_mtimes.pop(session_id, None)
+        self._file_ctimes.pop(session_id, None)
+        self._file_sizes.pop(session_id, None)
+        self._file_prefixes.pop(session_id, None)
+        self._file_generations.pop(session_id, None)
+        self._file_markers.pop(session_id, None)
         self._pending_tools.pop(session_id, None)
         self._pending_commits.pop(session_id, None)
         token_watch.clear_session(session_id)
@@ -156,6 +411,15 @@ class TranscriptReader:
             self._state.update_session(tracked)
             if old_session_id in self._file_mtimes:
                 self._file_mtimes[session_id] = self._file_mtimes.pop(old_session_id)
+            for cache in (
+                self._file_ctimes,
+                self._file_sizes,
+                self._file_prefixes,
+                self._file_generations,
+                self._file_markers,
+            ):
+                if old_session_id in cache:
+                    cache[session_id] = cache.pop(old_session_id)
             if old_session_id in self._pending_tools:
                 self._pending_tools[session_id] = self._pending_tools.pop(
                     old_session_id
@@ -197,6 +461,7 @@ class TranscriptReader:
             except OSError:
                 file_size = 0
                 current_mtime = 0.0
+                st = None
 
             if provider.capabilities.supports_incremental_read:
                 initial_offset = file_size
@@ -212,6 +477,18 @@ class TranscriptReader:
             )
             self._state.update_session(tracked)
             self._file_mtimes[session_id] = current_mtime
+            if st is not None:
+                try:
+                    digest, marker = await asyncio.gather(
+                        asyncio.to_thread(_prefix_digest, file_path, st.st_size),
+                        asyncio.to_thread(_tail_marker, file_path, initial_offset),
+                    )
+                except OSError:
+                    pass
+                else:
+                    self._cache_file_identity(
+                        session_id, tracked, st, digest, marker
+                    )
             if provider.capabilities.supports_task_tracking and window_id:
                 await provider.seed_task_state(window_id, session_id, str(file_path))
             logger.debug("Started tracking session: %s", session_id)
@@ -223,19 +500,43 @@ class TranscriptReader:
         except OSError:
             return
 
+        generation_check = await self._prepare_observed_generation(
+            session_id,
+            tracked,
+            file_path,
+            st,
+            check_marker=provider.capabilities.supports_incremental_read,
+        )
         last_mtime = self._file_mtimes.get(session_id, 0.0)
         if provider.capabilities.supports_incremental_read:
-            if current_mtime <= last_mtime and current_size <= tracked.last_byte_offset:
+            if (
+                not generation_check.changed
+                and current_mtime <= last_mtime
+                and current_size <= tracked.last_byte_offset
+            ):
                 return
         else:
-            if current_mtime <= last_mtime:
+            if not generation_check.changed and current_mtime <= last_mtime:
                 return
 
-        batch_start = tracked.last_byte_offset
-        new_entries = await self._read_new_lines(
-            tracked, file_path, window_id, provider=provider
+        stable_read = await self._read_session_entries(
+            session_id,
+            tracked,
+            file_path,
+            window_id,
+            provider,
+            check_marker=provider.capabilities.supports_incremental_read,
         )
-        self._file_mtimes[session_id] = current_mtime
+        if stable_read is None:
+            return
+        content_digest = await self._commit_stable_read(
+            session_id, tracked, file_path, stable_read
+        )
+        if content_digest is None:
+            return
+        new_entries = stable_read.entries
+        batch_start = stable_read.start_offset
+        generation_id = content_digest.hex()[:16]
 
         if new_entries:
             self._idle_tracker.record_activity(session_id)
@@ -276,7 +577,8 @@ class TranscriptReader:
                     role=entry.role,
                     tool_name=entry.tool_name,
                     delivery_id=(
-                        f"{session_id}:{batch_start}:{tracked.last_byte_offset}:"
+                        f"{session_id}:{generation_id}:{batch_start}:"
+                        f"{tracked.last_byte_offset}:"
                         f"{delivery_index}"
                     ),
                 )
@@ -292,7 +594,8 @@ class TranscriptReader:
                     text=warning,
                     is_complete=True,
                     delivery_id=(
-                        f"{session_id}:{batch_start}:{tracked.last_byte_offset}:"
+                        f"{session_id}:{generation_id}:{batch_start}:"
+                        f"{tracked.last_byte_offset}:"
                         f"{delivery_index}"
                     ),
                 )
@@ -382,6 +685,7 @@ class TranscriptReader:
 
         except OSError:
             logger.exception("Error reading session file %s", file_path)
+            raise
         return new_entries
 
     async def _read_whole_file(
@@ -401,7 +705,7 @@ class TranscriptReader:
             return new_entries
         except OSError:
             logger.exception("Error reading transcript file %s", file_path)
-            return []
+            raise
 
     async def _get_active_cwds(self) -> set[str]:
         """Get normalized cwds of all active tmux windows."""
