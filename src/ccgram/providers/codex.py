@@ -464,7 +464,14 @@ def _parse_event_message(
         if not isinstance(text, str) or not text:
             return [], pending
         return (
-            [AgentMessage(text=text, role="assistant", content_type="text")],
+            [
+                AgentMessage(
+                    text=text,
+                    role="assistant",
+                    content_type="text",
+                    is_complete=False,
+                )
+            ],
             pending,
         )
     if payload_type == "task_complete":
@@ -523,6 +530,8 @@ def _append_unique_messages(
 
 def _prefer_duplicate_message(previous: AgentMessage, candidate: AgentMessage) -> bool:
     """Keep the duplicate carrying richer metadata, such as final_answer."""
+    if previous.is_complete != candidate.is_complete:
+        return not previous.is_complete and candidate.is_complete
     if previous.phase != candidate.phase:
         return previous.phase is None and candidate.phase is not None
     if previous.tool_use_id != candidate.tool_use_id:
