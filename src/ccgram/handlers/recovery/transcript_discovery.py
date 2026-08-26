@@ -121,6 +121,16 @@ def _session_id_already_bound(session_id: str, window_id: str) -> bool:
     return False
 
 
+def _is_agent_origin(
+    window_id: str, identity: identity_state.IdentityProjection
+) -> bool:
+    """Return whether a shell transition means the original agent exited."""
+    initial_provider = (
+        identity_state.get_initial_provider_name(window_id) or identity.provider_name
+    )
+    return identity.provider_name not in ("", "shell") and initial_provider != "shell"
+
+
 async def _detect_and_apply_provider(
     window_id: str,
     identity: identity_state.IdentityProjection,
@@ -129,10 +139,10 @@ async def _detect_and_apply_provider(
     client: TelegramClient | None = None,
     chat_id: int = 0,
     thread_id: int = 0,
-) -> None:
-    """Detect provider from pane process and apply transitions."""
+) -> bool:
+    """Apply provider transitions; report an agent-origin exit to shell."""
     if identity_state.is_provider_manually_overridden(window_id):
-        return
+        return False
     detected = await detect_provider_from_pane(
         w.pane_current_command, window_id=window_id
     )
@@ -144,6 +154,14 @@ async def _detect_and_apply_provider(
             w.pane_current_command,
             pane_title=pane_title,
         )
+
+    if detected == "shell" and _is_agent_origin(window_id, identity):
+        logger.info(
+            "Agent exited to shell; keeping provider for safe recovery",
+            window_id=window_id,
+            provider=identity.provider_name,
+        )
+        return True
 
     if detected and detected != identity.provider_name:
         old_provider = identity.provider_name
@@ -184,6 +202,7 @@ async def _detect_and_apply_provider(
         inferred = detect_provider_from_transcript_path(str(identity.transcript_path))
         if inferred and inferred != identity.provider_name:
             session_manager.set_window_provider(window_id, inferred, cwd=w.cwd or None)
+    return False
 
 
 def _resolve_providers_to_try(
@@ -354,7 +373,7 @@ async def _switch_to_shell(
     )
 
 
-async def discover_and_register_transcript(
+async def discover_and_register_transcript(  # noqa: C901
     window_id: str,
     *,
     _window: "TmuxWindow | None" = None,
@@ -385,9 +404,14 @@ async def discover_and_register_transcript(
     original_identity = identity
     process_restarted = False
     if w and w.pane_current_command:
-        await _detect_and_apply_provider(
+        agent_exited = await _detect_and_apply_provider(
             window_id, identity, w, client=client, chat_id=chat_id, thread_id=thread_id
         )
+        if agent_exited:
+            # Keep the provider identity intact. The text path's readiness
+            # strategy can now relaunch the agent instead of treating input as
+            # a shell command.
+            return
         refreshed = identity_state.get_identity(window_id)
         if refreshed is None:
             return

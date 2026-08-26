@@ -93,6 +93,7 @@ class ClaudeProvider:
         supports_hook=True,
         hook_install_managed_by_ccgram=True,
         supports_resume=True,
+        supports_resume_picker=True,
         supports_continue=True,
         supports_structured_transcript=True,
         builtin_commands=tuple(CC_BUILTINS.keys()),

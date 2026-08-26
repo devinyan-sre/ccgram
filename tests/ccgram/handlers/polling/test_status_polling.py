@@ -14,6 +14,7 @@ from ccgram.handlers.topics.topic_lifecycle import (
     check_autoclose_timers,
     probe_topic_existence,
     prune_stale_state,
+    reset_probe_schedule,
 )
 from ccgram.handlers.polling.window_tick import (
     _handle_dead_window_notification,
@@ -74,11 +75,13 @@ def _get_autoclose(user_id: int, thread_id: int) -> tuple[str, float] | None:
 
 @pytest.fixture(autouse=True)
 def _reset():
+    reset_probe_schedule()
     _window_poll_state.clear()
     _topic_poll_state.clear()
     _dead_notified.clear()
     _archive_notified.clear()
     yield
+    reset_probe_schedule()
     _window_poll_state.clear()
     _topic_poll_state.clear()
     _dead_notified.clear()
@@ -725,6 +728,7 @@ class TestProbeFailures:
             mock_tr.resolve_chat_id.return_value = -100
             for _ in range(MAX_PROBE_FAILURES + 1):
                 await probe_topic_existence(bot)
+                reset_probe_schedule()
         assert bot.unpin_all_forum_topic_messages.call_count == MAX_PROBE_FAILURES
         assert _window_poll_state["@5"].probe_failures == MAX_PROBE_FAILURES
 
@@ -819,6 +823,7 @@ class TestProviderSwitchPromptSetup:
                     cwd="/proj",
                     provider_name="claude",
                     transcript_path="",
+                    initial_provider_name="shell",
                 )
             }
             mock_tmux.find_window_by_id = AsyncMock(
@@ -985,7 +990,10 @@ class TestProviderSwitchChain:
         from ccgram.window_state_store import WindowState
 
         state = WindowState(
-            cwd="/proj", provider_name="claude", transcript_path="/tx/claude.jsonl"
+            cwd="/proj",
+            provider_name="claude",
+            transcript_path="/tx/claude.jsonl",
+            initial_provider_name="shell",
         )
 
         def _set_provider(window_id: str, name: str, cwd: str | None = None) -> None:

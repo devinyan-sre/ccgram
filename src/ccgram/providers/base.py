@@ -112,6 +112,9 @@ class ProviderCapabilities:
     supports_hook: bool = False
     hook_install_managed_by_ccgram: bool = False
     supports_resume: bool = False
+    # Whether ccgram can discover and show this provider's sessions in a
+    # picker. A provider may support a typed resume ID without a safe scanner.
+    supports_resume_picker: bool = False
     supports_continue: bool = False
     supports_structured_transcript: bool = False
     supports_incremental_read: bool = True  # False → whole-file JSON (e.g. Gemini)

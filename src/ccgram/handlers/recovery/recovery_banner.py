@@ -180,7 +180,7 @@ def _recovery_help_text(window_id: str) -> str:
     parts = [t("Start fresh")]
     if caps.supports_continue:
         parts.append(t("Continue last session"))
-    if caps.supports_resume:
+    if _supports_resume_picker(caps):
         parts.append(t("Resume from list"))
     return " · ".join(parts)
 
@@ -208,7 +208,7 @@ def build_recovery_keyboard(window_id: str) -> InlineKeyboardMarkup:
                 callback_data=f"{CB_RECOVERY_CONTINUE}{window_id}"[:64],
             )
         )
-    if caps.supports_resume:
+    if _supports_resume_picker(caps):
         options.append(
             InlineKeyboardButton(
                 t("⏪ Resume"),
@@ -221,6 +221,13 @@ def build_recovery_keyboard(window_id: str) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(t("✖ Cancel"), callback_data=CB_RECOVERY_CANCEL)],
         ]
     )
+
+
+def _supports_resume_picker(caps: object) -> bool:
+    """Capability check that remains compatible with older test/provider doubles."""
+    return getattr(caps, "supports_resume", False) is True and getattr(
+        caps, "supports_resume_picker", True
+    ) is not False
 
 
 async def _create_and_bind_window(  # noqa: C901 - recovery transaction branches

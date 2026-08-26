@@ -114,7 +114,7 @@ class WindowState:
         cwd: Working directory for direct file path construction
         window_name: Display name of the window
         transcript_path: Direct path to JSONL transcript file (from hook payload)
-        provider_name: Name of the agent provider for this window
+        provider_name: Current agent provider for this window
         approval_mode: "normal" | "yolo"
         batch_mode: "batched" | "ephemeral" | "verbose"
         tool_call_visibility: "default" | "shown" | "hidden"
@@ -165,8 +165,12 @@ class WindowState:
     user_detached: bool = False
     parked: bool = False
     auto_named: bool = False
+    # First non-empty provider assigned to the window. This distinguishes an
+    # agent that exited back to a shell from a shell-origin window where that
+    # transition is intentional.
+    initial_provider_name: str = ""
 
-    def to_dict(self) -> dict[str, Any]:  # noqa: C901
+    def to_dict(self) -> dict[str, Any]:  # noqa: C901, PLR0912
         d: dict[str, Any] = {
             "session_id": self.session_id,
             "cwd": self.cwd,
@@ -177,6 +181,8 @@ class WindowState:
             d["transcript_path"] = self.transcript_path
         if self.provider_name:
             d["provider_name"] = self.provider_name
+        if self.initial_provider_name:
+            d["initial_provider_name"] = self.initial_provider_name
         if self.approval_mode != DEFAULT_APPROVAL_MODE:
             d["approval_mode"] = self.approval_mode
         if self.batch_mode != DEFAULT_BATCH_MODE:
@@ -221,6 +227,7 @@ class WindowState:
             window_name=data.get("window_name", ""),
             transcript_path=data.get("transcript_path", ""),
             provider_name=data.get("provider_name", ""),
+            initial_provider_name=data.get("initial_provider_name", ""),
             approval_mode=data.get("approval_mode", DEFAULT_APPROVAL_MODE),
             batch_mode=data.get("batch_mode", DEFAULT_BATCH_MODE),
             tool_call_visibility=data.get(
@@ -529,6 +536,8 @@ class WindowStateStore:
         """
         state = self.get_window_state(window_id)
         old_provider = state.provider_name
+        if not state.initial_provider_name and provider_name:
+            state.initial_provider_name = old_provider or provider_name
         state.provider_name = provider_name
         if cwd:
             state.cwd = cwd

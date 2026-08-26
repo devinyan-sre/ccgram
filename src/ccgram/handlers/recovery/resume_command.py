@@ -68,6 +68,7 @@ class ResumeEntry:
     cwd: str
     mtime: float = 0.0
     msg_count: int | None = None
+    provider_name: str = "claude"
 
 
 _SECONDS_PER_DAY = 86400
@@ -332,7 +333,7 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if window_id
         else get_provider()
     )
-    if not provider.capabilities.supports_resume:
+    if not provider.capabilities.supports_resume_picker:
         await safe_reply(
             update.message,
             t("\u274c Resume is not supported by the current provider."),
@@ -351,6 +352,7 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "cwd": s.cwd,
             "mtime": s.mtime,
             "msg_count": s.msg_count,
+            "provider_name": s.provider_name,
         }
         for s in sessions
     ]
@@ -386,6 +388,8 @@ async def _create_resume_window(
     thread_id: int,
     session_id: str,
     cwd: str,
+    *,
+    provider_name: str = "",
 ) -> tuple[bool, str, str, str]:
     """Unbind old window, create a new one with resume args.
 
@@ -402,11 +406,17 @@ async def _create_resume_window(
     if old_window_id:
         old_view = window_query.view_window(old_window_id)
         provider = get_provider_for_window(
-            old_window_id, provider_name=old_view.provider_name if old_view else None
+            old_window_id,
+            provider_name=provider_name
+            or (old_view.provider_name if old_view else None),
         )
         approval_mode = old_view.approval_mode if old_view else "normal"
     else:
-        provider = get_provider()
+        provider = (
+            get_provider_for_window("", provider_name=provider_name)
+            if provider_name
+            else get_provider()
+        )
         approval_mode = "normal"
     launch_args = provider.make_launch_args(resume_id=session_id)
     launch_command = resolve_launch_command(
@@ -469,6 +479,9 @@ async def _handle_pick(
     picked = stored[idx]
     session_id = picked["session_id"]
     cwd = picked.get("cwd", "")
+    provider_name = picked.get("provider_name", "")
+    if not isinstance(provider_name, str):
+        provider_name = ""
 
     if not cwd or not Path(cwd).is_dir():
         await safe_edit(query, t("\u274c Project directory no longer exists."))
@@ -477,7 +490,11 @@ async def _handle_pick(
         return
 
     success, message, created_wname, created_wid = await _create_resume_window(
-        user_id, thread_id, session_id, cwd
+        user_id,
+        thread_id,
+        session_id,
+        cwd,
+        provider_name=provider_name,
     )
     if not success:
         await safe_edit(query, f"\u274c {message}")
