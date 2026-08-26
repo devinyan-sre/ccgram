@@ -195,6 +195,8 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_MESSAGE_COALESCE_MS`                         | `0`                            | 同一成员连续非回复消息在发送前的合并窗口（毫秒）                                                       |
 | `CCGRAM_MAX_TASK_SUPPLEMENTS`                        | `20`                           | 一个活动任务最多接受的补充消息数                                                                       |
 | `CCGRAM_TASK_QUEUE_ALERT_SECONDS`                    | `300`                          | 排队超过该秒数时通知主运维；0 关闭                                                                     |
+| `CCGRAM_TASK_CANCEL_CONFIRM_SECONDS`                 | `8`                            | 发送 Ctrl+C 后等待 CLI 可观测停止的秒数；超时后保持取消中且不释放并发槽                               |
+| `CCGRAM_TASK_ESTIMATE_DEFAULT_SECONDS`               | `300`                          | 尚无足够历史样本时，排队 ETA 使用的初始任务耗时                                                        |
 | `CCGRAM_INBOUND_DEDUPE_HOURS`                        | `72`                           | Telegram 消息 ID 持久化去重保留时间                                                                    |
 | `CCGRAM_MEMBER_LANE_WORKTREES`                       | `true`                         | 为派生成员通道自动创建独立 Git worktree/分支                                                         |
 | `CCGRAM_ALLOW_SHARED_MEMBER_CWD`                     | `false`                        | 允许非 Git 多人通道共享目录；仅适合可信只读任务，并发写入可能冲突                                    |
@@ -482,6 +484,8 @@ CCGRAM_TASK_LEASE_SECONDS=7200
 CCGRAM_MESSAGE_COALESCE_MS=1500
 CCGRAM_MAX_TASK_SUPPLEMENTS=20
 CCGRAM_TASK_QUEUE_ALERT_SECONDS=300
+CCGRAM_TASK_CANCEL_CONFIRM_SECONDS=8
+CCGRAM_TASK_ESTIMATE_DEFAULT_SECONDS=300
 CCGRAM_INBOUND_DEDUPE_HOURS=72
 CCGRAM_MEMBER_LANE_WORKTREES=true
 CCGRAM_ALLOW_SHARED_MEMBER_CWD=false
@@ -517,8 +521,17 @@ CCGRAM_MEMBER_LANE_CLEANUP_DAYS=30
 - `inbound.json` 持久化消息幂等键和待调度内容，`tasks.json` 持久化活动配额。
   重启时只重放明确处于排队状态的消息；可能已经送入 CLI 的消息绝不自动重放，
   会回复原消息要求人工确认，从而避免重复执行。
-- `/tasks` 查看任务，`/task_add 内容` 明确补充，`/task_new` 划分新任务，
-  `/task_cancel` 取消自己的任务，管理员可用 `/task_cancel_all`。
+- `/tasks` 查看短编号（如 `T0007`）、状态、等待时间和排队 ETA；`/task_add 内容`
+  明确补充当前任务，`/task_new` 在当前任务确认停止后划分新任务。
+- `/task_cancel [T编号]` 优雅取消自己的任务。排队任务立即移除；运行任务先进入
+  “取消确认中”，发送 Ctrl+C，但继续占用并发槽，只有 CLI 完成事件、原生状态或
+  Shell 提示符确认停止后才释放。确认超时不会假装成功，也不会启动重叠任务。
+- 管理员可按编号执行 `/task_cancel T编号`、用 `/task_cancel_all` 批量优雅取消，
+  或在确认超时后执行 `/task_force_cancel T编号`。强制取消会终止该成员的 CLI
+  窗口，但保留话题绑定、历史和工作区，下一条消息进入现有恢复流程。
+- `/ops` 展示活动、排队、取消中任务数，平均耗时、最久等待，以及近 24 小时
+  已确认/超时/强制取消计数。取消审计追加到权限为 `0600` 的
+  `~/.ccgram/task-audit.jsonl`，达到 5 MiB 后轮换为 `.1`；审计不保存问题正文。
 - `/lane status` 查看 CLI、目录、分支和重叠文件；`/lane archive` 挂起，
   `/lane restore` 恢复；`/lane cleanup` 只删除干净且已合并的成员 worktree。
 - 完成任务后会检查其他成员是否修改相同文件；检测到重叠只告警，不自动合并。

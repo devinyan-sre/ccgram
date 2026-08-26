@@ -62,9 +62,15 @@ _ZH: dict[str, str] = {
     "You are not authorized to use this bot.": "你没有权限使用此机器人。",
     "Please include a question after the mention.": "请在 @机器人 后写上问题内容。",
     "⏳ Task queued (position {position}).": "⏳ 任务已排队（第 {position} 位）。",
+    "⏳ Task {task_id} queued (position {position}, estimated ≤{eta}s).": (
+        "⏳ 任务 {task_id} 已排队（位置 {position}，预计 ≤{eta} 秒）。"
+    ),
     "➕ Added to your current task.": "➕ 已补充到你的当前任务。",
     "❌ This task has too many supplements. Use /task_new to start a new task.": (
         "❌ 当前任务的补充消息过多，请使用 /task_new 开始新任务。"
+    ),
+    "⏸ Task {task_id} is still cancelling. Wait for confirmation or ask an admin to force-cancel it.": (
+        "⏸ 任务 {task_id} 仍在取消确认中。请等待确认，或让管理员强制取消。"
     ),
     "❌ Could not start your isolated workspace lane: {error}": (
         "❌ 无法启动你的隔离工作通道：{error}"

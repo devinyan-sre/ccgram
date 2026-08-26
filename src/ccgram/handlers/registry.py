@@ -61,6 +61,7 @@ from .task_commands import (
     task_add_command,
     task_cancel_all_command,
     task_cancel_command,
+    task_force_cancel_command,
     task_new_command,
     tasks_command,
 )
@@ -131,6 +132,7 @@ def register_all(
         CommandSpec("task_new", task_new_command),
         CommandSpec("task_cancel", task_cancel_command),
         CommandSpec("task_cancel_all", task_cancel_all_command, "admin"),
+        CommandSpec("task_force_cancel", task_force_cancel_command, "admin"),
         CommandSpec("lane", lane_command, "viewer"),
     ]
 
@@ -248,6 +250,7 @@ COMMAND_NAMES: tuple[str, ...] = (
     "task_new",
     "task_cancel",
     "task_cancel_all",
+    "task_force_cancel",
     "lane",
 )
 """Sentinel for tests: the exact command names register_all installs, in order."""

@@ -71,6 +71,8 @@ Each Telegram topic maps to one multiplexer window. Type in Telegram → keystro
 - **Monitor live** — Terminal screenshots on demand or auto-refresh every 5 seconds
 - **Send commands** — Slash commands, voice messages (transcribed via Whisper), or raw shell input
 - **Run multiple agents in parallel** — each topic independent; run different agents at once
+- **Multi-operator topics** — allow-listed members get isolated CLI lanes and Git worktrees, with replies correlated to the original question
+- **Controlled cancellation** — task IDs, queue ETA, two-phase Ctrl+C confirmation, and an admin force-stop work across every CLI
 - **Recover gracefully** — Resume, continue, or start fresh if a session crashes
 - **Migrate providers in place** — Transactionally replace Claude/Codex/Gemini/Pi with optional context transfer
 - **Diagnose delivery** — `/diag` checks process/session/transcript/cursors; `/replay` safely resends replies
@@ -100,6 +102,12 @@ uv tool install ccgram          # recommended
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 ALLOWED_USERS=your_telegram_user_id
 CCGRAM_GROUP_ID=your_telegram_group_id
+CCGRAM_MEMBER_LANES=true
+CCGRAM_REQUIRE_MENTION=true
+CCGRAM_MAX_PARALLEL_PER_TOPIC=2
+CCGRAM_MAX_PARALLEL_GLOBAL=4
+CCGRAM_TASK_CANCEL_CONFIRM_SECONDS=8
+CCGRAM_TASK_ESTIMATE_DEFAULT_SECONDS=300
 ```
 
 Get user ID from [@userinfobot](https://t.me/userinfobot). Get group ID via [@RawDataBot](https://t.me/RawDataBot) (prefix Peer ID with `-100`).

@@ -8,7 +8,9 @@ from ccgram.handlers.lifecycle_commands import (
     _park,
     autoname_command,
     build_auth_failure_keyboard,
+    ops_command,
 )
+from ccgram.task_scheduler import TaskStats
 from ccgram.topic_naming import ReservedTopicName
 
 
@@ -87,3 +89,49 @@ async def test_autoname_updates_parked_topic_without_live_window() -> None:
     sessions.set_display_name.assert_called_once_with("@3", "ccgram-codex-1")
     sessions.set_window_auto_named.assert_called_once_with("@3", value=True)
     sync_name.assert_awaited_once()
+
+
+async def test_ops_reports_scheduler_timing_and_cancel_outcomes() -> None:
+    update = MagicMock()
+    update.effective_user.id = 7
+    update.message = MagicMock()
+    reply = AsyncMock()
+    with (
+        patch(
+            "ccgram.handlers.lifecycle_commands.config.is_user_allowed",
+            return_value=True,
+        ),
+        patch(
+            "ccgram.handlers.lifecycle_commands.queue_snapshot",
+            return_value=(1, 2, 3),
+        ),
+        patch(
+            "ccgram.handlers.lifecycle_commands.delivery_outbox.snapshot",
+            return_value=(0, 0),
+        ),
+        patch(
+            "ccgram.handlers.lifecycle_commands.get_active_monitor",
+            return_value=None,
+        ),
+        patch(
+            "ccgram.handlers.lifecycle_commands.task_scheduler.stats",
+            return_value=TaskStats(1, 2, 1, 45, 12),
+        ),
+        patch(
+            "ccgram.handlers.lifecycle_commands.cancellation_summary",
+            return_value={
+                "cancel_confirmed": 3,
+                "cancel_timeout": 1,
+                "force_cancelled": 2,
+            },
+        ),
+        patch("ccgram.handlers.lifecycle_commands.safe_reply", reply),
+    ):
+        await ops_command(update, MagicMock())
+
+    call = reply.await_args
+    assert call is not None
+    text = call.args[1]
+    assert "1 active · 2 queued · 1 cancelling" in text
+    assert "avg 45s · oldest wait 12s" in text
+    assert "3 confirmed · 1 timed out · 2 forced" in text

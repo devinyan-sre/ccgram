@@ -16,6 +16,23 @@ CLI exposing native sub-agents.
 
 ![Multi-operator topic architecture](images/multi-operator-topic-architecture.png)
 
+### Cancellation state machine
+
+![Provider-neutral cancellation state machine](images/task-cancellation-state-machine.png)
+
+Cancellation uses the scheduler and multiplexer seams rather than any
+provider-specific command, so Claude, Codex, Gemini, Pi, Shell, tmux, and herdr
+share the same safety guarantees. A queued task can be removed immediately. An
+active task moves to `cancelling`, receives Ctrl+C, and continues to occupy its
+topic/global capacity slot until an observable stop signal arrives. Timeout is
+an operator-visible state, not success; an admin may then force-stop the lane's
+window without deleting its topic binding, transcript history, or workspace.
+The generic active-task lease cannot release a `cancelling` task, including
+after a ccgram restart.
+
+Every transition is appended to `task-audit.jsonl` (mode `0600`, bounded
+rotation) and summarized by `/ops`. Prompt text is intentionally excluded.
+
 The routing identities are deliberately separate:
 
 | Concern | Stable key | Meaning |
@@ -74,6 +91,12 @@ lane, but are optional acceleration, never a correctness dependency.
 - More input from one active operator is a continuation in the same CLI lane,
   not another task or capacity slot. The original root-message correlation is
   preserved while supplemental reply text is appended as explicit context.
+- Task IDs and the slot-duration moving average persist in `tasks.json`. Queue ETA
+  is advisory; admission still follows actual FIFO eligibility and both hard
+  concurrency limits.
+- Graceful cancellation never releases capacity merely because Ctrl+C was
+  sent. `cancelling` remains a live scheduler state until provider completion,
+  native idle status, a verified Shell prompt, or an explicit admin force-stop.
 - Rapid non-reply messages may be coalesced by `CCGRAM_MESSAGE_COALESCE_MS`.
   Every Telegram message ID is claimed durably before the delay, so redelivery
   cannot create a second provider task.

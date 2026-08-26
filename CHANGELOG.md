@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Provider-neutral two-phase task cancellation with durable short task IDs,
+  precise owner/admin controls, `/task_force_cancel`, queue ETA, `/ops` timing
+  and 24-hour cancel summaries, and a private rotating cancellation audit.
+  A graceful timeout keeps the task and concurrency slot in `cancelling` until
+  the CLI is observably stopped, preventing replacement work from overlapping.
+
 - Opt-in multi-operator topic lanes: allow-listed group members can mention the
   bot in one physical topic while ccgram provisions an independent provider
   session and clean Git worktree for each member. Updates run concurrently

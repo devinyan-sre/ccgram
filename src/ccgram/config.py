@@ -173,6 +173,12 @@ class Config:
         self.task_queue_alert_seconds: int = max(
             0, _parse_int_env("CCGRAM_TASK_QUEUE_ALERT_SECONDS", 300)
         )
+        self.task_cancel_confirm_seconds: int = max(
+            1, _parse_int_env("CCGRAM_TASK_CANCEL_CONFIRM_SECONDS", 8)
+        )
+        self.task_estimate_default_seconds: int = max(
+            1, _parse_int_env("CCGRAM_TASK_ESTIMATE_DEFAULT_SECONDS", 300)
+        )
         self.inbound_dedupe_hours: int = max(
             1, _parse_int_env("CCGRAM_INBOUND_DEDUPE_HOURS", 72)
         )
@@ -196,6 +202,7 @@ class Config:
         self.outbox_file = self.config_dir / "outbox.json"
         self.inbound_file = self.config_dir / "inbound.json"
         self.task_state_file = self.config_dir / "tasks.json"
+        self.task_audit_file = self.config_dir / "task-audit.jsonl"
         self.events_file = self.config_dir / "events.jsonl"
 
         # Claude Code session monitoring configuration

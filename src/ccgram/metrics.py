@@ -369,6 +369,11 @@ TASK_LEASE_EXPIRED = registry.counter(
     "ccgram_task_lease_expired",
     "Provider task leases expired before a completion signal",
 )
+TASK_CANCELLATIONS = registry.counter(
+    "ccgram_task_cancellations",
+    "Task cancellation lifecycle outcomes",
+    ("outcome",),
+)
 MEMBER_LANE_CREATE_FAILED = registry.counter(
     "ccgram_member_lane_create_failed",
     "Isolated member-lane creation failures by reason",

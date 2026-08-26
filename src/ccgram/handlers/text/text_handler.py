@@ -71,6 +71,8 @@ from ...request_context import clear_window as clear_request_window
 from ...request_context import record_request
 from ...task_scheduler import (
     TaskAdmission,
+    TaskCancellingError,
+    TaskQueueCancelledError,
     TaskSupplementLimitError,
     task_scheduler,
 )
@@ -631,10 +633,24 @@ async def _admit_request(
             thread_id=thread_id,
             user_id=user_id,
         )
+        queued_view = next(
+            (
+                view
+                for view in task_scheduler.views(chat_id=chat_id, thread_id=thread_id)
+                if view.user_id == user_id and view.state == "queued"
+            ),
+            None,
+        )
+        task_label = queued_view.task_id if queued_view else "-"
+        eta = queued_view.estimated_wait_seconds if queued_view else 0
         await safe_reply(
             message,
-            t("⏳ Task queued (position {position}).").format(
-                position=max(1, position)
+            t(
+                "⏳ Task {task_id} queued (position {position}, estimated ≤{eta}s)."
+            ).format(
+                task_id=task_label,
+                position=max(1, position),
+                eta=eta,
             ),
         )
     try:
@@ -649,6 +665,24 @@ async def _admit_request(
             t(
                 "❌ This task has too many supplements. Use /task_new to start a new task."
             ),
+        )
+        return None
+    except TaskCancellingError as exc:
+        inbound_store.set_state(
+            inbound_store.make_key(chat_id, thread_id, message_id),
+            "failed",
+        )
+        await safe_reply(
+            message,
+            t(
+                "⏸ Task {task_id} is still cancelling. Wait for confirmation or ask an admin to force-cancel it."
+            ).format(task_id=str(exc)),
+        )
+        return None
+    except TaskQueueCancelledError:
+        inbound_store.set_state(
+            inbound_store.make_key(chat_id, thread_id, message_id),
+            "failed",
         )
         return None
 

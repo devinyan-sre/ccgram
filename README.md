@@ -72,6 +72,7 @@ graph LR
 - **多种输入方式** — 斜杠命令、语音消息(经 Whisper 转写)、原始 shell 输入
 - **多 agent 并行** — 每个话题相互独立,可同时运行不同 agent
 - **多人同话题并行** — 白名单成员 @机器人后自动获得独立 CLI 会话和 Git worktree；结果精确回复原问题
+- **可控任务取消** — 任务短编号、排队 ETA、两阶段 Ctrl+C 确认与管理员强制停止，适配所有 CLI
 - **优雅恢复** — 会话崩溃后可 resume、continue 或重新开始
 - **跨 Provider 迁移** — 在原话题内事务式切换 Claude/Codex/Gemini/Pi，支持上下文交接
 - **可靠性诊断** — `/diag` 检查进程、会话、transcript 与投递游标；`/replay` 安全重放
@@ -107,6 +108,8 @@ CCGRAM_REQUIRE_MENTION=true
 CCGRAM_MAX_PARALLEL_PER_TOPIC=2
 CCGRAM_MAX_PARALLEL_GLOBAL=4
 CCGRAM_MESSAGE_COALESCE_MS=1500
+CCGRAM_TASK_CANCEL_CONFIRM_SECONDS=8
+CCGRAM_TASK_ESTIMATE_DEFAULT_SECONDS=300
 ```
 
 用户 ID 可从 [@userinfobot](https://t.me/userinfobot) 获取。群组 ID 可通过 [@RawDataBot](https://t.me/RawDataBot) 获取(在 Peer ID 前加 `-100` 前缀)。

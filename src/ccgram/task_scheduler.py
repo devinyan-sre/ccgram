@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import tempfile
 import time
+from typing import Literal
 
 import structlog
 
@@ -36,10 +37,32 @@ class TaskAdmission:
     continuation: bool
     queued: bool
     queue_position: int = 0
+    task_id: str = ""
 
 
 class TaskSupplementLimitError(RuntimeError):
     """The active operator task accepted too many unbounded supplements."""
+
+
+class TaskCancellingError(RuntimeError):
+    """The operator's task is waiting for cancellation confirmation."""
+
+
+class TaskQueueCancelledError(RuntimeError):
+    """A queued inbound message was deliberately removed before dispatch."""
+
+
+CancelStatus = Literal[
+    "not_found", "forbidden", "queued", "requested", "already_cancelling"
+]
+
+
+@dataclass(frozen=True, slots=True)
+class CancelRequest:
+    status: CancelStatus
+    task_id: str = ""
+    window_id: str = ""
+    user_id: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,16 +75,31 @@ class TaskView:
     age_seconds: float
     supplements: int
     queue_position: int = 0
+    task_id: str = ""
+    estimated_wait_seconds: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TaskStats:
+    active: int
+    queued: int
+    cancelling: int
+    average_duration_seconds: int
+    oldest_queue_seconds: int
 
 
 @dataclass(slots=True)
 class _ActiveTask:
     window_id: str
+    task_id: str
     started_at: float
     touched_at: float
     started_wall: float
     touched_wall: float
     supplements: int = 0
+    state: Literal["active", "cancelling"] = "active"
+    cancel_requested_wall: float = 0.0
+    cancel_requester_id: int = 0
 
 
 @dataclass(slots=True)
@@ -70,6 +108,7 @@ class _Waiter:
     window_id: str
     future: asyncio.Future[TaskAdmission]
     queued_at: float
+    task_id: str
 
 
 class TaskScheduler:
@@ -86,6 +125,8 @@ class TaskScheduler:
         self._waiters: deque[_Waiter] = deque()
         self._lease_tasks: dict[OperatorKey, asyncio.Task[None]] = {}
         self._state_path = state_path
+        self._next_task_seq = 1
+        self._average_duration_seconds = float(config.task_estimate_default_seconds)
         self._load_state()
         self._update_metrics()
 
@@ -94,22 +135,39 @@ class TaskScheduler:
             return
         try:
             raw = json.loads(self._state_path.read_text(encoding="utf-8"))
+            self._next_task_seq = max(1, int(raw.get("next_task_seq", 1)))
+            self._average_duration_seconds = max(
+                1.0,
+                float(
+                    raw.get(
+                        "average_duration_seconds",
+                        config.task_estimate_default_seconds,
+                    )
+                ),
+            )
             now_mono = time.monotonic()
             now_wall = time.time()
             for row in raw.get("active", []):
                 key = (int(row["chat_id"]), int(row["thread_id"]), int(row["user_id"]))
                 touched_wall = float(row.get("touched_at", now_wall))
                 remaining_age = max(0.0, now_wall - touched_wall)
-                if remaining_age >= config.task_lease_seconds:
+                state: Literal["active", "cancelling"] = (
+                    "cancelling" if row.get("state") == "cancelling" else "active"
+                )
+                if state == "active" and remaining_age >= config.task_lease_seconds:
                     continue
                 task = _ActiveTask(
                     window_id=str(row["window_id"]),
+                    task_id=str(row.get("task_id") or self._new_task_id()),
                     started_at=now_mono
                     - max(0.0, now_wall - float(row.get("started_at", now_wall))),
                     touched_at=now_mono - remaining_age,
                     started_wall=float(row.get("started_at", now_wall)),
                     touched_wall=touched_wall,
                     supplements=int(row.get("supplements", 0)),
+                    state=state,
+                    cancel_requested_wall=float(row.get("cancel_requested_at", 0.0)),
+                    cancel_requester_id=int(row.get("cancel_requester_id", 0)),
                 )
                 self._active[key] = task
                 self._window_to_key[task.window_id] = key
@@ -126,16 +184,29 @@ class TaskScheduler:
                 "thread_id": key[1],
                 "user_id": key[2],
                 "window_id": task.window_id,
+                "task_id": task.task_id,
                 "started_at": task.started_wall,
                 "touched_at": task.touched_wall,
                 "supplements": task.supplements,
+                "state": task.state,
+                "cancel_requested_at": task.cancel_requested_wall,
+                "cancel_requester_id": task.cancel_requester_id,
             }
             for key, task in self._active.items()
         ]
         fd, temp_name = tempfile.mkstemp(prefix=".tasks-", dir=self._state_path.parent)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump({"version": 1, "active": rows}, handle, separators=(",", ":"))
+                json.dump(
+                    {
+                        "version": 2,
+                        "next_task_seq": self._next_task_seq,
+                        "average_duration_seconds": self._average_duration_seconds,
+                        "active": rows,
+                    },
+                    handle,
+                    separators=(",", ":"),
+                )
                 handle.flush()
                 os.fsync(handle.fileno())
             os.chmod(temp_name, 0o600)
@@ -147,6 +218,20 @@ class TaskScheduler:
     def _update_metrics(self) -> None:
         TASKS_ACTIVE.set(len(self._active))
         TASKS_QUEUED.set(len(self._waiters))
+
+    def _new_task_id(self) -> str:
+        task_id = f"T{self._next_task_seq:04d}"
+        self._next_task_seq += 1
+        return task_id
+
+    def _observe_duration(self, task: _ActiveTask, *, outcome: str) -> None:
+        duration = max(0.0, time.monotonic() - task.started_at)
+        TASK_DURATION.observe(duration, outcome=outcome)
+        # A conservative EMA gives queue estimates useful signal without
+        # allowing one unusually long task to dominate for days.
+        self._average_duration_seconds = max(
+            1.0, self._average_duration_seconds * 0.8 + duration * 0.2
+        )
 
     @staticmethod
     def _topic(key: OperatorKey) -> TopicKey:
@@ -166,7 +251,8 @@ class TaskScheduler:
         stale = [
             key
             for key, task in self._active.items()
-            if now - task.touched_at >= config.task_lease_seconds
+            if task.state == "active"
+            and now - task.touched_at >= config.task_lease_seconds
         ]
         for key in stale:
             task = self._active.pop(key)
@@ -182,16 +268,16 @@ class TaskScheduler:
                 window_id=task.window_id,
             )
             TASK_LEASE_EXPIRED.inc()
-            TASK_DURATION.observe(
-                max(0.0, now - task.started_at), outcome="lease_expired"
-            )
+            self._observe_duration(task, outcome="lease_expired")
         if stale:
             self._save_state()
             self._update_metrics()
 
-    def _activate(self, key: OperatorKey, window_id: str, now: float) -> None:
+    def _activate(
+        self, key: OperatorKey, window_id: str, now: float, task_id: str
+    ) -> None:
         wall = time.time()
-        self._active[key] = _ActiveTask(window_id, now, now, wall, wall)
+        self._active[key] = _ActiveTask(window_id, task_id, now, now, wall, wall)
         self._window_to_key[window_id] = key
         self._arm_lease(key, window_id)
         self._save_state()
@@ -213,6 +299,11 @@ class TaskScheduler:
                 active = self._active.get(key)
                 if active is None or active.window_id != window_id:
                     return
+                # A generic inactivity lease is not proof that an interrupted
+                # provider stopped.  Keep cancellation fail-closed until a
+                # completion signal or an explicit admin force-stop arrives.
+                if active.state == "cancelling":
+                    return
                 self._active.pop(key, None)
                 self._window_to_key.pop(window_id, None)
                 self._lease_tasks.pop(key, None)
@@ -224,10 +315,7 @@ class TaskScheduler:
                     window_id=window_id,
                 )
                 TASK_LEASE_EXPIRED.inc()
-                TASK_DURATION.observe(
-                    max(0.0, time.monotonic() - active.started_at),
-                    outcome="lease_expired",
-                )
+                self._observe_duration(active, outcome="lease_expired")
                 self._save_state()
                 self._update_metrics()
                 self._wake_waiters(time.monotonic())
@@ -243,6 +331,9 @@ class TaskScheduler:
                 continue
             if waiter.key in self._active:
                 task = self._active[waiter.key]
+                if task.state == "cancelling":
+                    waiter.future.set_exception(TaskCancellingError(task.task_id))
+                    continue
                 if task.supplements >= config.max_task_supplements:
                     waiter.future.set_exception(
                         TaskSupplementLimitError(
@@ -256,12 +347,16 @@ class TaskScheduler:
                 task.touched_wall = time.time()
                 self._arm_lease(waiter.key, task.window_id)
                 TASK_QUEUE_WAIT.observe(max(0.0, now - waiter.queued_at))
-                waiter.future.set_result(TaskAdmission(True, True))
+                waiter.future.set_result(
+                    TaskAdmission(True, True, task_id=task.task_id)
+                )
                 continue
             if self._has_capacity(waiter.key):
-                self._activate(waiter.key, waiter.window_id, now)
+                self._activate(waiter.key, waiter.window_id, now, waiter.task_id)
                 TASK_QUEUE_WAIT.observe(max(0.0, now - waiter.queued_at))
-                waiter.future.set_result(TaskAdmission(False, True))
+                waiter.future.set_result(
+                    TaskAdmission(False, True, task_id=waiter.task_id)
+                )
             else:
                 remaining.append(waiter)
         self._waiters = remaining
@@ -277,6 +372,8 @@ class TaskScheduler:
             self._expire_stale(now)
             self._wake_waiters(now)
             if active := self._active.get(key):
+                if active.state == "cancelling":
+                    raise TaskCancellingError(active.task_id)
                 if active.supplements >= config.max_task_supplements:
                     raise TaskSupplementLimitError(
                         f"task supplement limit reached ({config.max_task_supplements})"
@@ -286,14 +383,21 @@ class TaskScheduler:
                 active.touched_wall = time.time()
                 self._arm_lease(key, active.window_id)
                 self._save_state()
-                return TaskAdmission(continuation=True, queued=False)
+                return TaskAdmission(
+                    continuation=True, queued=False, task_id=active.task_id
+                )
             if self._has_capacity(key):
-                self._activate(key, window_id, now)
-                return TaskAdmission(continuation=False, queued=False)
+                task_id = self._new_task_id()
+                self._activate(key, window_id, now, task_id)
+                return TaskAdmission(continuation=False, queued=False, task_id=task_id)
             future: asyncio.Future[TaskAdmission] = (
                 asyncio.get_running_loop().create_future()
             )
-            self._waiters.append(_Waiter(key, window_id, future, now))
+            existing = next(
+                (waiter for waiter in self._waiters if waiter.key == key), None
+            )
+            task_id = existing.task_id if existing else self._new_task_id()
+            self._waiters.append(_Waiter(key, window_id, future, now, task_id))
             position = len(self._waiters)
             self._update_metrics()
 
@@ -302,6 +406,7 @@ class TaskScheduler:
             continuation=result.continuation,
             queued=True,
             queue_position=position,
+            task_id=result.task_id,
         )
 
     async def queue_position(
@@ -324,9 +429,113 @@ class TaskScheduler:
             if lease is not None and lease is not asyncio.current_task():
                 lease.cancel()
             if active is not None:
-                TASK_DURATION.observe(
-                    max(0.0, time.monotonic() - active.started_at), outcome=outcome
+                resolved_outcome = (
+                    "cancel_confirmed"
+                    if active.state == "cancelling" and outcome == "done"
+                    else outcome
                 )
+                self._observe_duration(active, outcome=resolved_outcome)
+            self._save_state()
+            self._update_metrics()
+            self._wake_waiters(time.monotonic())
+            return True
+
+    async def request_cancel(
+        self,
+        *,
+        chat_id: int,
+        thread_id: int,
+        requester_user_id: int,
+        task_id: str | None = None,
+        allow_any: bool = False,
+    ) -> CancelRequest:
+        """Cancel queued work or mark active work as awaiting confirmation."""
+        normalized = task_id.upper() if task_id else None
+        async with self._lock:
+            waiter = next(
+                (
+                    candidate
+                    for candidate in self._waiters
+                    if candidate.key[:2] == (chat_id, thread_id)
+                    and (
+                        candidate.task_id.upper() == normalized
+                        if normalized
+                        else candidate.key[2] == requester_user_id
+                    )
+                ),
+                None,
+            )
+            if waiter is not None:
+                owner = waiter.key[2]
+                if owner != requester_user_id and not allow_any:
+                    return CancelRequest("forbidden", waiter.task_id, user_id=owner)
+                matching = [
+                    item
+                    for item in self._waiters
+                    if item.key == waiter.key and item.task_id == waiter.task_id
+                ]
+                self._waiters = deque(
+                    item for item in self._waiters if item not in matching
+                )
+                for item in matching:
+                    item.future.set_exception(TaskQueueCancelledError(waiter.task_id))
+                self._update_metrics()
+                return CancelRequest("queued", waiter.task_id, waiter.window_id, owner)
+
+            active_match = next(
+                (
+                    (key, task)
+                    for key, task in self._active.items()
+                    if key[:2] == (chat_id, thread_id)
+                    and (
+                        task.task_id.upper() == normalized
+                        if normalized
+                        else key[2] == requester_user_id
+                    )
+                ),
+                None,
+            )
+            if active_match is None:
+                return CancelRequest("not_found", normalized or "")
+            key, task = active_match
+            if key[2] != requester_user_id and not allow_any:
+                return CancelRequest("forbidden", task.task_id, task.window_id, key[2])
+            if task.state == "cancelling":
+                return CancelRequest(
+                    "already_cancelling", task.task_id, task.window_id, key[2]
+                )
+            task.state = "cancelling"
+            task.cancel_requested_wall = time.time()
+            task.cancel_requester_id = requester_user_id
+            task.touched_at = time.monotonic()
+            task.touched_wall = time.time()
+            self._arm_lease(key, task.window_id)
+            self._save_state()
+            return CancelRequest("requested", task.task_id, task.window_id, key[2])
+
+    async def confirm_cancel(self, task_id: str, *, forced: bool = False) -> bool:
+        """Release a cancelling task after the CLI stopped or was killed."""
+        normalized = task_id.upper()
+        async with self._lock:
+            match = next(
+                (
+                    (key, task)
+                    for key, task in self._active.items()
+                    if task.task_id.upper() == normalized
+                ),
+                None,
+            )
+            if match is None:
+                return False
+            key, task = match
+            self._active.pop(key, None)
+            self._window_to_key.pop(task.window_id, None)
+            lease = self._lease_tasks.pop(key, None)
+            if lease is not None and lease is not asyncio.current_task():
+                lease.cancel()
+            self._observe_duration(
+                task, outcome="force_cancelled" if forced else "cancel_confirmed"
+            )
             self._save_state()
             self._update_metrics()
             self._wake_waiters(time.monotonic())
@@ -354,9 +563,7 @@ class TaskScheduler:
             lease = self._lease_tasks.pop(key, None)
             if lease is not None and lease is not asyncio.current_task():
                 lease.cancel()
-            TASK_DURATION.observe(
-                max(0.0, time.monotonic() - active.started_at), outcome="cancelled"
-            )
+            self._observe_duration(active, outcome="cancelled")
             self._save_state()
             self._update_metrics()
             self._wake_waiters(time.monotonic())
@@ -389,20 +596,39 @@ class TaskScheduler:
                 thread_id=key[1],
                 user_id=key[2],
                 window_id=task.window_id,
-                state="active",
-                age_seconds=max(0.0, now - task.started_at),
+                state=task.state,
+                age_seconds=(
+                    max(0.0, time.time() - task.cancel_requested_wall)
+                    if task.state == "cancelling" and task.cancel_requested_wall
+                    else max(0.0, now - task.started_at)
+                ),
                 supplements=task.supplements,
+                task_id=task.task_id,
             )
             for key, task in self._active.items()
             if (chat_id is None or key[0] == chat_id)
             and (thread_id is None or key[1] == thread_id)
         ]
+        seen_queued: set[tuple[OperatorKey, str]] = set()
         for position, waiter in enumerate(self._waiters, start=1):
             key = waiter.key
             if (chat_id is not None and key[0] != chat_id) or (
                 thread_id is not None and key[1] != thread_id
             ):
                 continue
+            group = (key, waiter.task_id)
+            if group in seen_queued:
+                continue
+            seen_queued.add(group)
+            grouped = sum(
+                item.key == key and item.task_id == waiter.task_id
+                for item in self._waiters
+            )
+            capacity = max(
+                1,
+                min(config.max_parallel_global, config.max_parallel_per_topic),
+            )
+            rounds = (position + capacity - 1) // capacity
             views.append(
                 TaskView(
                     chat_id=key[0],
@@ -411,11 +637,28 @@ class TaskScheduler:
                     window_id=waiter.window_id,
                     state="queued",
                     age_seconds=max(0.0, now - waiter.queued_at),
-                    supplements=0,
+                    supplements=max(0, grouped - 1),
                     queue_position=position,
+                    task_id=waiter.task_id,
+                    estimated_wait_seconds=max(
+                        1, int(rounds * self._average_duration_seconds)
+                    ),
                 )
             )
         return views
+
+    def stats(self) -> TaskStats:
+        views = self.views()
+        queued = [view for view in views if view.state == "queued"]
+        return TaskStats(
+            active=sum(view.state == "active" for view in views),
+            queued=len(queued),
+            cancelling=sum(view.state == "cancelling" for view in views),
+            average_duration_seconds=max(1, int(self._average_duration_seconds)),
+            oldest_queue_seconds=max(
+                (int(view.age_seconds) for view in queued), default=0
+            ),
+        )
 
     def start_recovered_leases(self) -> None:
         """Arm lease timers for active rows restored before the event loop."""
@@ -431,14 +674,20 @@ class TaskScheduler:
         self._window_to_key.clear()
         self._waiters.clear()
         self._lease_tasks.clear()
+        self._next_task_seq = 1
+        self._average_duration_seconds = float(config.task_estimate_default_seconds)
         self._update_metrics()
 
 
 task_scheduler = TaskScheduler(config.task_state_file)
 
 __all__ = [
+    "CancelRequest",
     "TaskAdmission",
+    "TaskCancellingError",
+    "TaskQueueCancelledError",
     "TaskScheduler",
+    "TaskStats",
     "TaskSupplementLimitError",
     "TaskView",
     "task_scheduler",

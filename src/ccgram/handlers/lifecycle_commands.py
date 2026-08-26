@@ -24,6 +24,8 @@ from ..session import session_manager
 from ..session_map import read_session_map_raw, session_map_prefix
 from ..session_monitor import get_active_monitor
 from ..telegram_client import PTBTelegramClient
+from ..task_audit import cancellation_summary
+from ..task_scheduler import task_scheduler
 from ..topic_naming import reserve_topic_name
 from ..window_state_ports import identity_state, lifecycle_state
 from .callback_data import CB_HANDOFF, CB_PARK, CB_WAKE
@@ -408,7 +410,20 @@ async def ops_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> No
             for item in monitor.state.tracked_sessions.values()
         )
         stalled = len(monitor._delivery_lag_alerted)
-    health = "✅ healthy" if not pending and not lag else "⚠ attention needed"
+    task_stats = task_scheduler.stats()
+    cancel_stats = cancellation_summary(hours=24)
+    cancel_confirmed = cancel_stats.get("cancel_confirmed", 0) + cancel_stats.get(
+        "queued_cancelled", 0
+    )
+    cancel_timeouts = cancel_stats.get("cancel_timeout", 0)
+    force_cancelled = cancel_stats.get("force_cancelled", 0) + cancel_stats.get(
+        "queued_force_cancelled", 0
+    )
+    health = (
+        "✅ healthy"
+        if not pending and not lag and not task_stats.cancelling
+        else "⚠ attention needed"
+    )
     await safe_reply(
         update.message,
         "\n".join(
@@ -417,6 +432,21 @@ async def ops_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> No
                 f"Sessions: {tracked} tracked · {stalled} stalled",
                 f"Delivery: {lag} bytes lag · {pending} durable pending",
                 f"Queues: {topic_queues} topics · {queued} queued · {unfinished} active",
+                (
+                    "Provider tasks: "
+                    f"{task_stats.active} active · {task_stats.queued} queued · "
+                    f"{task_stats.cancelling} cancelling"
+                ),
+                (
+                    "Task timing: "
+                    f"avg {task_stats.average_duration_seconds}s · "
+                    f"oldest wait {task_stats.oldest_queue_seconds}s"
+                ),
+                (
+                    "Cancels (24h): "
+                    f"{cancel_confirmed} confirmed · {cancel_timeouts} timed out · "
+                    f"{force_cancelled} forced"
+                ),
                 f"Retries: {retrying}",
             ]
         ),

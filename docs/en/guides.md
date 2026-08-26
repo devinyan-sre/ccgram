@@ -173,6 +173,8 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_MESSAGE_COALESCE_MS`                         | `0`                            | Merge rapid non-reply messages from one operator before dispatch                                      |
 | `CCGRAM_MAX_TASK_SUPPLEMENTS`                        | `20`                           | Maximum supplements accepted by one active operator task                                              |
 | `CCGRAM_TASK_QUEUE_ALERT_SECONDS`                    | `300`                          | Alert the primary operator after a task waits this many seconds; 0 disables                           |
+| `CCGRAM_TASK_CANCEL_CONFIRM_SECONDS`                 | `8`                            | Seconds to observe a CLI stop after Ctrl+C; timeout retains the cancelling task and its slot          |
+| `CCGRAM_TASK_ESTIMATE_DEFAULT_SECONDS`               | `300`                          | Initial task duration used for queue ETA until completion history is available                         |
 | `CCGRAM_INBOUND_DEDUPE_HOURS`                        | `72`                           | Durable Telegram message-ID deduplication retention                                                   |
 | `CCGRAM_MEMBER_LANE_WORKTREES`                       | `true`                         | Create an isolated clean Git worktree/branch for every derived member lane                            |
 | `CCGRAM_ALLOW_SHARED_MEMBER_CWD`                     | `false`                        | Explicitly permit non-Git lanes to share a cwd; safe only for trusted read-only work                  |
@@ -408,6 +410,29 @@ ccgram --autoclose-done 0 --autoclose-dead 0
 ```
 
 ## Isolation Model & Hard Constraints (read before deploying)
+
+### Multi-operator task control
+
+With `CCGRAM_MEMBER_LANES=true`, each allow-listed member in a physical topic
+gets an isolated provider session and, for clean Git repositories, a dedicated
+worktree. Different members can run concurrently within the configurable topic
+and global limits; one member's messages stay ordered and supplement one task.
+Claude, Codex, Gemini, Pi, and Shell all use this provider-neutral scheduler.
+
+- `/tasks` lists durable short IDs such as `T0007`, state, queue position, and
+  an ETA based on an exponential moving average of released slot durations.
+- `/task_cancel [T-id]` removes queued work immediately. Active work changes to
+  `cancelling`, receives Ctrl+C, and keeps its concurrency slot until ccgram
+  observes a completion/idle signal. A confirmation timeout deliberately does
+  not release the slot or overlap a replacement task.
+- `/task_add text` explicitly supplements the caller's current task;
+  `/task_new` creates a boundary only after cancellation has been confirmed.
+- Admins can use `/task_cancel T-id`, `/task_cancel_all`, or
+  `/task_force_cancel T-id`. Force-cancel kills the lane's CLI window while
+  retaining its topic binding, history, and workspace for normal recovery.
+- `/ops` reports active/queued/cancelling counts, timing, and 24-hour cancel
+  outcomes. The mode-`0600` `~/.ccgram/task-audit.jsonl` contains task/action
+  metadata but never prompt text, and rotates to `.1` at 5 MiB.
 
 All of CCGram's isolation rests on **three boundaries**. Understanding them tells you what can go anywhere and what must follow the rules.
 
