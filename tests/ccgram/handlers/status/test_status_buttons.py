@@ -169,6 +169,17 @@ class TestDashboardButtonRow:
         assert btn.web_app is not None
         assert btn.web_app.url == "https://example.com/app/abc.def"
 
+    def test_dashboard_hidden_in_group_topic(self) -> None:
+        with patch("ccgram.handlers.status.status_bar_actions.config") as cfg:
+            cfg.miniapp_base_url = "https://example.com"
+            cfg.telegram_bot_token = "bot:abc"
+            kb = build_status_keyboard("@7", user_id=42, is_group=True)
+        assert all(
+            button.web_app is None
+            for row in kb.inline_keyboard
+            for button in row
+        )
+
     def test_dashboard_url_signed_with_window_and_user(self) -> None:
         captured: list[tuple[str, int]] = []
 

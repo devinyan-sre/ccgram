@@ -118,6 +118,9 @@ _RC_TIMEOUT = 124
 _RC_NO_BINARY = 127
 _CALL_TIMEOUT_SECONDS = 8.0
 
+# Agent TUIs may treat Enter batched with prompt text as a literal newline.
+_SEND_ENTER_DELAY_SECONDS = 0.5
+
 # Event-stream reconnect backoff (seconds): exponential, capped.
 _STREAM_BACKOFF_BASE = 1.0
 _STREAM_BACKOFF_MAX = 30.0
@@ -716,9 +719,12 @@ class HerdrManager:
             if not keys:
                 return False
             return await self._call_ok(["pane", "send-keys", pane_id, *keys])
-        if enter:
-            return await self._call_ok(["pane", "run", pane_id, text])
-        return await self._call_ok(["pane", "send-text", pane_id, text])
+        if not await self._call_ok(["pane", "send-text", pane_id, text]):
+            return False
+        if not enter:
+            return True
+        await asyncio.sleep(_SEND_ENTER_DELAY_SECONDS)
+        return await self._call_ok(["pane", "send-keys", pane_id, "Enter"])
 
     async def kill_window(self, window_id: str) -> bool:
         """Close a herdr tab (``tab close``).

@@ -1,6 +1,7 @@
 """Tests for file_handler helper functions."""
 
 import re
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,11 @@ class TestSanitizeFilename:
             ("../../etc/passwd", "passwd"),
             ("hello world!.txt", "hello_world_.txt"),
             ("file@#$.txt", "file___.txt"),
+            ("请求书.xlsx", "请求书.xlsx"),
+            ("Отчёт за 2025.pdf", "Отчёт_за_2025.pdf"),
+            ("ใบเสร็จ.pdf", "ใบเสร็จ.pdf"),
+            ("report📊.pdf", "report_.pdf"),
+            ("safe‮gnp.exe", "safe_gnp.exe"),
             ("..", "unnamed"),
             (".", "unnamed"),
             ("...", "unnamed"),
@@ -38,6 +44,14 @@ class TestSanitizeFilename:
         long = "a" * 250 + ".pdf"
         result = _sanitize_filename(long)
         assert len(result) <= 200
+        assert result.endswith(".pdf")
+
+    def test_composes_and_truncates_unicode_by_bytes(self) -> None:
+        assert _sanitize_filename(unicodedata.normalize("NFD", "Отчёт.pdf")) == (
+            "Отчёт.pdf"
+        )
+        result = _sanitize_filename("界" * 200 + ".pdf")
+        assert len(result.encode()) <= 200
         assert result.endswith(".pdf")
 
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import subprocess
 from collections.abc import Sequence
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -1362,13 +1363,30 @@ async def test_scrollback_under_cap_is_not_truncated() -> None:
 # ── Send paths ─────────────────────────────────────────────────────────
 
 
-async def test_send_literal_enter_uses_pane_run() -> None:
-    # send(tab_id, ...) resolves tab→active pane, then runs pane run.
+async def test_send_literal_enter_is_split_after_text() -> None:
+    # A separate Enter prevents agent TUIs from treating it as a newline.
     fake = (
-        FakeHerdr().on("pane", "list", out=PANE_LIST_SINGLE).on("pane", "run", out=OK)
+        FakeHerdr()
+        .on("pane", "list", out=PANE_LIST_SINGLE)
+        .on("pane", "send-text", out=OK)
+        .on("pane", "send-keys", out=OK)
     )
-    assert await _manager(fake).send("w2:t1", "hello world") is True
-    assert fake.sent("pane", "run") == ["pane", "run", "w2:p1", "hello world"]
+    sleep = AsyncMock()
+    with patch.object(herdr_module.asyncio, "sleep", sleep):
+        assert await _manager(fake).send("w2:t1", "hello world") is True
+    assert fake.sent("pane", "send-text") == [
+        "pane",
+        "send-text",
+        "w2:p1",
+        "hello world",
+    ]
+    assert fake.sent("pane", "send-keys") == [
+        "pane",
+        "send-keys",
+        "w2:p1",
+        "Enter",
+    ]
+    sleep.assert_awaited_once_with(herdr_module._SEND_ENTER_DELAY_SECONDS)
 
 
 async def test_send_no_enter_uses_send_text() -> None:
@@ -1411,16 +1429,23 @@ async def test_send_returns_false_when_tab_has_no_panes() -> None:
 
 async def test_send_split_tab_targets_focused_pane() -> None:
     # Split tab: send must go to the focused pane (w2:p1), not w2:p2.
-    fake = FakeHerdr().on("pane", "list", out=PANE_LIST_SPLIT).on("pane", "run", out=OK)
-    assert await _manager(fake).send("w2:t1", "go") is True
-    assert fake.sent("pane", "run") == ["pane", "run", "w2:p1", "go"]
+    fake = (
+        FakeHerdr()
+        .on("pane", "list", out=PANE_LIST_SPLIT)
+        .on("pane", "send-text", out=OK)
+        .on("pane", "send-keys", out=OK)
+    )
+    with patch.object(herdr_module.asyncio, "sleep"):
+        assert await _manager(fake).send("w2:t1", "go") is True
+    assert fake.sent("pane", "send-text") == ["pane", "send-text", "w2:p1", "go"]
 
 
 async def test_send_to_pane_bypasses_tab_resolution() -> None:
     # send_to_pane(pane_id, ...) sends directly to the pane id — no pane list call.
-    fake = FakeHerdr().on("pane", "run", out=OK)
-    assert await _manager(fake).send_to_pane("w2:p2", "msg") is True
-    assert fake.sent("pane", "run") == ["pane", "run", "w2:p2", "msg"]
+    fake = FakeHerdr().on("pane", "send-text", out=OK).on("pane", "send-keys", out=OK)
+    with patch.object(herdr_module.asyncio, "sleep"):
+        assert await _manager(fake).send_to_pane("w2:p2", "msg") is True
+    assert fake.sent("pane", "send-text") == ["pane", "send-text", "w2:p2", "msg"]
     assert fake.sent("pane", "list") is None  # no resolution
 
 
