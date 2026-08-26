@@ -22,6 +22,7 @@ from telegram.ext import (
 )
 from telegram.ext._utils.types import HandlerCallback
 
+from ..access_control import Role, require_role
 from .callback_registry import dispatch as _dispatch_callback
 from .callback_registry import load_handlers as _load_callback_handlers
 from .agent_command import agent_command
@@ -47,6 +48,7 @@ from .live import live_command, panes_command, screenshot_command
 from .messaging_pipeline import toolcalls_command, verbose_command
 from .diff_command import diff_command
 from .last_reply import last_command
+from .lane_command import lane_command
 from .usage_command import usage_command
 from .recovery import restore_command, resume_command
 from .recovery.history import history_command
@@ -55,6 +57,13 @@ from .send import send_command
 from .sessions_dashboard import sessions_command
 from .split_command import split_command
 from .sync_command import sync_command
+from .task_commands import (
+    task_add_command,
+    task_cancel_all_command,
+    task_cancel_command,
+    task_new_command,
+    tasks_command,
+)
 from .text.text_handler import text_handler
 from .topics import new_command
 from .topics.topic_lifecycle import topic_closed_handler, topic_edited_handler
@@ -70,6 +79,7 @@ class CommandSpec:
 
     name: str
     handler: HandlerFn
+    minimum_role: Role | None = "operator"
 
 
 def register_all(
@@ -83,46 +93,65 @@ def register_all(
     MessageHandler, which must precede the TEXT MessageHandler.
     """
     command_specs: list[CommandSpec] = [
-        CommandSpec("start", new_command),
-        CommandSpec("history", history_command),
-        CommandSpec("commands", commands_command),
-        CommandSpec("sessions", sessions_command),
+        # /start already performs the legacy allow-list check itself and is a
+        # read-only welcome/reset action. Keep its callback identity stable.
+        CommandSpec("start", new_command, None),
+        CommandSpec("history", history_command, "viewer"),
+        CommandSpec("commands", commands_command, "viewer"),
+        CommandSpec("sessions", sessions_command, "viewer"),
         CommandSpec("resume", resume_command),
-        CommandSpec("unbind", unbind_command),
-        CommandSpec("upgrade", upgrade_command),
-        CommandSpec("recall", recall_command),
-        CommandSpec("screenshot", screenshot_command),
-        CommandSpec("live", live_command),
-        CommandSpec("panes", panes_command),
+        CommandSpec("unbind", unbind_command, "admin"),
+        CommandSpec("upgrade", upgrade_command, "admin"),
+        CommandSpec("recall", recall_command, "viewer"),
+        CommandSpec("screenshot", screenshot_command, "viewer"),
+        CommandSpec("live", live_command, "viewer"),
+        CommandSpec("panes", panes_command, "viewer"),
         CommandSpec("split", split_command),
-        CommandSpec("sync", sync_command),
+        CommandSpec("sync", sync_command, "admin"),
         CommandSpec("toolbar", toolbar_command),
         CommandSpec("send", send_command),
         CommandSpec("verbose", verbose_command),
         CommandSpec("toolcalls", toolcalls_command),
         CommandSpec("restore", restore_command),
-        CommandSpec("last", last_command),
-        CommandSpec("diff", diff_command),
-        CommandSpec("usage", usage_command),
-        CommandSpec("search", search_command),
+        CommandSpec("last", last_command, "viewer"),
+        CommandSpec("diff", diff_command, "viewer"),
+        CommandSpec("usage", usage_command, "viewer"),
+        CommandSpec("search", search_command, "viewer"),
         CommandSpec("agent", agent_command),
         CommandSpec("provider", agent_command),  # alias
         CommandSpec("handoff", handoff_command),
         CommandSpec("autoname", autoname_command),
         CommandSpec("park", park_command),
         CommandSpec("wake", wake_command),
-        CommandSpec("diag", diag_command),
-        CommandSpec("replay", replay_command),
-        CommandSpec("ops", ops_command),
+        CommandSpec("diag", diag_command, "viewer"),
+        CommandSpec("replay", replay_command, "viewer"),
+        CommandSpec("ops", ops_command, "viewer"),
+        CommandSpec("tasks", tasks_command, "viewer"),
+        CommandSpec("task_add", task_add_command),
+        CommandSpec("task_new", task_new_command),
+        CommandSpec("task_cancel", task_cancel_command),
+        CommandSpec("task_cancel_all", task_cancel_all_command, "admin"),
+        CommandSpec("lane", lane_command, "viewer"),
     ]
 
     for spec in command_specs:
+        callback = (
+            require_role(spec.minimum_role)(spec.handler)
+            if spec.minimum_role is not None
+            else spec.handler
+        )
         application.add_handler(
-            CommandHandler(spec.name, spec.handler, filters=group_filter)
+            CommandHandler(
+                spec.name,
+                callback,
+                filters=group_filter,
+            )
         )
 
     _load_callback_handlers()
-    application.add_handler(CallbackQueryHandler(_dispatch_callback))
+    application.add_handler(
+        CallbackQueryHandler(require_role("operator")(_dispatch_callback))
+    )
 
     application.add_handler(
         MessageHandler(
@@ -137,19 +166,34 @@ def register_all(
         )
     )
     application.add_handler(
-        MessageHandler(filters.COMMAND & group_filter, forward_command_handler)
+        MessageHandler(
+            filters.COMMAND & group_filter,
+            require_role("operator")(forward_command_handler),
+        )
     )
     application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND & group_filter, text_handler)
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND & group_filter,
+            require_role("operator")(text_handler),
+        )
     )
     application.add_handler(
-        MessageHandler(filters.PHOTO & group_filter, handle_photo_message)
+        MessageHandler(
+            filters.PHOTO & group_filter,
+            require_role("operator")(handle_photo_message),
+        )
     )
     application.add_handler(
-        MessageHandler(filters.Document.ALL & group_filter, handle_document_message)
+        MessageHandler(
+            filters.Document.ALL & group_filter,
+            require_role("operator")(handle_document_message),
+        )
     )
     application.add_handler(
-        MessageHandler(filters.VOICE & group_filter, handle_voice_message)
+        MessageHandler(
+            filters.VOICE & group_filter,
+            require_role("operator")(handle_voice_message),
+        )
     )
     application.add_handler(
         MessageHandler(
@@ -199,5 +243,11 @@ COMMAND_NAMES: tuple[str, ...] = (
     "diag",
     "replay",
     "ops",
+    "tasks",
+    "task_add",
+    "task_new",
+    "task_cancel",
+    "task_cancel_all",
+    "lane",
 )
 """Sentinel for tests: the exact command names register_all installs, in order."""

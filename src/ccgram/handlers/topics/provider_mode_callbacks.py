@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from ...access_control import has_role
+from ...config import config
 from ...i18n import t
 from ...providers import registry as provider_registry
 from ...thread_router import thread_router
@@ -187,6 +189,13 @@ async def _handle_mode_select(
         return
     if approval_mode not in ("normal", "yolo"):
         await query.answer(t("Unknown mode"), show_alert=True)
+        return
+    if (
+        approval_mode == "yolo"
+        and config.is_user_allowed(user_id)
+        and not has_role(user_id, "admin")
+    ):
+        await query.answer("YOLO/bypass mode requires the admin role.", show_alert=True)
         return
 
     selected_path = _required_selected_path(context)

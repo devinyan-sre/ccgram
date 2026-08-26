@@ -62,6 +62,10 @@ _ZH: dict[str, str] = {
     "You are not authorized to use this bot.": "你没有权限使用此机器人。",
     "Please include a question after the mention.": "请在 @机器人 后写上问题内容。",
     "⏳ Task queued (position {position}).": "⏳ 任务已排队（第 {position} 位）。",
+    "➕ Added to your current task.": "➕ 已补充到你的当前任务。",
+    "❌ This task has too many supplements. Use /task_new to start a new task.": (
+        "❌ 当前任务的补充消息过多，请使用 /task_new 开始新任务。"
+    ),
     "❌ Could not start your isolated workspace lane: {error}": (
         "❌ 无法启动你的隔离工作通道：{error}"
     ),
@@ -394,6 +398,7 @@ _ZH: dict[str, str] = {
     "Window killed — unbound past its TTL": "窗口被杀 —— 解绑后超过存活时限",
     "Window killed — its topic was deleted": "窗口被杀 —— 对应话题已被删除",
     "Window killed from the sessions dashboard": "窗口被杀 —— 来自会话面板操作",
+    "Merged member worktree removed after retention": "保留期结束后已删除完成合并的成员工作区",
     "Deleted — the topic's whole message history is gone.": (
         "已删除 —— 该话题的全部聊天记录已随之销毁。"
     ),

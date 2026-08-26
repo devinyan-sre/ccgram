@@ -49,6 +49,21 @@ def reply_message_id(window_id: str, *, user_id: int, thread_id: int) -> int | N
     """Return a safe Telegram reply target only when the route still matches."""
     request = _active.get(window_id)
     if request is None:
+        # Lazy: keep the correlation helper usable in small unit tests and
+        # to avoid making the durable journal part of the cold import cycle.
+        from .inbound_store import inbound_store
+
+        recovered = inbound_store.active_for_window(window_id)
+        if recovered is not None:
+            request = RequestContext(
+                user_id=recovered.user_id,
+                chat_id=recovered.chat_id,
+                thread_id=recovered.thread_id,
+                message_id=recovered.message_id,
+                created_at=recovered.created_at,
+            )
+            _active[window_id] = request
+    if request is None:
         return None
     if request.user_id != user_id or request.thread_id != thread_id:
         return None

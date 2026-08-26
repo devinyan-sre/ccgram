@@ -18,8 +18,15 @@ from collections.abc import Awaitable, Callable
 
 import structlog
 from telegram import Update
+from ..access_control import has_role
 from ..config import config
 from ..thread_router import thread_router
+from .callback_data import (
+    CB_SESSIONS_KILL,
+    CB_SESSIONS_KILL_CONFIRM,
+    CB_SHELL_CONFIRM_DANGER,
+    CB_SYNC_FIX,
+)
 from .callback_helpers import get_thread_id
 
 if TYPE_CHECKING:
@@ -30,6 +37,12 @@ logger = structlog.get_logger()
 type CallbackHandler = Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[None]]
 
 _registry: dict[str, CallbackHandler] = {}
+_ADMIN_CALLBACK_PREFIXES = (
+    CB_SESSIONS_KILL_CONFIRM,
+    CB_SESSIONS_KILL,
+    CB_SHELL_CONFIRM_DANGER,
+    CB_SYNC_FIX,
+)
 
 
 def register(
@@ -89,6 +102,10 @@ async def dispatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
 
     data = query.data
+
+    if data.startswith(_ADMIN_CALLBACK_PREFIXES) and not has_role(user.id, "admin"):
+        await query.answer("Admin role required", show_alert=True)
+        return
 
     if data == "noop":
         await query.answer()

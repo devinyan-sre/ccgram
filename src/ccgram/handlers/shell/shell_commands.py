@@ -31,6 +31,8 @@ from telegram.error import TelegramError
 from ...telegram_client import PTBTelegramClient, TelegramClient
 
 from ...config import config
+from ...access_control import has_role
+from ...inbound_store import inbound_store
 from ...llm import get_completer
 from ...llm import CommandResult
 from ...request_context import clear_window as clear_request_window
@@ -229,7 +231,7 @@ async def _cancel_stuck_input(window_id: str) -> None:
     await asyncio.sleep(0.3)
 
 
-async def handle_shell_message(
+async def handle_shell_message(  # noqa: C901 - explicit shell safety pipeline
     client: TelegramClient,
     user_id: int,
     thread_id: int,
@@ -258,8 +260,20 @@ async def handle_shell_message(
         await react(client, message.chat.id, message.message_id, REACT_RUNNING)
 
     if text.startswith("!"):
+        if config.is_user_allowed(user_id) and not has_role(user_id, "admin"):
+            await safe_send(
+                client,
+                chat_id,
+                "❌ Raw `!` shell execution requires the admin role.",
+                message_thread_id=thread_id,
+            )
+            inbound_store.mark_window_done(window_id, failed=True)
+            clear_request_window(window_id)
+            await task_scheduler.release_window(window_id, outcome="denied")
+            return
         raw = text[1:].lstrip()
         if not raw:
+            inbound_store.mark_window_done(window_id, failed=True)
             clear_request_window(window_id)
             await task_scheduler.release_window(window_id)
             return
@@ -278,6 +292,7 @@ async def handle_shell_message(
             "⚠ LLM misconfigured — command not sent.\nUse `!` prefix for raw commands.",
             message_thread_id=thread_id,
         )
+        inbound_store.mark_window_done(window_id, failed=True)
         clear_request_window(window_id)
         await task_scheduler.release_window(window_id)
         return
@@ -318,6 +333,7 @@ async def handle_shell_message(
             "Use `!` prefix for raw commands.",
             message_thread_id=thread_id,
         )
+        inbound_store.mark_window_done(window_id, failed=True)
         clear_request_window(window_id)
         await task_scheduler.release_window(window_id)
         return
@@ -334,9 +350,13 @@ async def handle_shell_message(
 
     await _show_bang_hint_once(client, chat_id, thread_id)
 
-    await show_command_approval(
+    shown = await show_command_approval(
         client, chat_id, thread_id, window_id, result, user_id, message
     )
+    if not shown:
+        inbound_store.mark_window_done(window_id, failed=True)
+        clear_request_window(window_id)
+        await task_scheduler.release_window(window_id, outcome="denied")
 
 
 async def _show_bang_hint_once(
@@ -375,6 +395,7 @@ async def _execute_raw_command(
             f"❌ {err_message}",
             message_thread_id=thread_id,
         )
+        inbound_store.mark_window_done(window_id, failed=True)
         clear_request_window(window_id)
         await task_scheduler.release_window(window_id)
         return
@@ -401,6 +422,24 @@ async def show_command_approval(
     Returns True if the command was stored, False if the slot was already
     occupied (avoids overwriting a user's pending command with an auto-fix).
     """
+    if (
+        result.is_dangerous
+        and config.is_user_allowed(user_id)
+        and not has_role(user_id, "admin")
+    ):
+        if message:
+            await safe_reply(
+                message,
+                "❌ This command was classified as dangerous and requires an admin.",
+            )
+        else:
+            await safe_send(
+                client,
+                chat_id,
+                "❌ This command was classified as dangerous and requires an admin.",
+                message_thread_id=thread_id,
+            )
+        return False
     key = _shell_key(chat_id, thread_id, user_id)
     if key in _shell_pending:
         return False
@@ -546,6 +585,7 @@ async def _cb_edit(
     clear_shell_pending(chat_id, thread_id, user_id)
     window_id = thread_router.get_window_for_thread(user_id, thread_id)
     if window_id:
+        inbound_store.mark_window_done(window_id, failed=True)
         clear_request_window(window_id)
         await task_scheduler.release_window(window_id)
     if pending:
@@ -572,6 +612,7 @@ async def _cb_cancel(
     clear_shell_pending(chat_id, thread_id, user_id)
     window_id = thread_router.get_window_for_thread(user_id, thread_id)
     if window_id:
+        inbound_store.mark_window_done(window_id, failed=True)
         clear_request_window(window_id)
         await task_scheduler.release_window(window_id)
     await safe_edit(query, "Cancelled")

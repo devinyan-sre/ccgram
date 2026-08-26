@@ -30,6 +30,20 @@ def _parse_int_env(name: str, default: int) -> int:
         raise ValueError(f"{name} must be a valid integer: {exc}") from exc
 
 
+def _parse_user_ids(name: str) -> set[int]:
+    """Parse an optional comma-separated Telegram user-ID set."""
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return set()
+    try:
+        return {int(value.strip()) for value in raw.split(",") if value.strip()}
+    except ValueError as exc:
+        raise ValueError(
+            f"{name} contains a non-numeric value: {exc}. "
+            "Expected comma-separated Telegram user IDs."
+        ) from exc
+
+
 _MAX_PORT = 65535
 _MAX_PERCENT = 100
 _VALID_MULTIPLEXERS = frozenset({"tmux", "herdr"})
@@ -105,6 +119,25 @@ class Config:
                 "Expected comma-separated Telegram user IDs."
             ) from e
 
+        # Optional RBAC. When no role variables are configured every legacy
+        # allow-listed user remains an admin, preserving existing installs.
+        configured_admins = _parse_user_ids("CCGRAM_ADMINS")
+        configured_operators = _parse_user_ids("CCGRAM_OPERATORS")
+        configured_viewers = _parse_user_ids("CCGRAM_VIEWERS")
+        if configured_admins or configured_operators or configured_viewers:
+            self.admin_users = configured_admins
+            self.viewer_users = configured_viewers - configured_admins
+            self.operator_users = (
+                configured_operators | (self.allowed_users - configured_viewers)
+            ) - configured_admins
+            self.allowed_users |= (
+                self.admin_users | self.operator_users | self.viewer_users
+            )
+        else:
+            self.admin_users = set(self.allowed_users)
+            self.operator_users: set[int] = set()
+            self.viewer_users: set[int] = set()
+
         # Multi-operator topic lanes.  A Telegram forum topic remains the
         # workspace boundary while every allow-listed member receives an
         # independent provider process/session.  Keeping this opt-in preserves
@@ -131,6 +164,18 @@ class Config:
         self.task_lease_seconds: int = max(
             60, _parse_int_env("CCGRAM_TASK_LEASE_SECONDS", 7200)
         )
+        self.message_coalesce_ms: int = max(
+            0, _parse_int_env("CCGRAM_MESSAGE_COALESCE_MS", 0)
+        )
+        self.max_task_supplements: int = max(
+            1, _parse_int_env("CCGRAM_MAX_TASK_SUPPLEMENTS", 20)
+        )
+        self.task_queue_alert_seconds: int = max(
+            0, _parse_int_env("CCGRAM_TASK_QUEUE_ALERT_SECONDS", 300)
+        )
+        self.inbound_dedupe_hours: int = max(
+            1, _parse_int_env("CCGRAM_INBOUND_DEDUPE_HOURS", 72)
+        )
         self.member_lane_worktrees: bool = os.getenv(
             "CCGRAM_MEMBER_LANE_WORKTREES", "true"
         ).lower() in ("1", "true", "yes")
@@ -149,6 +194,8 @@ class Config:
         self.session_map_file = self.config_dir / "session_map.json"
         self.monitor_state_file = self.config_dir / "monitor_state.json"
         self.outbox_file = self.config_dir / "outbox.json"
+        self.inbound_file = self.config_dir / "inbound.json"
+        self.task_state_file = self.config_dir / "tasks.json"
         self.events_file = self.config_dir / "events.jsonl"
 
         # Claude Code session monitoring configuration
@@ -450,6 +497,9 @@ class Config:
         self.auto_park_notice_hours: int = max(
             0, _parse_int_env("CCGRAM_AUTO_PARK_NOTICE_HOURS", 24)
         )
+        self.member_lane_cleanup_days: int = max(
+            0, _parse_int_env("CCGRAM_MEMBER_LANE_CLEANUP_DAYS", 0)
+        )
 
     def _init_miniapp(self) -> None:
         # Mini App backend (Phase 3 / Theme 6) — disabled when base URL is empty.
@@ -462,6 +512,16 @@ class Config:
     def is_user_allowed(self, user_id: int) -> bool:
         """Check if a user is in the allowed list."""
         return user_id in self.allowed_users
+
+    def user_role(self, user_id: int) -> str | None:
+        """Return ``admin``, ``operator`` or ``viewer`` for an allowed user."""
+        if user_id in self.admin_users:
+            return "admin"
+        if user_id in self.viewer_users:
+            return "viewer"
+        if user_id in self.operator_users or user_id in self.allowed_users:
+            return "operator"
+        return None
 
     def validate(self) -> tuple[list[str], list[str]]:
         """Check env values, returning ``(fatal, warnings)`` problem descriptions.
@@ -507,6 +567,16 @@ class Config:
             warnings.append(
                 f"CCGRAM_LANG={raw_lang!r} is not recognised; falling back to English "
                 f"(expected one of: {', '.join(sorted(_VALID_LANG_PREFIXES))})"
+            )
+
+        roles_configured = any(
+            os.getenv(name, "").strip()
+            for name in ("CCGRAM_ADMINS", "CCGRAM_OPERATORS", "CCGRAM_VIEWERS")
+        )
+        if roles_configured and not self.admin_users:
+            warnings.append(
+                "Role-based access is configured but CCGRAM_ADMINS is empty; "
+                "no user can run admin-only recovery or cleanup commands"
             )
 
         if not 0 <= self.context_warn_pct <= _MAX_PERCENT:

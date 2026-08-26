@@ -378,6 +378,11 @@ async def bootstrap_application(application: Application) -> None:
     await run_startup_permission_check(application)
     verify_hooks_installed()
     wire_runtime_callbacks()
+    # Lazy: recovery pulls the task scheduler and durable inbound journal;
+    # wait until bindings and the multiplexer have both been reconciled.
+    from .task_recovery import recover_tasks
+
+    await recover_tasks(PTBTelegramClient(application.bot))
     await start_session_monitor(application)
     start_status_polling(application)
     start_event_stream(application)

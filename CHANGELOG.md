@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add durable inbound idempotency and restart-safe task admission, explicit
+  task/lane controls, role-based access, rapid-message coalescing, scheduler
+  metrics, safe merged-worktree retention, and cross-lane file-overlap alerts.
+
 ### Added
 
 - Opt-in multi-operator topic lanes: allow-listed group members can mention the

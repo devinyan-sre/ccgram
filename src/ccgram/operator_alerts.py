@@ -57,6 +57,9 @@ def resolve_operator_chat_id() -> int | None:
     """
     if config.operator_chat_id is not None:
         return config.operator_chat_id
+    eligible_admins = config.admin_users & config.allowed_users
+    if eligible_admins:
+        return min(eligible_admins)
     if config.allowed_users:
         return min(config.allowed_users)
     return None

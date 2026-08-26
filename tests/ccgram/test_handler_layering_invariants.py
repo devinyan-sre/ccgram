@@ -94,6 +94,9 @@ _SINGLETON_ALLOWLIST = frozenset(
         "hook_events.py",
         "interactive/interactive_ui.py",
         "last_reply.py",  # reads thread_router for window/chat resolution in last_command
+        # /lane owns an explicit operator-requested unbind after a worktree has
+        # passed clean-and-merged safety checks; no write port exists for it.
+        "lane_command.py",
         # /usage resolves window_id via thread_router (same routing as /last).
         "usage_command.py",
         "live/pane_callbacks.py",

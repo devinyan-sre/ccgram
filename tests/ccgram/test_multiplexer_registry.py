@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import cast
 
 import pytest
@@ -39,6 +40,28 @@ class _FakeBackend:
 
     def ping(self) -> str:
         return "pong"
+
+
+class _SerializedBackend(_FakeBackend):
+    def __init__(self) -> None:
+        self.active = 0
+        self.max_active = 0
+
+    async def send_keys(
+        self,
+        _window_id: str,
+        _text: str,
+        enter: bool = True,
+        literal: bool = True,
+        *,
+        raw: bool = False,
+    ) -> bool:
+        del enter, literal, raw
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        await asyncio.sleep(0.01)
+        self.active -= 1
+        return True
 
 
 class TestRegistryResolution:
@@ -93,6 +116,17 @@ class TestProxy:
     def test_wire_tmux_via_registry(self) -> None:
         install_multiplexer(get_multiplexer("tmux"))
         assert multiplexer.capabilities.name == "tmux"
+
+    async def test_proxy_serializes_writes_to_the_same_window(self) -> None:
+        backend = _SerializedBackend()
+        install_multiplexer(cast("Multiplexer", backend))
+
+        await asyncio.gather(
+            multiplexer.send_keys("@1", "first"),
+            multiplexer.send_keys("@1", "second"),
+        )
+
+        assert backend.max_active == 1
 
 
 @pytest.fixture

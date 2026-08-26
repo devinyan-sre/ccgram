@@ -27,6 +27,7 @@ from ...telegram_client import TelegramClient
 
 from ...providers.shell import match_prompt
 from ...request_context import clear_window as clear_request_window
+from ...inbound_store import inbound_store
 from ...task_scheduler import task_scheduler
 from ...thread_router import thread_router
 from ...multiplexer import multiplexer as tmux_manager
@@ -759,5 +760,6 @@ async def _relay_passive_output(
         )
 
     if passive.exit_code is not None:
+        inbound_store.mark_window_done(window_id)
         clear_request_window(window_id)
         await task_scheduler.release_window(window_id)

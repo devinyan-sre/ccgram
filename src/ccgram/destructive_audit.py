@@ -53,6 +53,7 @@ ACTION_TOPIC_REMOVED_SYNC = "topic_removed_sync"
 ACTION_WINDOW_KILLED_UNBOUND = "window_killed_unbound"
 ACTION_WINDOW_KILLED_TOPIC_GONE = "window_killed_topic_gone"
 ACTION_WINDOW_KILLED_BY_USER = "window_killed_by_user"
+ACTION_MEMBER_WORKTREE_CLEANED = "member_worktree_cleaned"
 
 # What actually happened. A skipped action is still recorded: "the janitor
 # wanted to destroy this and was stopped" is exactly as interesting as the
@@ -106,6 +107,7 @@ _ACTION_TEXT = {
     ACTION_WINDOW_KILLED_UNBOUND: "Window killed — unbound past its TTL",
     ACTION_WINDOW_KILLED_TOPIC_GONE: "Window killed — its topic was deleted",
     ACTION_WINDOW_KILLED_BY_USER: "Window killed from the sessions dashboard",
+    ACTION_MEMBER_WORKTREE_CLEANED: "Merged member worktree removed after retention",
 }
 
 

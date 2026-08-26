@@ -50,6 +50,13 @@ the original Telegram `message_id` into `ContentTask`; the first final response
 part is sent as a reply to that message. Durable outbox replay preserves this
 field across a ccgram restart.
 
+`inbound_store.py` journals Telegram message IDs and dispatch state before a
+provider send. `queued` rows are recoverable; `dispatching` rows are ambiguous
+and are deliberately never replayed after a crash. `task_scheduler.py` persists
+active admissions separately so restart does not temporarily exceed topic or
+global limits. Both files are mode `0600` because the inbound journal contains
+operator prompt text.
+
 ### Provider compatibility
 
 The scheduler launches a separate multiplexer window through the common
@@ -67,6 +74,16 @@ lane, but are optional acceleration, never a correctness dependency.
 - More input from one active operator is a continuation in the same CLI lane,
   not another task or capacity slot. The original root-message correlation is
   preserved while supplemental reply text is appended as explicit context.
+- Rapid non-reply messages may be coalesced by `CCGRAM_MESSAGE_COALESCE_MS`.
+  Every Telegram message ID is claimed durably before the delay, so redelivery
+  cannot create a second provider task.
+- Role checks precede every command/message/callback path: viewers are read-only,
+  operators own their lane tasks, and admins own destructive/global actions.
+  Raw Shell (`!`), dangerous generated Shell commands, and YOLO/bypass launch
+  modes are admin-only.
+- Archived member worktrees are removable only when clean and merged. Automatic
+  retention uses the same fail-closed check and destructive-action audit; file
+  overlap warnings are advisory and never auto-merge branches.
 - Telegram handler concurrency defaults to eight, while window creation obeys
   the configurable global task limit.
 - A failed provider startup remains bound and reports a retryable error; the

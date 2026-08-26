@@ -17,6 +17,7 @@ bootstrap and raises a clear error before wiring.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, cast
 
 from ccgram.multiplexer.base import Multiplexer
@@ -38,6 +39,7 @@ __all__ = [
 
 
 _active_multiplexer: Multiplexer | None = None
+_send_locks: dict[str, asyncio.Lock] = {}
 
 
 def get_active_multiplexer() -> Multiplexer:
@@ -64,6 +66,7 @@ def _reset_multiplexer_for_testing() -> None:
     """Clear the wired backend so the proxy is unwired again (test isolation)."""
     global _active_multiplexer
     _active_multiplexer = None
+    _send_locks.clear()
 
 
 class _MultiplexerProxy:
@@ -75,6 +78,22 @@ class _MultiplexerProxy:
     """
 
     __slots__ = ()
+
+    async def send_keys(
+        self,
+        window_id: str,
+        text: str,
+        enter: bool = True,
+        literal: bool = True,
+        *,
+        raw: bool = False,
+    ) -> bool:
+        """Serialize terminal writes per window across every CLI/backend."""
+        lock = _send_locks.setdefault(window_id, asyncio.Lock())
+        async with lock:
+            return await get_active_multiplexer().send_keys(
+                window_id, text, enter=enter, literal=literal, raw=raw
+            )
 
     def __getattr__(self, name: str) -> Any:
         return getattr(get_active_multiplexer(), name)

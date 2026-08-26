@@ -128,6 +128,10 @@ async def _send_shutdown_notification(application: Application) -> None:
 
 async def post_stop(application: Application) -> None:
     """Send shutdown notification while HTTP transport is still alive."""
+    # Lazy: avoid importing the optional debounce runtime during bot construction.
+    from .message_coalescer import message_coalescer
+
+    await message_coalescer.flush_all()
     await _send_shutdown_notification(application)
 
 

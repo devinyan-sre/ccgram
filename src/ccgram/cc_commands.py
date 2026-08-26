@@ -96,6 +96,12 @@ _BOT_COMMANDS: list[tuple[str, str]] = [
     ("diag", "Diagnose topic and delivery state"),
     ("replay", "Replay recent assistant replies"),
     ("ops", "Show delivery and queue health"),
+    ("tasks", "Show active and queued topic tasks"),
+    ("task_add", "Supplement your current task"),
+    ("task_new", "End current task and start a boundary"),
+    ("task_cancel", "Cancel your active or queued task"),
+    ("task_cancel_all", "Admin: cancel all topic tasks"),
+    ("lane", "Inspect or manage your isolated workspace"),
 ]
 
 # Telegram limits: max 100 commands, descriptions max 256 chars

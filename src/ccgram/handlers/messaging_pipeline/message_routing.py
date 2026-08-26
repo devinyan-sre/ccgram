@@ -15,10 +15,12 @@ from ... import session_query
 from ...session_monitor import NewMessage
 from ...correlation import new_cid
 from ...request_context import reply_message_id
+from ...inbound_store import inbound_store
 from ...telegram_client import TelegramClient, unwrap_bot
 from ...telegram_draft import DRAFT_UNSET, DraftStream
 from ...thread_router import thread_router
 from ...task_scheduler import task_scheduler
+from ...utils import task_done_callback
 from ...user_preferences import user_preferences
 from ..interactive import (
     INTERACTIVE_TOOL_NAMES,
@@ -218,4 +220,24 @@ async def handle_new_message(  # noqa: C901, PLR0912 - explicit routing stages
                 except OSError:
                     pass
             if msg.content_type == "text" and msg.role == "assistant":
+                inbound_store.mark_window_done(window_id)
                 await task_scheduler.release_window(window_id)
+                # File overlap detection is advisory and must not delay final
+                # reply delivery or hold a scheduler slot.
+                # Lazy: keep git worktree inspection out of the message hot path.
+                from ...worktree_coordination import warn_topic_conflicts
+
+                async def warn_conflicts(
+                    target_user: int = user_id,
+                    target_thread: int = thread_id,
+                    target_window: str = window_id,
+                ) -> None:
+                    await warn_topic_conflicts(
+                        client,
+                        user_id=target_user,
+                        thread_id=target_thread,
+                        window_id=target_window,
+                    )
+
+                conflict_task = asyncio.create_task(warn_conflicts())
+                conflict_task.add_done_callback(task_done_callback)

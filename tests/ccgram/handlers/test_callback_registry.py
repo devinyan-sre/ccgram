@@ -187,6 +187,25 @@ class TestDispatch:
         _registry["known:"].assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_dispatch_blocks_admin_callback_for_operator(self) -> None:
+        handler = AsyncMock()
+        _registry["sess:kill:"] = handler
+        update = self._make_update("sess:kill:@1")
+
+        with (
+            patch("ccgram.handlers.callback_registry.config") as mock_config,
+            patch("ccgram.handlers.callback_registry.has_role", return_value=False),
+        ):
+            mock_config.group_id = None
+            mock_config.is_user_allowed.return_value = True
+            await dispatch(update, MagicMock())
+
+        handler.assert_not_awaited()
+        update.callback_query.answer.assert_awaited_once_with(
+            "Admin role required", show_alert=True
+        )
+
+    @pytest.mark.asyncio
     async def test_dispatch_noop(self) -> None:
         update = self._make_update("noop")
         context = MagicMock()

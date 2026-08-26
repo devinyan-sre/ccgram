@@ -15,7 +15,9 @@ import structlog
 
 from ...config import config
 from ...auto_park import check_auto_park
+from ...auto_lane_cleanup import check_auto_lane_cleanup
 from ...telegram_client import TelegramClient
+from ...task_alerts import check_task_queue_alerts
 from ...utils import log_throttle_sweep
 from ..live.live_view import tick_live_views
 from ..topics.topic_lifecycle import (
@@ -55,6 +57,8 @@ async def run_periodic_tasks(
         await prune_stale_state(all_windows)
         await probe_topic_existence(client)
         await check_auto_park(client)
+        await check_auto_lane_cleanup(client)
+        await check_task_queue_alerts(client)
         log_throttle_sweep()
 
 

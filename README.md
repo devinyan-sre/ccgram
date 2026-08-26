@@ -104,6 +104,9 @@ ALLOWED_USERS=your_telegram_user_id
 CCGRAM_GROUP_ID=your_telegram_group_id
 CCGRAM_MEMBER_LANES=true
 CCGRAM_REQUIRE_MENTION=true
+CCGRAM_MAX_PARALLEL_PER_TOPIC=2
+CCGRAM_MAX_PARALLEL_GLOBAL=4
+CCGRAM_MESSAGE_COALESCE_MS=1500
 ```
 
 用户 ID 可从 [@userinfobot](https://t.me/userinfobot) 获取。群组 ID 可通过 [@RawDataBot](https://t.me/RawDataBot) 获取(在 Peer ID 前加 `-100` 前缀)。

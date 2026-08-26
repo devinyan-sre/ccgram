@@ -182,6 +182,9 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | ---------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `TELEGRAM_BOT_TOKEN`                                 | _（必填）_                     | 来自 @BotFather 的机器人 token（仅环境变量）                                                         |
 | `ALLOWED_USERS` / `--allowed-users`                  | _（必填）_                     | 逗号分隔的 Telegram 用户 ID                                                                          |
+| `CCGRAM_ADMINS`                                      | _（兼容旧白名单）_             | 管理员 ID，可升级、同步、解绑和取消全部任务                                                           |
+| `CCGRAM_OPERATORS`                                   | _（白名单成员）_               | 可创建和修改任务的操作员 ID                                                                           |
+| `CCGRAM_VIEWERS`                                     | _（空）_                       | 只能查看状态、历史和结果的只读成员 ID                                                                  |
 | `CCGRAM_MEMBER_LANES`                                | `false`                        | 开启同一话题的多白名单成员独立 CLI 并行通道                                                          |
 | `CCGRAM_REQUIRE_MENTION`                             | 多人模式下为 `true`            | 群内文本必须 @机器人或回复机器人消息；私聊不受影响                                                   |
 | `CCGRAM_MAX_CONCURRENT_UPDATES`                      | `8`                            | Telegram handler 并发上限；同一成员的更新仍严格顺序处理                                               |
@@ -189,6 +192,10 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_MAX_PARALLEL_PER_TOPIC`                      | `2`                            | 一个话题同时运行的不同成员任务数；同一成员的补充消息不另占槽位                                        |
 | `CCGRAM_MAX_PARALLEL_GLOBAL`                         | `4`                            | 本 ccgram 实例同时运行的成员任务总数；跨话题统一限制                                                   |
 | `CCGRAM_TASK_LEASE_SECONDS`                          | `7200`                         | provider 未产生完成事件时的任务槽安全租约；到期自动释放，防止永久堵塞                                 |
+| `CCGRAM_MESSAGE_COALESCE_MS`                         | `0`                            | 同一成员连续非回复消息在发送前的合并窗口（毫秒）                                                       |
+| `CCGRAM_MAX_TASK_SUPPLEMENTS`                        | `20`                           | 一个活动任务最多接受的补充消息数                                                                       |
+| `CCGRAM_TASK_QUEUE_ALERT_SECONDS`                    | `300`                          | 排队超过该秒数时通知主运维；0 关闭                                                                     |
+| `CCGRAM_INBOUND_DEDUPE_HOURS`                        | `72`                           | Telegram 消息 ID 持久化去重保留时间                                                                    |
 | `CCGRAM_MEMBER_LANE_WORKTREES`                       | `true`                         | 为派生成员通道自动创建独立 Git worktree/分支                                                         |
 | `CCGRAM_ALLOW_SHARED_MEMBER_CWD`                     | `false`                        | 允许非 Git 多人通道共享目录；仅适合可信只读任务，并发写入可能冲突                                    |
 | `CCGRAM_DIR` / `--config-dir`                        | `~/.ccgram`                    | 配置与状态目录                                                                                       |
@@ -247,6 +254,7 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_HEALTH_STALL_SEC`                            | `120`                          | 健康判据的“无进展”阈值(秒);轮询循环超过该时长未完成一轮即判不健康,触发 watchdog 重启;`0` 关闭该检查 |
 | `CCGRAM_QUEUE_MAX_DEPTH`                             | `500`                          | 出站队列背压阈值:超过即丢弃瞬时状态更新,达到 2 倍才丢弃 agent 输出(并告警);`0` 表示不限制         |
 | `CCGRAM_AUTO_PARK_DAYS`                              | `0`（关闭）                    | ccgram 创建且 Git 工作区干净的话题连续空闲多少天后自动挂起；新消息会自动唤醒并继续转发             |
+| `CCGRAM_MEMBER_LANE_CLEANUP_DAYS`                    | `0`（关闭）                    | 成员工作区挂起超过 N 天后，仅在干净且已合并时自动清理                                                 |
 | `CCGRAM_AUTO_PARK_NOTICE_HOURS`                      | `24`                           | 自动挂起前的提醒时间（小时）                                                                         |
 | `CCGRAM_ACK_REACTION`                                | _(关闭)_                      | 转发消息后回贴的表情(如 `👀`);留空关闭                                                             |
 | `CCGRAM_EPHEMERAL_TOOLS`                             | `0`                            | 工具调用消息在完成后自动清理;每话题可用 `/verbose` 覆盖                                             |
@@ -460,6 +468,9 @@ Sub-Agent API。
 
 ```ini
 ALLOWED_USERS=123456789,987654321,555555555
+CCGRAM_ADMINS=123456789
+CCGRAM_OPERATORS=987654321
+CCGRAM_VIEWERS=555555555
 CCGRAM_GROUP_ID=-1001234567890
 CCGRAM_MEMBER_LANES=true
 CCGRAM_REQUIRE_MENTION=true
@@ -468,13 +479,24 @@ CCGRAM_MAX_MEMBER_LANES_PER_TOPIC=8
 CCGRAM_MAX_PARALLEL_PER_TOPIC=2
 CCGRAM_MAX_PARALLEL_GLOBAL=4
 CCGRAM_TASK_LEASE_SECONDS=7200
+CCGRAM_MESSAGE_COALESCE_MS=1500
+CCGRAM_MAX_TASK_SUPPLEMENTS=20
+CCGRAM_TASK_QUEUE_ALERT_SECONDS=300
+CCGRAM_INBOUND_DEDUPE_HOURS=72
 CCGRAM_MEMBER_LANE_WORKTREES=true
 CCGRAM_ALLOW_SHARED_MEMBER_CWD=false
+CCGRAM_AUTO_PARK_DAYS=1
+CCGRAM_AUTO_PARK_NOTICE_HOURS=4
+CCGRAM_MEMBER_LANE_CLEANUP_DAYS=30
 ```
 
 使用规则：
 
 - 只有 `ALLOWED_USERS` 中的成员可以触发机器人；群内普通聊天不会交给 CLI。
+- 配置角色后，管理员可以执行升级、同步、解绑和全局取消；操作员可以创建和修改
+  任务；只读成员只能查看状态、历史、结果和工作区信息。若三个角色变量全部省略，
+  为兼容旧部署，`ALLOWED_USERS` 中的成员仍按管理员处理。
+- YOLO/bypass、Shell 的原始 `!` 执行以及被判定为危险的 Shell 命令仅管理员可用。
 - 新问题使用 `@机器人 问题内容`；也可以回复机器人上一条消息继续自己的通道。
 - 第一个成员建立话题与目录绑定。后续成员第一次 @时，ccgram 自动根据这个
   工作空间和 provider 创建独立通道。
@@ -492,6 +514,14 @@ CCGRAM_ALLOW_SHARED_MEMBER_CWD=false
   前一个任务产生最终回答后自动释放槽位。
 - 关闭话题时，所有成员绑定一起解除；派生 CLI 进程停止，但 worktree 和分支
   保留，避免未合并成果丢失。
+- `inbound.json` 持久化消息幂等键和待调度内容，`tasks.json` 持久化活动配额。
+  重启时只重放明确处于排队状态的消息；可能已经送入 CLI 的消息绝不自动重放，
+  会回复原消息要求人工确认，从而避免重复执行。
+- `/tasks` 查看任务，`/task_add 内容` 明确补充，`/task_new` 划分新任务，
+  `/task_cancel` 取消自己的任务，管理员可用 `/task_cancel_all`。
+- `/lane status` 查看 CLI、目录、分支和重叠文件；`/lane archive` 挂起，
+  `/lane restore` 恢复；`/lane cleanup` 只删除干净且已合并的成员 worktree。
+- 完成任务后会检查其他成员是否修改相同文件；检测到重叠只告警，不自动合并。
 
 > 当前并发粒度是“每个成员一个交互式 CLI 通道”。同一成员在自己的 CLI 尚忙时
 > 连续发送消息，仍遵循该 CLI 的 steering/follow-up 语义；若同一个人也需要两个
@@ -1046,6 +1076,13 @@ curl -so /dev/null -w '%{http_code}\n' localhost:9095/healthz
 | `ccgram_llm_request_seconds`     | histogram | LLM/转写请求耗时                           |
 | `ccgram_topic_create`            | counter   | 话题创建结果:`ok`/`flood`/`permission`/`bad_request`/`error`,可直接定位失败根因 |
 | `ccgram_operator_alerts`         | counter   | 运营者告警,按 `severity`+`outcome`         |
+| `ccgram_tasks_active`            | gauge     | 调度器当前运行任务数                       |
+| `ccgram_tasks_queued`            | gauge     | 调度器当前等待任务数                       |
+| `ccgram_task_queue_wait_seconds` | histogram | 任务等待并发槽位的时间                     |
+| `ccgram_task_duration_seconds`   | histogram | 任务完成、取消或租约过期耗时               |
+| `ccgram_task_lease_expired`      | counter   | 未收到完成信号而释放的任务租约             |
+| `ccgram_member_lane_create_failed` | counter | 成员隔离工作区创建失败原因                 |
+| `ccgram_duplicate_update_dropped` | counter | 被幂等边界拦截的重复 Telegram 消息        |
 
 Prometheus 抓取配置示例:
 

@@ -11,6 +11,7 @@ import structlog
 from ... import window_query
 from ...config import config
 from ...multiplexer import multiplexer as tmux_manager
+from ...metrics import MEMBER_LANE_CREATE_FAILED
 from ...providers import get_provider_for_window, resolve_launch_command
 from ...provider_readiness import wait_for_provider_ready
 from ...session import session_manager
@@ -40,6 +41,11 @@ class LaneResult:
 
 _lane_locks: dict[tuple[int, int, int], asyncio.Lock] = {}
 _creation_slots: asyncio.Semaphore | None = None
+
+
+def _lane_failure(reason: str, error: str) -> LaneResult:
+    MEMBER_LANE_CREATE_FAILED.inc(reason=reason)
+    return LaneResult(handled=True, ready=False, error=error)
 
 
 def _creation_semaphore() -> asyncio.Semaphore:
@@ -78,10 +84,9 @@ async def _isolated_cwd(
     if not config.member_lane_worktrees:
         if config.allow_shared_member_cwd:
             return cwd, "", ""
-        return LaneResult(
-            handled=True,
-            ready=False,
-            error=(
+        return _lane_failure(
+            "isolation_disabled",
+            (
                 "Concurrent lanes require Git worktree isolation. Enable "
                 "CCGRAM_MEMBER_LANE_WORKTREES or explicitly allow a shared cwd."
             ),
@@ -91,19 +96,17 @@ async def _isolated_cwd(
     if not eligibility.eligible or eligibility.repo_path is None:
         if config.allow_shared_member_cwd:
             return cwd, "", ""
-        return LaneResult(
-            handled=True,
-            ready=False,
-            error=(
+        return _lane_failure(
+            "ineligible_worktree",
+            (
                 "This workspace is not eligible for an isolated Git worktree; "
                 "parallel access was blocked to prevent file collisions."
             ),
         )
     if eligibility.dirty:
-        return LaneResult(
-            handled=True,
-            ready=False,
-            error=(
+        return _lane_failure(
+            "dirty_workspace",
+            (
                 "The topic workspace has uncommitted changes. Commit or stash "
                 "them before another member starts a parallel lane."
             ),
@@ -120,7 +123,7 @@ async def _isolated_cwd(
     try:
         await asyncio.to_thread(create_worktree, repo, branch, path)
     except WorktreeError as exc:
-        return LaneResult(handled=True, ready=False, error=str(exc))
+        return _lane_failure("worktree_create", str(exc))
     target = path / relative
     return str(target if target.is_dir() else path), str(path), branch
 
@@ -151,10 +154,9 @@ async def ensure_member_lane(  # noqa: C901, PLR0911 - fail-closed stages
         if not topic_lanes:
             return LaneResult(handled=False, ready=False)
         if len(topic_lanes) >= config.max_member_lanes_per_topic:
-            return LaneResult(
-                handled=True,
-                ready=False,
-                error=(
+            return _lane_failure(
+                "lane_limit",
+                (
                     "This topic has reached its concurrent member limit "
                     f"({config.max_member_lanes_per_topic})."
                 ),
@@ -162,10 +164,8 @@ async def ensure_member_lane(  # noqa: C901, PLR0911 - fail-closed stages
 
         template = await _find_template(chat_id, thread_id)
         if template is None:
-            return LaneResult(
-                handled=True,
-                ready=False,
-                error="No live workspace lane is available in this topic.",
+            return _lane_failure(
+                "no_template", "No live workspace lane is available in this topic."
             )
         _source_window, template_cwd, provider_name = template
         isolated = await _isolated_cwd(
@@ -207,7 +207,7 @@ async def ensure_member_lane(  # noqa: C901, PLR0911 - fail-closed stages
                     provider=provider.capabilities.name,
                     error=message,
                 )
-                return LaneResult(handled=True, ready=False, error=message)
+                return _lane_failure("window_create", message)
 
             # Same race invariant as the normal topic creation flow: do
             # not await between create_window and this marker/binding.
@@ -246,6 +246,7 @@ async def ensure_member_lane(  # noqa: C901, PLR0911 - fail-closed stages
                 provider=provider.capabilities.name,
                 reason=readiness.reason,
             )
+            MEMBER_LANE_CREATE_FAILED.inc(reason="provider_not_ready")
             return LaneResult(
                 handled=True,
                 ready=False,

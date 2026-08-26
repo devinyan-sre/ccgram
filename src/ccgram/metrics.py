@@ -348,6 +348,36 @@ TRANSCRIPT_DUPLICATES = registry.counter(
     "Duplicate complete assistant texts suppressed at the provider boundary",
     ("provider",),
 )
+TASKS_ACTIVE = registry.gauge(
+    "ccgram_tasks_active",
+    "Provider tasks currently admitted by the multi-operator scheduler",
+)
+TASKS_QUEUED = registry.gauge(
+    "ccgram_tasks_queued",
+    "Provider tasks currently waiting for scheduler capacity",
+)
+TASK_QUEUE_WAIT = registry.histogram(
+    "ccgram_task_queue_wait_seconds",
+    "Time a provider task waits for scheduler capacity",
+)
+TASK_DURATION = registry.histogram(
+    "ccgram_task_duration_seconds",
+    "Admitted provider task duration by completion outcome",
+    ("outcome",),
+)
+TASK_LEASE_EXPIRED = registry.counter(
+    "ccgram_task_lease_expired",
+    "Provider task leases expired before a completion signal",
+)
+MEMBER_LANE_CREATE_FAILED = registry.counter(
+    "ccgram_member_lane_create_failed",
+    "Isolated member-lane creation failures by reason",
+    ("reason",),
+)
+INBOUND_DUPLICATES = registry.counter(
+    "ccgram_duplicate_update_dropped",
+    "Duplicate Telegram messages suppressed before provider dispatch",
+)
 TOPIC_QUEUE_DEPTH = registry.gauge(
     "ccgram_topic_queue_depth",
     "Outbound queue depth isolated by user and topic",

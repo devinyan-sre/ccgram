@@ -160,6 +160,9 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | ---------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `TELEGRAM_BOT_TOKEN`                                 | _(required)_                   | Bot token from @BotFather (env only)                                                                 |
 | `ALLOWED_USERS` / `--allowed-users`                  | _(required)_                   | Comma-separated Telegram user IDs                                                                    |
+| `CCGRAM_ADMINS`                                      | _(legacy allow-list)_          | Admin IDs; may upgrade, sync, unbind and cancel all topic tasks                                       |
+| `CCGRAM_OPERATORS`                                   | _(allow-list users)_           | Operator IDs allowed to create and modify tasks                                                       |
+| `CCGRAM_VIEWERS`                                     | _(none)_                       | Read-only IDs limited to status/history/results                                                       |
 | `CCGRAM_MEMBER_LANES`                                | `false`                        | Give each allow-listed member an isolated CLI lane inside one physical topic                         |
 | `CCGRAM_REQUIRE_MENTION`                             | `true` in member-lane mode     | Group text must mention the bot or reply to a bot message                                             |
 | `CCGRAM_MAX_CONCURRENT_UPDATES`                      | `8`                            | Telegram handler concurrency; updates from one operator remain ordered                               |
@@ -167,8 +170,13 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_MAX_PARALLEL_PER_TOPIC`                      | `2`                            | Active tasks from different operators per topic; supplements from one operator reuse its task        |
 | `CCGRAM_MAX_PARALLEL_GLOBAL`                         | `4`                            | Active operator tasks across this ccgram instance                                                      |
 | `CCGRAM_TASK_LEASE_SECONDS`                          | `7200`                         | Safety lease that releases a task slot if no provider completion event arrives                        |
+| `CCGRAM_MESSAGE_COALESCE_MS`                         | `0`                            | Merge rapid non-reply messages from one operator before dispatch                                      |
+| `CCGRAM_MAX_TASK_SUPPLEMENTS`                        | `20`                           | Maximum supplements accepted by one active operator task                                              |
+| `CCGRAM_TASK_QUEUE_ALERT_SECONDS`                    | `300`                          | Alert the primary operator after a task waits this many seconds; 0 disables                           |
+| `CCGRAM_INBOUND_DEDUPE_HOURS`                        | `72`                           | Durable Telegram message-ID deduplication retention                                                   |
 | `CCGRAM_MEMBER_LANE_WORKTREES`                       | `true`                         | Create an isolated clean Git worktree/branch for every derived member lane                            |
 | `CCGRAM_ALLOW_SHARED_MEMBER_CWD`                     | `false`                        | Explicitly permit non-Git lanes to share a cwd; safe only for trusted read-only work                  |
+| `CCGRAM_MEMBER_LANE_CLEANUP_DAYS`                    | `0`                            | Remove only parked, clean and merged member worktrees after N days; 0 disables                        |
 | `CCGRAM_DIR` / `--config-dir`                        | `~/.ccgram`                    | Config and state directory                                                                           |
 | `CLAUDE_CONFIG_DIR` / `--claude-config-dir`          | `~/.claude`                    | Override Claude config directory (for wrappers like ce, cc-mirror)                                   |
 | `TMUX_SESSION_NAME` / `--tmux-session`               | `ccgram`                       | tmux session name                                                                                    |
@@ -910,6 +918,13 @@ Exported metrics (names are a public contract — renaming breaks dashboards and
 | `ccgram_llm_request_seconds`     | histogram | LLM/transcription request duration               |
 | `ccgram_topic_create`            | counter   | Topic creation outcome: `ok`/`flood`/`permission`/`bad_request`/`error` — pinpoints the failure cause |
 | `ccgram_operator_alerts`         | counter   | Operator alerts by `severity` + `outcome`        |
+| `ccgram_tasks_active`            | gauge     | Provider tasks currently admitted                |
+| `ccgram_tasks_queued`            | gauge     | Provider tasks waiting for capacity               |
+| `ccgram_task_queue_wait_seconds` | histogram | Time spent waiting for scheduler capacity         |
+| `ccgram_task_duration_seconds`   | histogram | Task duration by completion outcome               |
+| `ccgram_task_lease_expired`      | counter   | Task leases released without a completion signal  |
+| `ccgram_member_lane_create_failed` | counter | Isolated member-lane creation failures by reason  |
+| `ccgram_duplicate_update_dropped` | counter | Duplicate Telegram messages suppressed            |
 
 Example Prometheus scrape config:
 

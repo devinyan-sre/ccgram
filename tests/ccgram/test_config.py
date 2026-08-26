@@ -37,6 +37,21 @@ class TestConfigValid:
         cfg = Config()
         assert cfg.is_user_allowed(99999) is False
 
+    def test_legacy_allowlist_users_remain_admins(self):
+        cfg = Config()
+        assert cfg.user_role(12345) == "admin"
+
+    def test_explicit_roles_extend_allowlist(self, monkeypatch):
+        monkeypatch.setenv("CCGRAM_ADMINS", "10")
+        monkeypatch.setenv("CCGRAM_OPERATORS", "20")
+        monkeypatch.setenv("CCGRAM_VIEWERS", "30")
+        cfg = Config()
+        assert cfg.user_role(10) == "admin"
+        assert cfg.user_role(20) == "operator"
+        assert cfg.user_role(30) == "viewer"
+        assert cfg.user_role(12345) == "operator"
+        assert cfg.allowed_users == {10, 20, 30, 12345}
+
     def test_group_id_default_none(self):
         cfg = Config()
         assert cfg.group_id is None
