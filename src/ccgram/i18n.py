@@ -608,6 +608,7 @@ _ZH: dict[str, str] = {
     "❌ Use /park inside a bound topic.": "❌ 请在已绑定的话题内使用 /park。",
     "❌ Use /wake inside a bound topic.": "❌ 请在已绑定的话题内使用 /wake。",
     "⏳ Waking with {provider}…": "⏳ 正在使用 {provider} 恢复…",
+    "✅ Topic woke and your message was sent.": "✅ 话题已唤醒，消息已发送。",
     "❌ No state exists for this window.": "❌ 此窗口没有可用状态。",
     "❌ Use /diag inside a bound topic.": "❌ 请在已绑定的话题内使用 /diag。",
     "❌ Use /replay inside a bound topic.": "❌ 请在已绑定的话题内使用 /replay。",

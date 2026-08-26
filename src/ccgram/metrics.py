@@ -338,6 +338,21 @@ DELIVERY_LAG_BYTES = registry.gauge(
     "ccgram_delivery_lag_bytes",
     "Transcript bytes read but not yet committed as delivered",
 )
+DELIVERY_STALLS = registry.counter(
+    "ccgram_delivery_stalls",
+    "Delivery cursor stalls and recoveries",
+    ("outcome",),
+)
+TOPIC_QUEUE_DEPTH = registry.gauge(
+    "ccgram_topic_queue_depth",
+    "Outbound queue depth isolated by user and topic",
+    ("user", "thread"),
+)
+OUTBOX_ITEMS = registry.gauge(
+    "ccgram_outbox_items",
+    "Durable outbound deliveries by state",
+    ("state",),
+)
 BINDING_REPAIRS = registry.counter(
     "ccgram_binding_repairs",
     "Session binding repairs by reason",

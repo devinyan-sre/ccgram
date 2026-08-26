@@ -65,7 +65,7 @@ async def handle_new_message(msg: NewMessage, client: TelegramClient) -> None:  
 
         if msg.tool_name in INTERACTIVE_TOOL_NAMES and msg.content_type == "tool_use":
             set_interactive_mode(user_id, window_id, thread_id)
-            queue = get_message_queue(user_id)
+            queue = get_message_queue(user_id, thread_id)
             if queue:
                 await queue.join()
             await asyncio.sleep(0.3)
@@ -105,6 +105,12 @@ async def handle_new_message(msg: NewMessage, client: TelegramClient) -> None:  
                 content_type=msg.content_type,  # type: ignore[arg-type]  # NewMessage.content_type is str, narrows at runtime
                 role=msg.role,  # type: ignore[arg-type]  # NewMessage.role is str, narrows at runtime
                 thread_id=thread_id,
+                session_id=msg.session_id,
+                delivery_id=(
+                    f"{msg.delivery_id}:{user_id}:{thread_id}"
+                    if msg.delivery_id and msg.content_type == "text"
+                    else None
+                ),
             )
 
             session = await session_query.resolve_session_for_window(window_id)

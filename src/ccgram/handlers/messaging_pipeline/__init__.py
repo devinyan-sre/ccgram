@@ -14,6 +14,7 @@ from .message_queue import (
     enqueue_status_update,
     get_message_queue,
     get_or_create_queue,
+    restore_outbox,
     shutdown_workers,
 )
 from .message_sender import (
@@ -93,6 +94,7 @@ __all__ = [
     "rate_limit_send",
     "rate_limit_send_message",
     "react",
+    "restore_outbox",
     "safe_edit",
     "safe_reply",
     "safe_send",

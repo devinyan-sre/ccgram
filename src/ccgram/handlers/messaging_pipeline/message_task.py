@@ -23,6 +23,9 @@ class ContentTask:
     tool_use_id: str | None = None
     tool_name: str | None = None
     thread_id: int | None = None
+    session_id: str | None = None
+    delivery_id: str | None = None
+    next_part: int = 0
     # Correlation id, carried so the queue worker (a different task) can rebind
     # it into the log context and keep a message traceable end to end.
     cid: str | None = None

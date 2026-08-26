@@ -144,14 +144,15 @@ class TestDeadWorkerRespawn:
 
         bot = MagicMock()
         user_id = 99999
+        key = (user_id, 0)
 
-        _message_queues.pop(user_id, None)
-        _queue_locks.pop(user_id, None)
-        _queue_workers.pop(user_id, None)
+        _message_queues.pop(key, None)
+        _queue_locks.pop(key, None)
+        _queue_workers.pop(key, None)
 
         queue = get_or_create_queue(bot, user_id)
-        assert user_id in _queue_workers
-        first_worker = _queue_workers[user_id]
+        assert key in _queue_workers
+        first_worker = _queue_workers[key]
 
         first_worker.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -160,16 +161,16 @@ class TestDeadWorkerRespawn:
 
         queue2 = get_or_create_queue(bot, user_id)
         assert queue2 is queue
-        second_worker = _queue_workers[user_id]
+        second_worker = _queue_workers[key]
         assert second_worker is not first_worker
         assert not second_worker.done()
 
         second_worker.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await second_worker
-        _message_queues.pop(user_id, None)
-        _queue_locks.pop(user_id, None)
-        _queue_workers.pop(user_id, None)
+        _message_queues.pop(key, None)
+        _queue_locks.pop(key, None)
+        _queue_workers.pop(key, None)
 
 
 class TestRateLimitSendLocking:

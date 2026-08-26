@@ -108,8 +108,8 @@ def test_dynamic_t_calls_are_allowlisted() -> None:
         "handlers/interactive/interactive_ui.py:102",
         "handlers/live/pane_callbacks.py:188",
         "handlers/sync_command.py:87",
-        "handlers/text/text_handler.py:304",
-        "handlers/text/text_handler.py:323",
+        "handlers/text/text_handler.py:306",
+        "handlers/text/text_handler.py:325",
     ]
     unexpected = [loc for loc in dynamic if loc not in allowlist]
     assert not unexpected, (

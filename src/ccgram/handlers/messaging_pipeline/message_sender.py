@@ -53,6 +53,7 @@ __all__ = [
     "rate_limit_send",
     "rate_limit_send_message",
     "react",
+    "reliable_send_message",
     "safe_edit",
     "safe_reply",
     "safe_send",
@@ -60,6 +61,10 @@ __all__ = [
 ]
 
 logger = structlog.get_logger()
+
+
+class DeliveryError(OSError):
+    """Telegram did not acknowledge an outbound message."""
 
 
 def is_thread_gone(exc: TelegramError) -> bool:
@@ -218,6 +223,24 @@ async def rate_limit_send_message(
         kwargs.setdefault(key, value)
     await rate_limit_send(chat_id)
     return await _send_with_fallback(client, chat_id, text, **kwargs)
+
+
+async def reliable_send_message(
+    client: TelegramClient,
+    chat_id: int,
+    text: str,
+    **kwargs: Any,
+) -> Message:
+    """Send and require a Telegram acknowledgement.
+
+    Best-effort callers keep using :func:`rate_limit_send_message`; durable
+    assistant replies use this function so ``None`` cannot be miscounted as a
+    successful queue task.
+    """
+    sent = await rate_limit_send_message(client, chat_id, text, **kwargs)
+    if sent is None:
+        raise DeliveryError(f"Telegram did not acknowledge send to {chat_id}")
+    return sent
 
 
 async def safe_reply(message: Message, text: str, **kwargs: Any) -> Message | None:

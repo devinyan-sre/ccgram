@@ -77,7 +77,7 @@ def _resolve_toolbar_path() -> str:
 class Config:
     """Application configuration loaded from environment variables."""
 
-    def __init__(self) -> None:
+    def __init__(self) -> None:  # noqa: PLR0915
         self.config_dir = ccgram_dir()
         self.config_dir.mkdir(parents=True, exist_ok=True)
 
@@ -115,6 +115,7 @@ class Config:
         self.state_file = self.config_dir / "state.json"
         self.session_map_file = self.config_dir / "session_map.json"
         self.monitor_state_file = self.config_dir / "monitor_state.json"
+        self.outbox_file = self.config_dir / "outbox.json"
         self.events_file = self.config_dir / "events.jsonl"
 
         # Claude Code session monitoring configuration
@@ -397,6 +398,12 @@ class Config:
         # are shed; agent output is only shed at twice this. 0 = unbounded.
         self.queue_max_depth: int = max(
             0, _parse_int_env("CCGRAM_QUEUE_MAX_DEPTH", 500)
+        )
+        # Long-idle session parking is opt-in. Incoming topic text wakes a
+        # parked provider automatically and forwards that same message.
+        self.auto_park_days: int = max(0, _parse_int_env("CCGRAM_AUTO_PARK_DAYS", 0))
+        self.auto_park_notice_hours: int = max(
+            0, _parse_int_env("CCGRAM_AUTO_PARK_NOTICE_HOURS", 24)
         )
 
     def _init_miniapp(self) -> None:

@@ -79,6 +79,14 @@ def _clear_task(
 
 
 class TestGetOrCreateQueue:
+    async def test_topics_have_independent_queues(self, bot):
+        try:
+            first = get_or_create_queue(bot, 99989, 101)
+            second = get_or_create_queue(bot, 99989, 102)
+            assert first is not second
+        finally:
+            await shutdown_workers()
+
     async def test_creates_queue_and_worker(self, bot):
         user_id = 99990
         from ccgram.handlers.messaging_pipeline.message_queue import (
@@ -86,13 +94,14 @@ class TestGetOrCreateQueue:
             _queue_workers,
         )
 
-        _message_queues.pop(user_id, None)
-        _queue_workers.pop(user_id, None)
+        key = (user_id, 0)
+        _message_queues.pop(key, None)
+        _queue_workers.pop(key, None)
 
         try:
             q = get_or_create_queue(bot, user_id)
             assert q is not None
-            assert user_id in _queue_workers
+            assert key in _queue_workers
         finally:
             await shutdown_workers()
 
@@ -103,8 +112,9 @@ class TestGetOrCreateQueue:
             _queue_workers,
         )
 
-        _message_queues.pop(user_id, None)
-        _queue_workers.pop(user_id, None)
+        key = (user_id, 0)
+        _message_queues.pop(key, None)
+        _queue_workers.pop(key, None)
 
         try:
             q1 = get_or_create_queue(bot, user_id)
@@ -349,11 +359,12 @@ class TestMessageQueueWorker:
         from telegram.error import TelegramError
 
         user_id = 88001
-        _message_queues[user_id] = asyncio.Queue()
-        _queue_locks[user_id] = asyncio.Lock()
-        q = _message_queues[user_id]
+        key = (user_id, 0)
+        _message_queues[key] = asyncio.Queue()
+        _queue_locks[key] = asyncio.Lock()
+        q = _message_queues[key]
         q.put_nowait(_content_task("hello"))
-        worker = asyncio.create_task(_message_queue_worker(bot, user_id))
+        worker = asyncio.create_task(_message_queue_worker(bot, key))
         try:
             with patch(
                 "ccgram.handlers.messaging_pipeline.message_queue._dispatch",
@@ -365,8 +376,8 @@ class TestMessageQueueWorker:
             worker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await worker
-            _message_queues.pop(user_id, None)
-            _queue_locks.pop(user_id, None)
+            _message_queues.pop(key, None)
+            _queue_locks.pop(key, None)
 
     async def test_oserror_calls_task_done(self, bot):
         from ccgram.handlers.messaging_pipeline.message_queue import (
@@ -376,11 +387,12 @@ class TestMessageQueueWorker:
         )
 
         user_id = 88002
-        _message_queues[user_id] = asyncio.Queue()
-        _queue_locks[user_id] = asyncio.Lock()
-        q = _message_queues[user_id]
+        key = (user_id, 0)
+        _message_queues[key] = asyncio.Queue()
+        _queue_locks[key] = asyncio.Lock()
+        q = _message_queues[key]
         q.put_nowait(_content_task("hello"))
-        worker = asyncio.create_task(_message_queue_worker(bot, user_id))
+        worker = asyncio.create_task(_message_queue_worker(bot, key))
         try:
             with patch(
                 "ccgram.handlers.messaging_pipeline.message_queue._dispatch",
@@ -392,8 +404,8 @@ class TestMessageQueueWorker:
             worker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await worker
-            _message_queues.pop(user_id, None)
-            _queue_locks.pop(user_id, None)
+            _message_queues.pop(key, None)
+            _queue_locks.pop(key, None)
 
     async def test_cancelled_error_exits_cleanly(self, bot):
         from ccgram.handlers.messaging_pipeline.message_queue import (
@@ -403,9 +415,10 @@ class TestMessageQueueWorker:
         )
 
         user_id = 88003
-        _message_queues[user_id] = asyncio.Queue()
-        _queue_locks[user_id] = asyncio.Lock()
-        worker = asyncio.create_task(_message_queue_worker(bot, user_id))
+        key = (user_id, 0)
+        _message_queues[key] = asyncio.Queue()
+        _queue_locks[key] = asyncio.Lock()
+        worker = asyncio.create_task(_message_queue_worker(bot, key))
         try:
             await asyncio.sleep(0)
             worker.cancel()
@@ -413,8 +426,8 @@ class TestMessageQueueWorker:
         except asyncio.CancelledError:
             pass
         finally:
-            _message_queues.pop(user_id, None)
-            _queue_locks.pop(user_id, None)
+            _message_queues.pop(key, None)
+            _queue_locks.pop(key, None)
 
         assert worker.done()
         assert not worker.exception() if not worker.cancelled() else True

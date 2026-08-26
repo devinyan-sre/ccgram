@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from ...config import config
+from ...auto_park import check_auto_park
 from ...telegram_client import TelegramClient
 from ...utils import log_throttle_sweep
 from ..live.live_view import tick_live_views
@@ -53,6 +54,7 @@ async def run_periodic_tasks(
         timers["topic_check"] = now
         await prune_stale_state(all_windows)
         await probe_topic_existence(client)
+        await check_auto_park(client)
         log_throttle_sweep()
 
 

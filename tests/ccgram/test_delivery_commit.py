@@ -229,7 +229,7 @@ class TestIsSessionDeliveryDrained:
         queue: asyncio.Queue = asyncio.Queue()
         queue.put_nowait(object())
         with (
-            patch.dict(message_queue._message_queues, {7: queue}),
+            patch.dict(message_queue._message_queues, {(7, 100): queue}),
             patch(
                 "ccgram.session_query.find_users_for_session",
                 return_value=self._users(7),
@@ -245,7 +245,7 @@ class TestIsSessionDeliveryDrained:
         queue.get_nowait()
         assert queue.empty()
         with (
-            patch.dict(message_queue._message_queues, {7: queue}),
+            patch.dict(message_queue._message_queues, {(7, 100): queue}),
             patch(
                 "ccgram.session_query.find_users_for_session",
                 return_value=self._users(7),
@@ -259,7 +259,7 @@ class TestIsSessionDeliveryDrained:
         queue.get_nowait()
         queue.task_done()
         with (
-            patch.dict(message_queue._message_queues, {7: queue}),
+            patch.dict(message_queue._message_queues, {(7, 100): queue}),
             patch(
                 "ccgram.session_query.find_users_for_session",
                 return_value=self._users(7),

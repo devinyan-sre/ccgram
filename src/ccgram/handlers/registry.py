@@ -29,6 +29,7 @@ from .lifecycle_commands import (
     autoname_command,
     diag_command,
     handoff_command,
+    ops_command,
     park_command,
     replay_command,
     wake_command,
@@ -112,6 +113,7 @@ def register_all(
         CommandSpec("wake", wake_command),
         CommandSpec("diag", diag_command),
         CommandSpec("replay", replay_command),
+        CommandSpec("ops", ops_command),
     ]
 
     for spec in command_specs:
@@ -196,5 +198,6 @@ COMMAND_NAMES: tuple[str, ...] = (
     "wake",
     "diag",
     "replay",
+    "ops",
 )
 """Sentinel for tests: the exact command names register_all installs, in order."""

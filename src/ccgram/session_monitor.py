@@ -35,7 +35,7 @@ from .event_reader import (
 from .fs_watcher import TranscriptWatcher
 from .health import SESSION_MONITOR, record_progress
 from .idle_tracker import IdleTracker
-from .metrics import DELIVERY_LAG_BYTES, SESSIONS_TRACKED
+from .metrics import DELIVERY_LAG_BYTES, DELIVERY_STALLS, SESSIONS_TRACKED
 from .monitor_state import MonitorState
 from .providers import get_provider_for_window, registry  # noqa: F401 (used by test patches)
 from .session_map import parse_session_map, read_session_map_raw, session_map_prefix
@@ -114,6 +114,9 @@ class SessionMonitor:
         # Crash-recovery commit barrier: reports whether the outbound queues
         # serving a session are drained. None → commit unconditionally.
         self._delivery_drained_callback: Callable[[str], bool] | None = None
+        self._delivery_lag_callback: (
+            Callable[[str, int, float], Awaitable[None]] | None
+        ) = None
 
         self._idle_tracker = IdleTracker()
         self._transcript_reader = TranscriptReader(self.state, self._idle_tracker)
@@ -173,7 +176,16 @@ class SessionMonitor:
                     lag,
                 )
                 self._delivery_lag_alerted.add(session_id)
+                DELIVERY_STALLS.inc(outcome="stalled")
+                if self._delivery_lag_callback:
+                    task = asyncio.ensure_future(
+                        self._delivery_lag_callback(session_id, lag, now - started)
+                    )
+                    task.add_done_callback(task_done_callback)
         for session_id in set(self._delivery_lag_since) - active:
+            if session_id in self._delivery_lag_alerted:
+                logger.info("Delivery cursor recovered", session_id=session_id)
+                DELIVERY_STALLS.inc(outcome="recovered")
             self._delivery_lag_since.pop(session_id, None)
             self._delivery_lag_alerted.discard(session_id)
         DELIVERY_LAG_BYTES.set(total)
@@ -194,6 +206,12 @@ class SessionMonitor:
     def set_delivery_drained_callback(self, callback: Callable[[str], bool]) -> None:
         """Wire the queue-drained probe used to commit delivered offsets."""
         self._delivery_drained_callback = callback
+
+    def set_delivery_lag_callback(
+        self, callback: Callable[[str, int, float], Awaitable[None]]
+    ) -> None:
+        """Wire the operator notification emitted for a persistent cursor lag."""
+        self._delivery_lag_callback = callback
 
     def record_hook_activity(self, window_id: str) -> None:
         """Record hook-based activity for a window (resets idle timers)."""

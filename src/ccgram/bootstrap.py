@@ -32,6 +32,7 @@ from .handlers.commands import setup_menu_refresh_job
 from .handlers.hook_events import dispatch_hook_event
 from .handlers.messaging_pipeline.message_queue import (
     is_session_delivery_drained,
+    restore_outbox,
     shutdown_workers,
 )
 from .handlers.messaging_pipeline.message_routing import handle_new_message
@@ -289,6 +290,22 @@ async def start_session_monitor(application: Application) -> SessionMonitor:
     # delivered only once the serving queues drain.
     monitor.set_delivery_drained_callback(is_session_delivery_drained)
 
+    async def delivery_lag_callback(session_id: str, lag: int, duration: float) -> None:
+        # Lazy: operator alerts pull i18n and Telegram delivery helpers.
+        from .operator_alerts import SEVERITY_WARNING, notify_operator
+
+        await notify_operator(
+            client,
+            "⚠️ ccgram delivery stalled\n"
+            f"session: `{session_id}`\n"
+            f"pending: {lag} bytes · {duration:.0f}s\n"
+            "Use /ops and /diag for details.",
+            severity=SEVERITY_WARNING,
+        )
+
+    monitor.set_delivery_lag_callback(delivery_lag_callback)
+
+    await restore_outbox(client)
     monitor.start()
     session_monitor = monitor
     logger.info("Session monitor started")

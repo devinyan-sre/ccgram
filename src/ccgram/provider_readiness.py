@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import re
+from typing import Protocol
 
 import structlog
 
@@ -37,6 +38,60 @@ class ProviderReadiness:
     reason: str = ""
     restarted: bool = False
     update_prompt_skipped: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class StrategyInspection:
+    ready: bool
+    reason: str = ""
+    prompt_handled: bool = False
+
+
+class ProviderReadinessStrategy(Protocol):
+    """Extension point for provider-specific startup screens."""
+
+    async def inspect(self, window_id: str, pane_text: str) -> StrategyInspection: ...
+
+
+class DefaultReadinessStrategy:
+    async def inspect(self, window_id: str, pane_text: str) -> StrategyInspection:
+        del window_id, pane_text
+        return StrategyInspection(True)
+
+
+class CodexReadinessStrategy:
+    async def inspect(self, window_id: str, pane_text: str) -> StrategyInspection:
+        if _is_codex_update_prompt(pane_text):
+            handled = await _skip_codex_update(window_id, pane_text)
+            return StrategyInspection(
+                False,
+                "waiting for Codex after update prompt"
+                if handled
+                else "could not dismiss Codex update prompt",
+                prompt_handled=handled,
+            )
+        if window_query.get_session_id_for_window(window_id) or _is_codex_tui_ready(
+            pane_text
+        ):
+            return StrategyInspection(True)
+        return StrategyInspection(False, "waiting for Codex prompt")
+
+
+_DEFAULT_STRATEGY = DefaultReadinessStrategy()
+_READINESS_STRATEGIES: dict[str, ProviderReadinessStrategy] = {
+    "codex": CodexReadinessStrategy()
+}
+
+
+def register_readiness_strategy(
+    provider_name: str, strategy: ProviderReadinessStrategy
+) -> None:
+    """Register or replace a provider startup readiness strategy."""
+    _READINESS_STRATEGIES[provider_name] = strategy
+
+
+def get_readiness_strategy(provider_name: str) -> ProviderReadinessStrategy:
+    return _READINESS_STRATEGIES.get(provider_name, _DEFAULT_STRATEGY)
 
 
 def _is_codex_update_prompt(pane_text: str) -> bool:
@@ -96,7 +151,7 @@ async def _skip_codex_update(window_id: str, pane_text: str) -> bool:
     return True
 
 
-async def wait_for_provider_ready(  # noqa: C901, PLR0912 - readiness state machine
+async def wait_for_provider_ready(  # noqa: C901 - readiness state machine
     window_id: str,
     provider_name: str,
     *,
@@ -134,34 +189,20 @@ async def wait_for_provider_ready(  # noqa: C901, PLR0912 - readiness state mach
                 return ProviderReadiness(True)
             reason = f"expected shell, found {detected or 'unknown process'}"
         elif detected == provider_name:
-            if provider_name != "codex":
-                return ProviderReadiness(
-                    True,
-                    restarted=restarted,
-                    update_prompt_skipped=update_prompt_skipped,
-                )
-
             pane_text = await tmux_manager.capture_pane(window_id) or ""
-            if _is_codex_update_prompt(pane_text):
-                if not update_prompt_skipped:
-                    if not await _skip_codex_update(window_id, pane_text):
-                        return ProviderReadiness(
-                            False,
-                            "could not dismiss Codex update prompt",
-                            restarted=restarted,
-                        )
-                    update_prompt_skipped = True
-                reason = "waiting for Codex after update prompt"
-            elif window_query.get_session_id_for_window(
-                window_id
-            ) or _is_codex_tui_ready(pane_text):
+            inspection = await get_readiness_strategy(provider_name).inspect(
+                window_id, pane_text
+            )
+            update_prompt_skipped |= inspection.prompt_handled
+            if inspection.ready:
                 return ProviderReadiness(
                     True,
                     restarted=restarted,
                     update_prompt_skipped=update_prompt_skipped,
                 )
-            else:
-                reason = "waiting for Codex prompt"
+            reason = inspection.reason or f"waiting for {provider_name} prompt"
+            if reason == "could not dismiss Codex update prompt":
+                return ProviderReadiness(False, reason, restarted=restarted)
         elif detected == "shell" and restart_if_shell and not restarted:
             approval_mode = window_query.get_approval_mode(window_id)
             launch_command = resolve_launch_command(

@@ -95,6 +95,7 @@ _BOT_COMMANDS: list[tuple[str, str]] = [
     ("wake", "Restart a parked topic"),
     ("diag", "Diagnose topic and delivery state"),
     ("replay", "Replay recent assistant replies"),
+    ("ops", "Show delivery and queue health"),
 ]
 
 # Telegram limits: max 100 commands, descriptions max 256 chars

@@ -235,6 +235,8 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_METRICS_HOST`                                | `127.0.0.1`                    | 指标监听绑定地址；默认仅回环，对外暴露需显式配置反向代理                                             |
 | `CCGRAM_HEALTH_STALL_SEC`                            | `120`                          | 健康判据的“无进展”阈值(秒);轮询循环超过该时长未完成一轮即判不健康,触发 watchdog 重启;`0` 关闭该检查 |
 | `CCGRAM_QUEUE_MAX_DEPTH`                             | `500`                          | 出站队列背压阈值:超过即丢弃瞬时状态更新,达到 2 倍才丢弃 agent 输出(并告警);`0` 表示不限制         |
+| `CCGRAM_AUTO_PARK_DAYS`                              | `0`（关闭）                    | ccgram 创建且 Git 工作区干净的话题连续空闲多少天后自动挂起；新消息会自动唤醒并继续转发             |
+| `CCGRAM_AUTO_PARK_NOTICE_HOURS`                      | `24`                           | 自动挂起前的提醒时间（小时）                                                                         |
 | `CCGRAM_ACK_REACTION`                                | _(关闭)_                      | 转发消息后回贴的表情(如 `👀`);留空关闭                                                             |
 | `CCGRAM_EPHEMERAL_TOOLS`                             | `0`                            | 工具调用消息在完成后自动清理;每话题可用 `/verbose` 覆盖                                             |
 | `CCGRAM_LANG`                                        | `en`                           | 机器人界面语言;设为 `zh` 切换为简体中文                                                             |
@@ -592,6 +594,8 @@ claude     # or: codex, gemini, pi
 
 `/park` 不删除 Telegram 话题或历史记录，只停止对应窗口并持久化恢复所需状态。即使 ccgram 重启，也不会把主动休眠误报为崩溃。`/sessions` 中已停止的话题会显示 **Wake** 按钮。
 
+设置 `CCGRAM_AUTO_PARK_DAYS` 可启用保守的自动休眠。它只处理 ccgram 创建、已连续空闲、Git 工作区干净且没有队列/outbox 待投递内容的话题，并在 `CCGRAM_AUTO_PARK_NOTICE_HOURS` 前提醒。默认值 `0` 保持关闭；被挂起后直接发送普通消息即可自动唤醒原 Provider，该条消息会在就绪后继续转发，无需先运行 `/wake`。
+
 ### 自动话题名称
 
 ccgram 创建的新话题和窗口统一使用 `目录名-Provider-序号`：
@@ -611,6 +615,8 @@ ccgram-codex-2
 `/diag` 显示当前话题的窗口存活状态、声明/实际 Provider、前台 PID、session ID、transcript 路径，以及 transcript 文件大小与已提交投递游标。出现 Provider 或 transcript 错配时，周期性一致性守护会自动重新发现并修正绑定。
 
 `/replay [数量]` 从 transcript 重新发送最近 1–10 条助手文本，不会回退监控游标，因此不会影响正常增量投递。默认重放 3 条，长内容自动作为 `.txt` 文件发送。
+
+`/ops` 汇总所有话题的队列数量、未完成任务、持久化 outbox、重试数和 transcript 投递积压。助手文本在进入内存队列前会写入 `~/.ccgram/outbox.json`，Telegram 明确确认后才删除；服务重启会自动恢复未确认项。队列按 `用户 + 话题` 隔离，一个话题遭遇 Telegram 超时不会阻塞同一用户的其他话题。积压超过 30 秒还会向运营者发送一次告警，恢复后记录恢复指标。
 
 <a id="live-view"></a>
 
@@ -962,6 +968,9 @@ curl -so /dev/null -w '%{http_code}\n' localhost:9095/healthz
 | `ccgram_sessions_tracked`        | gauge     | 当前被 SessionMonitor 跟踪的会话数         |
 | `ccgram_monitor_bytes_read`      | counter   | 增量读取的 transcript 字节数               |
 | `ccgram_delivery_lag_bytes`      | gauge     | 已读取但尚未确认投递的 transcript 字节数   |
+| `ccgram_delivery_stalls`         | counter   | 投递游标停滞/恢复次数                      |
+| `ccgram_topic_queue_depth`       | gauge     | 按用户和话题隔离的出站队列深度             |
+| `ccgram_outbox_items`            | gauge     | 持久化 outbox 的 pending/retrying 项数      |
 | `ccgram_binding_repairs`         | counter   | 自动修复会话/Provider 错配的次数            |
 | `ccgram_provider_handoffs`       | counter   | Provider 迁移结果                           |
 | `ccgram_live_view_ticks`         | counter   | Live View 更新、限流与熔断结果              |

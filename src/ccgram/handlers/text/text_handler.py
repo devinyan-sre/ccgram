@@ -64,11 +64,13 @@ from ..user_state import (
     RECOVERY_WINDOW_ID,
 )
 from ... import provider_readiness, window_query
+from ...provider_handoff import handoff_provider
 from ...thread_router import thread_router
 from ...providers import get_provider_for_window
 from ...multiplexer import multiplexer as tmux_manager
 from ...multiplexer.window_ops import send_to_window
 from ...utils import handle_general_topic_message, is_general_topic, task_done_callback
+from ...window_state_ports import lifecycle_state
 
 if TYPE_CHECKING:
     from telegram.ext import ContextTypes
@@ -340,6 +342,30 @@ async def _handle_dead_window(
     if w:
         lifecycle_strategy.clear_autoclose_timer(user_id, thread_id)
         return False
+
+    if lifecycle_state.is_parked(window_id):
+        provider_name = window_query.get_window_provider(window_id) or "codex"
+        await safe_reply(
+            message,
+            t("⏳ Waking with {provider}…").format(provider=provider_name),
+        )
+        result = await handoff_provider(
+            user_id=user_id,
+            thread_id=thread_id,
+            old_window_id=window_id,
+            target_provider=provider_name,
+        )
+        if not result.success:
+            await safe_reply(message, f"❌ {result.message}")
+            return True
+        lifecycle_strategy.clear_dead_notification(user_id, thread_id)
+        lifecycle_state.set_parked(result.new_window_id, value=False)
+        sent, error = await send_to_window(result.new_window_id, text)
+        if sent:
+            await safe_reply(message, t("✅ Topic woke and your message was sent."))
+        else:
+            await safe_reply(message, f"❌ {error}")
+        return True
 
     display = thread_router.get_display_name(window_id)
     view = window_query.view_window(window_id)

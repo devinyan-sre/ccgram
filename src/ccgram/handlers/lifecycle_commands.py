@@ -11,6 +11,7 @@ from telegram.error import TelegramError
 
 from .. import session_query, topic_routing, window_query
 from ..config import config
+from ..delivery_outbox import delivery_outbox
 from ..handoff_context import generate_handoff_context, transcript_tail_offset
 from ..i18n import t
 from ..multiplexer import multiplexer as tmux_manager
@@ -30,6 +31,7 @@ from .callback_helpers import get_thread_id, user_owns_window
 from .callback_registry import register
 from .last_reply import deliver_text
 from .messaging_pipeline.message_sender import safe_edit, safe_reply
+from .messaging_pipeline.message_queue import queue_snapshot
 from .polling.polling_state import lifecycle_strategy
 from .status.topic_emoji import format_topic_name_for_mode
 
@@ -387,6 +389,38 @@ async def diag_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
             await safe_reply(update.message, t("❌ Use /diag inside a bound topic."))
         return
     await safe_reply(update.message, await _diagnose(resolved[2]))
+
+
+async def ops_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+    """``/ops`` — summarize delivery health without opening server logs."""
+    user = update.effective_user
+    if not update.message or not user or not config.is_user_allowed(user.id):
+        return
+    topic_queues, queued, unfinished = queue_snapshot()
+    pending, retrying = delivery_outbox.snapshot()
+    monitor = get_active_monitor()
+    tracked = len(monitor.state.tracked_sessions) if monitor else 0
+    lag = 0
+    stalled = 0
+    if monitor:
+        lag = sum(
+            max(0, item.last_byte_offset - item.delivered_byte_offset)
+            for item in monitor.state.tracked_sessions.values()
+        )
+        stalled = len(monitor._delivery_lag_alerted)
+    health = "✅ healthy" if not pending and not lag else "⚠ attention needed"
+    await safe_reply(
+        update.message,
+        "\n".join(
+            [
+                f"ccgram ops · {health}",
+                f"Sessions: {tracked} tracked · {stalled} stalled",
+                f"Delivery: {lag} bytes lag · {pending} durable pending",
+                f"Queues: {topic_queues} topics · {queued} queued · {unfinished} active",
+                f"Retries: {retrying}",
+            ]
+        ),
+    )
 
 
 async def replay_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

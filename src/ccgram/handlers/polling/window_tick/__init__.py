@@ -95,7 +95,7 @@ async def tick_window(
         )
         return
 
-    queue = get_message_queue(user_id)
+    queue = get_message_queue(user_id, thread_id)
     if adaptive:
         ws = rt.poll_state.peek_state(window_id)
         if ws is not None:

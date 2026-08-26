@@ -174,7 +174,7 @@ class TranscriptReader:
             return tracked
         return None
 
-    async def _process_session_file(
+    async def _process_session_file(  # noqa: PLR0915
         self,
         session_id: str,
         file_path: Path,
@@ -231,6 +231,7 @@ class TranscriptReader:
             if current_mtime <= last_mtime:
                 return
 
+        batch_start = tracked.last_byte_offset
         new_entries = await self._read_new_lines(
             tracked, file_path, window_id, provider=provider
         )
@@ -260,6 +261,7 @@ class TranscriptReader:
         else:
             self._pending_tools.pop(session_id, None)
 
+        delivery_index = 0
         for entry in agent_messages:
             if not entry.text:
                 continue
@@ -273,15 +275,29 @@ class TranscriptReader:
                     tool_use_id=entry.tool_use_id,
                     role=entry.role,
                     tool_name=entry.tool_name,
+                    delivery_id=(
+                        f"{session_id}:{batch_start}:{tracked.last_byte_offset}:"
+                        f"{delivery_index}"
+                    ),
                 )
             )
+            delivery_index += 1
 
         # Token/context watch: raw entries carry per-turn usage blocks.
         # Warnings ride the normal message pipeline after the agent content.
         for warning in token_watch.record_entries(session_id, new_entries):
             new_messages.append(
-                NewMessage(session_id=session_id, text=warning, is_complete=True)
+                NewMessage(
+                    session_id=session_id,
+                    text=warning,
+                    is_complete=True,
+                    delivery_id=(
+                        f"{session_id}:{batch_start}:{tracked.last_byte_offset}:"
+                        f"{delivery_index}"
+                    ),
+                )
             )
+            delivery_index += 1
 
         if len(new_messages) == appended_from:
             # Nothing to deliver from these bytes — commit immediately.

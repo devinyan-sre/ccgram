@@ -15,11 +15,18 @@ import structlog
 from telegram.error import RetryAfter, TelegramError
 
 from ...config import config
+from ...delivery_outbox import delivery_outbox
 from ...correlation import bind_cid, current_cid
 from ...telegram_client import TelegramClient
 from ...thread_router import thread_router
 from ...topic_state_registry import topic_state
-from ...metrics import QUEUE_DEPTH, QUEUE_SHED, QUEUE_TASKS, TELEGRAM_FLOOD
+from ...metrics import (
+    QUEUE_DEPTH,
+    QUEUE_SHED,
+    QUEUE_TASKS,
+    TELEGRAM_FLOOD,
+    TOPIC_QUEUE_DEPTH,
+)
 from ...utils import task_done_callback
 from ...tts import TtsSynthesisError, get_synthesizer, prepare_tts_text
 from ...window_query import is_tool_calls_hidden
@@ -33,6 +40,7 @@ from .message_sender import (
     edit_with_fallback,
     rate_limit_send,
     rate_limit_send_message,
+    reliable_send_message,
     send_kwargs,
 )
 from .message_task import (
@@ -63,15 +71,37 @@ MERGE_MAX_LENGTH = 3800  # Leave room within Telegram's 4096 char message limit
 # output is far more costly than losing a transient status bubble.
 _HARD_CAP_MULTIPLIER = 2
 
-_message_queues: dict[int, asyncio.Queue[MessageTask]] = {}
-_queue_workers: dict[int, asyncio.Task[None]] = {}
-_queue_locks: dict[int, asyncio.Lock] = {}  # Protect drain/refill operations
+QueueKey = tuple[int, int]
+_message_queues: dict[QueueKey, asyncio.Queue[MessageTask]] = {}
+_queue_workers: dict[QueueKey, asyncio.Task[None]] = {}
+_queue_locks: dict[QueueKey, asyncio.Lock] = {}  # Protect drain/refill operations
 
 # Map (tool_use_id, user_id, thread_key) -> telegram message_id
 # for editing tool_use messages with results
 _tool_msg_ids: dict[tuple[str, int, int], int] = {}
 
 _CAPTION_MAX_LENGTH = 1024  # Telegram Bot API caption limit
+
+
+def queue_snapshot() -> tuple[int, int, int]:
+    """Return (topic queues, queued tasks, in-flight-or-queued tasks)."""
+    queues = list(_message_queues.values())
+    return (
+        len(queues),
+        sum(queue.qsize() for queue in queues),
+        sum(int(getattr(queue, "_unfinished_tasks", 0)) for queue in queues),
+    )
+
+
+def _update_depth(key: QueueKey, queue: asyncio.Queue[MessageTask]) -> None:
+    user_id, topic = key
+    TOPIC_QUEUE_DEPTH.set(queue.qsize(), user=str(user_id), thread=str(topic))
+    aggregate = sum(
+        candidate.qsize()
+        for candidate_key, candidate in _message_queues.items()
+        if isinstance(candidate_key, tuple) and candidate_key[0] == user_id
+    )
+    QUEUE_DEPTH.set(aggregate, user=str(user_id))
 
 
 def _truncate_caption(text: str) -> str:
@@ -131,9 +161,11 @@ async def _send_tts_voice(
     return True
 
 
-def get_message_queue(user_id: int) -> asyncio.Queue[MessageTask] | None:
-    """Get the message queue for a user (if exists)."""
-    return _message_queues.get(user_id)
+def get_message_queue(
+    user_id: int, thread_id: int | None = None
+) -> asyncio.Queue[MessageTask] | None:
+    """Get the isolated queue for one Telegram topic (if it exists)."""
+    return _message_queues.get((user_id, thread_key(thread_id)))
 
 
 def is_session_delivery_drained(session_id: str) -> bool:
@@ -151,34 +183,38 @@ def is_session_delivery_drained(session_id: str) -> bool:
     for user_id, _window_id, _thread_id in session_query.find_users_for_session(
         session_id
     ):
-        queue = _message_queues.get(user_id)
+        queue = _message_queues.get((user_id, thread_key(_thread_id)))
+        # Compatibility for callers/tests that populated the pre-topic map.
+        if queue is None:
+            queue = _message_queues.get(user_id)  # type: ignore[arg-type]
         if queue is None:
             continue
         if not queue.empty() or getattr(queue, "_unfinished_tasks", 0) > 0:
             return False
-    return True
+    return not delivery_outbox.has_pending_session(session_id)
 
 
 def get_or_create_queue(
-    client: TelegramClient, user_id: int
+    client: TelegramClient, user_id: int, thread_id: int | None = None
 ) -> asyncio.Queue[MessageTask]:
     """Get or create message queue and worker for a user.
 
     Also detects dead workers and respawns them so messages are not lost.
     """
-    if user_id not in _message_queues:
-        _message_queues[user_id] = asyncio.Queue()
-        _queue_locks[user_id] = asyncio.Lock()
+    key = (user_id, thread_key(thread_id))
+    if key not in _message_queues:
+        _message_queues[key] = asyncio.Queue()
+        _queue_locks[key] = asyncio.Lock()
 
     # Respawn dead workers (can happen if an uncaught exception killed the task)
-    existing = _queue_workers.get(user_id)
+    existing = _queue_workers.get(key)
     if existing is None or existing.done():
         if existing is not None:
             logger.warning("Respawning dead queue worker for user %s", user_id)
-        task = asyncio.create_task(_message_queue_worker(client, user_id))
+        task = asyncio.create_task(_message_queue_worker(client, key))
         task.add_done_callback(task_done_callback)
-        _queue_workers[user_id] = task
-    return _message_queues[user_id]
+        _queue_workers[key] = task
+    return _message_queues[key]
 
 
 def _drain_queue(queue: asyncio.Queue[MessageTask]) -> list[MessageTask]:
@@ -202,6 +238,8 @@ def _can_merge_tasks(base: ContentTask, candidate: MessageTask) -> bool:
     if not isinstance(candidate, ContentTask):
         return False
     if base.window_id != candidate.window_id:
+        return False
+    if base.delivery_id or candidate.delivery_id:
         return False
     if base.content_type in ("tool_use", "tool_result"):
         return False
@@ -261,6 +299,9 @@ async def _merge_content_tasks(
             content_type=first.content_type,
             role=first.role,
             thread_id=first.thread_id,
+            session_id=first.session_id,
+            delivery_id=first.delivery_id,
+            next_part=first.next_part,
         ),
         merge_count,
     )
@@ -389,11 +430,12 @@ async def _dispatch(
             assert_never(unreachable)
 
 
-async def _message_queue_worker(client: TelegramClient, user_id: int) -> None:
-    """Process message tasks for a user sequentially."""
-    queue = _message_queues[user_id]
-    lock = _queue_locks[user_id]
-    logger.debug("Message queue worker started for user %s", user_id)
+async def _message_queue_worker(client: TelegramClient, key: QueueKey | int) -> None:
+    """Process message tasks sequentially for one topic."""
+    user_id, topic = key if isinstance(key, tuple) else (key, 0)
+    queue = _message_queues[key]  # type: ignore[index]
+    lock = _queue_locks[key]  # type: ignore[index]
+    logger.debug("Message queue worker started", user_id=user_id, thread_id=topic)
 
     while True:
         try:
@@ -405,10 +447,25 @@ async def _message_queue_worker(client: TelegramClient, user_id: int) -> None:
             try:
                 while True:
                     try:
+                        prior_attempts = (
+                            delivery_outbox.attempts(task.delivery_id)
+                            if isinstance(task, ContentTask) and task.delivery_id
+                            else 0
+                        )
                         extra = await _dispatch(client, user_id, task, queue, lock)
                         for _ in range(extra):
                             queue.task_done()
                         QUEUE_TASKS.inc(outcome="sent")
+                        if prior_attempts and isinstance(task, ContentTask):
+                            chat_id = thread_router.resolve_chat_id(
+                                user_id, task.thread_id
+                            )
+                            await rate_limit_send_message(
+                                client,
+                                chat_id,
+                                "✅ Telegram delivery recovered; queued reply delivered.",
+                                **send_kwargs(task.thread_id),
+                            )
                         break
                     except RetryAfter as e:
                         TELEGRAM_FLOOD.inc(method="queue_worker")
@@ -426,6 +483,34 @@ async def _message_queue_worker(client: TelegramClient, user_id: int) -> None:
                             retry_secs,
                         )
                         await asyncio.sleep(retry_secs)
+                    except OSError as exc:
+                        if not isinstance(task, ContentTask) or not task.delivery_id:
+                            raise
+                        attempts = await delivery_outbox.failed(
+                            task.delivery_id, str(exc)
+                        )
+                        delay = min(60.0, float(2 ** min(attempts, 6)))
+                        QUEUE_TASKS.inc(outcome="retry")
+                        logger.warning(
+                            "Durable Telegram delivery delayed; retrying",
+                            user_id=user_id,
+                            thread_id=topic,
+                            delivery_id=task.delivery_id,
+                            attempts=attempts,
+                            retry_seconds=delay,
+                        )
+                        if attempts == 1:
+                            chat_id = thread_router.resolve_chat_id(
+                                user_id, task.thread_id
+                            )
+                            await rate_limit_send_message(
+                                client,
+                                chat_id,
+                                "🟠 Reply is ready, but Telegram delivery is delayed. "
+                                "Retrying…",
+                                **send_kwargs(task.thread_id),
+                            )
+                        await asyncio.sleep(delay)
             except (TelegramError, OSError):  # fmt: skip
                 QUEUE_TASKS.inc(outcome="failed")
                 logger.exception(
@@ -435,7 +520,8 @@ async def _message_queue_worker(client: TelegramClient, user_id: int) -> None:
                 )
             finally:
                 queue.task_done()
-                QUEUE_DEPTH.set(queue.qsize(), user=str(user_id))
+                if isinstance(key, tuple):
+                    _update_depth(key, queue)
         except asyncio.CancelledError:
             logger.debug("Message queue worker cancelled for user %s", user_id)
             break
@@ -471,7 +557,7 @@ async def _process_content_task(
 
     first_part = True
     last_msg_id: int | None = None
-    for part in task.parts:
+    for part_index, part in enumerate(task.parts[task.next_part :], task.next_part):
         sent = None
 
         if first_part:
@@ -485,14 +571,23 @@ async def _process_content_task(
             )
             if converted_msg_id is not None:
                 last_msg_id = converted_msg_id
+                if task.delivery_id:
+                    await delivery_outbox.advance(task.delivery_id, part_index + 1)
                 continue
 
-        sent = await rate_limit_send_message(
-            client, chat_id, part, **send_kwargs(task.thread_id)
-        )
+        if task.delivery_id:
+            sent = await reliable_send_message(
+                client, chat_id, part, **send_kwargs(task.thread_id)
+            )
+        else:
+            sent = await rate_limit_send_message(
+                client, chat_id, part, **send_kwargs(task.thread_id)
+            )
 
         if sent:
             last_msg_id = sent.message_id
+            if task.delivery_id:
+                await delivery_outbox.advance(task.delivery_id, part_index + 1)
 
     if _should_send_tts(task) and (tts_text := prepare_tts_text(task.parts)):
         await _send_tts_voice(
@@ -505,6 +600,8 @@ async def _process_content_task(
 
     if last_msg_id and task.tool_use_id and task.content_type == "tool_use":
         _tool_msg_ids[(task.tool_use_id, user_id, tkey)] = last_msg_id
+    if task.delivery_id:
+        await delivery_outbox.delivered(task.delivery_id)
 
 
 def _shed(queue: "asyncio.Queue[MessageTask]", user_id: int, kind: str) -> bool:
@@ -557,11 +654,13 @@ async def enqueue_content_message(
     content_type: ContentType = "text",
     role: MessageRole = "assistant",
     thread_id: int | None = None,
+    session_id: str | None = None,
+    delivery_id: str | None = None,
 ) -> None:
     """Enqueue a content message task."""
     if _is_ghost_window_task_at_enqueue(window_id):
         return
-    queue = get_or_create_queue(client, user_id)
+    queue = get_or_create_queue(client, user_id, thread_id)
     if _shed(queue, user_id, "content"):
         return
 
@@ -573,9 +672,14 @@ async def enqueue_content_message(
         content_type=content_type,
         role=role,
         thread_id=thread_id,
+        session_id=session_id,
+        delivery_id=delivery_id,
         cid=current_cid(),
     )
+    if not await delivery_outbox.add(task, user_id):
+        return
     queue.put_nowait(task)
+    _update_depth((user_id, thread_key(thread_id)), queue)
 
 
 async def enqueue_status_update(
@@ -586,7 +690,7 @@ async def enqueue_status_update(
     thread_id: int | None = None,
 ) -> None:
     """Enqueue status update or clear."""
-    queue = get_or_create_queue(client, user_id)
+    queue = get_or_create_queue(client, user_id, thread_id)
     if _shed(queue, user_id, "status"):
         return
 
@@ -606,6 +710,22 @@ async def enqueue_status_update(
         )
 
     queue.put_nowait(task)
+    _update_depth((user_id, thread_key(thread_id)), queue)
+
+
+async def restore_outbox(client: TelegramClient) -> int:
+    """Requeue durable deliveries left pending by an interrupted process."""
+    restored = 0
+    for user_id, task in delivery_outbox.pending_tasks():
+        if _is_ghost_window_task_at_enqueue(task.window_id):
+            continue
+        queue = get_or_create_queue(client, user_id, task.thread_id)
+        queue.put_nowait(task)
+        _update_depth((user_id, thread_key(task.thread_id)), queue)
+        restored += 1
+    if restored:
+        logger.warning("Restored pending Telegram deliveries", count=restored)
+    return restored
 
 
 @topic_state.register("topic")

@@ -213,6 +213,8 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_METRICS_HOST`                                | `127.0.0.1`                    | Bind address for the metrics listener; loopback-only by default, expose via a reverse proxy           |
 | `CCGRAM_HEALTH_STALL_SEC`                            | `120`                          | Forward-progress stall threshold in seconds; a poll loop that completes no cycle within it is unhealthy (watchdog restarts). `0` disables the check |
 | `CCGRAM_QUEUE_MAX_DEPTH`                             | `500`                          | Outbound queue backpressure: transient status updates are shed past this depth, agent output only at 2x (with an error log); `0` = unbounded |
+| `CCGRAM_AUTO_PARK_DAYS`                              | `0` (off)                      | Auto-park clean, ccgram-created topics after this many idle days; new text wakes and forwards automatically |
+| `CCGRAM_AUTO_PARK_NOTICE_HOURS`                      | `24`                           | Warning lead time before automatic parking                                                    |
 | `CCGRAM_ACK_REACTION`                                | _(disabled)_                   | Emoji reaction applied to forwarded messages (e.g. `👀`); empty disables it                          |
 | `CCGRAM_EPHEMERAL_TOOLS`                             | `0`                            | Clean up tool-call messages once they complete; `/verbose` overrides per topic                       |
 | `CCGRAM_LANG`                                        | `en`                           | Bot UI language; set `zh` for Simplified Chinese                                                     |
@@ -530,6 +532,8 @@ Handoff is transactional: the old window remains bound until the replacement pro
 
 `/park` never deletes the Telegram topic or its history, and persists the intentional stop so a ccgram restart does not report it as a crash. The sessions dashboard shows a **Wake** action for stopped topics.
 
+Set `CCGRAM_AUTO_PARK_DAYS` to enable conservative automatic parking. Only ccgram-created topics with a clean Git workspace, no queued/outbox delivery, and sufficient idle time qualify; a warning is posted `CCGRAM_AUTO_PARK_NOTICE_HOURS` beforehand. The default `0` keeps this disabled. After parking, ordinary topic text wakes the original provider and forwards that same message, so `/wake` is optional.
+
 ### Automatic topic names
 
 New ccgram topics and windows use `directory-provider-number` consistently:
@@ -549,6 +553,8 @@ Legacy and manually edited names are not overwritten. Run `/autoname` inside an 
 `/diag` reports window liveness, declared/detected provider, foreground PID, session ID, transcript path, file size, and the delivery-committed cursor. The periodic consistency guard repairs provider/session mismatches automatically.
 
 `/replay [count]` safely resends the latest 1–10 assistant text replies without moving the monitor cursor. It defaults to three replies and sends oversized output as a `.txt` document.
+
+`/ops` summarizes topic queues, unfinished tasks, durable outbox entries, retries, and transcript delivery lag. Assistant text is atomically journaled to `~/.ccgram/outbox.json` before entering memory and removed only after Telegram acknowledges it; unconfirmed entries are restored on restart. Queues are isolated by user and topic, so one Telegram timeout cannot block another topic. A lag persisting for 30 seconds sends one operator alert and records a recovery metric when it clears.
 
 ## Live View
 
@@ -876,6 +882,9 @@ Exported metrics (names are a public contract — renaming breaks dashboards and
 | `ccgram_sessions_tracked`        | gauge     | Sessions currently tracked by the SessionMonitor |
 | `ccgram_monitor_bytes_read`      | counter   | Transcript bytes read incrementally              |
 | `ccgram_delivery_lag_bytes`      | gauge     | Transcript bytes read but not yet delivery-committed |
+| `ccgram_delivery_stalls`         | counter   | Delivery cursor stalls and recoveries                |
+| `ccgram_topic_queue_depth`       | gauge     | Outbound depth isolated by user and topic             |
+| `ccgram_outbox_items`            | gauge     | Durable outbox items in pending/retrying state        |
 | `ccgram_binding_repairs`         | counter   | Automatic session/provider binding repairs       |
 | `ccgram_provider_handoffs`       | counter   | Provider handoff outcomes                         |
 | `ccgram_live_view_ticks`         | counter   | Live-view update, flood and circuit-breaker outcomes |
