@@ -193,3 +193,10 @@ def test_completed_task_is_retained_briefly(tmp_path, monkeypatch) -> None:
 
     assert "T0001" in rendered
     assert "✅" in rendered
+
+
+def test_subminute_durations_use_coarse_api_safe_buckets() -> None:
+    assert OperationsDashboard._duration(5) == "0s"
+    assert OperationsDashboard._duration(29) == "0s"
+    assert OperationsDashboard._duration(30) == "30s"
+    assert OperationsDashboard._duration(59) == "30s"

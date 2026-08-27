@@ -40,6 +40,7 @@ _TARGET_RETRY_SECONDS = 3600.0
 _TRANSIENT_RETRY_SECONDS = 60.0
 _SECONDS_PER_MINUTE = 60
 _SECONDS_PER_HOUR = 3600
+_IDLE_STAMP_MINUTES = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -443,12 +444,22 @@ class OperationsDashboard:
         else:
             lines.append(t("⚪ No active or queued tasks"))
 
+        now = datetime.now(UTC)
+        if not precise_time:
+            # Idle topic dashboards must not consume the group's Telegram API
+            # budget once per minute. State changes still render immediately;
+            # this timestamp only advances in coarse five-minute buckets.
+            now = now.replace(
+                minute=now.minute - (now.minute % _IDLE_STAMP_MINUTES),
+                second=0,
+                microsecond=0,
+            )
         stamp_format = "%H:%M:%S UTC" if precise_time else "%H:%M UTC"
         lines.extend(
             [
                 "",
                 t("Updated {time} · one operator is serial, operators are parallel").format(
-                    time=datetime.now(UTC).strftime(stamp_format)
+                    time=now.strftime(stamp_format)
                 ),
             ]
         )
@@ -503,7 +514,7 @@ class OperationsDashboard:
     def _duration(seconds: float) -> str:
         seconds = max(0, int(seconds))
         if seconds < _SECONDS_PER_MINUTE:
-            return t("{seconds}s").format(seconds=(seconds // 10) * 10)
+            return t("{seconds}s").format(seconds=(seconds // 30) * 30)
         if seconds < _SECONDS_PER_HOUR:
             return t("{minutes}m").format(minutes=seconds // _SECONDS_PER_MINUTE)
         return t("{hours}h{minutes}m").format(
