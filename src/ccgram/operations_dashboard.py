@@ -306,6 +306,7 @@ class OperationsDashboard:
         except BadRequest as exc:
             if "message is not modified" in str(exc).lower():
                 self._last_text[target.key] = text
+                await self._try_pin(target, message_id)
                 return
             # Deleted, inaccessible, or too-old messages are replaced once;
             # this also recovers cleanly after an operator deletes a dashboard.

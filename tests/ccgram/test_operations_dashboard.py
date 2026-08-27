@@ -94,6 +94,24 @@ async def test_existing_dashboard_reasserts_pin_on_first_edit(
     assert client.last_call("pin_chat_message").kwargs["message_id"] == 55  # type: ignore[union-attr]
 
 
+async def test_unchanged_existing_dashboard_still_reasserts_pin(
+    tmp_path, monkeypatch
+) -> None:
+    _configure(monkeypatch, scope="topic")
+    client = FakeTelegramClient()
+    client.set_side_effect(
+        "edit_message_text", [BadRequest("Message is not modified")]
+    )
+    dashboard = OperationsDashboard(client, tmp_path / "state.json")
+    target = DashboardTarget(-1001, 17, False)
+    dashboard._message_ids[target.key] = 55
+
+    with patch("ccgram.operations_dashboard.task_scheduler.views", return_value=[]):
+        await dashboard._upsert(target)
+
+    assert client.call_count("pin_chat_message") == 1
+
+
 async def test_creates_pins_then_edits_one_message(tmp_path, monkeypatch) -> None:
     _configure(monkeypatch, scope="topic")
     client = FakeTelegramClient()
