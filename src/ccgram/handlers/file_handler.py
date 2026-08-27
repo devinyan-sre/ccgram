@@ -275,7 +275,10 @@ async def _upload_and_notify(
             ),
         )
     else:
-        inbound_store.set_state(inbound_key, "failed")
+        if admission.continuation:
+            inbound_store.set_state(inbound_key, "failed")
+        else:
+            inbound_store.mark_window_done(window_id, failed=True)
         clear_request_window(window_id)
         if not admission.continuation:
             await task_scheduler.release_window(window_id)
@@ -348,6 +351,8 @@ async def _flush_album(key: tuple[int, int, int, str]) -> None:
     if admission is None:
         return
     success, error = await send_to_window(first.window_id, agent_msg)
+    if not success and not admission.continuation:
+        inbound_store.mark_window_done(first.window_id, failed=True)
     for item in items:
         chat_id, message_id = message_ids(item.message)
         inbound_store.set_state(

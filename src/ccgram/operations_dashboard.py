@@ -51,6 +51,7 @@ _TRANSIENT_RETRY_SECONDS = 60.0
 _SECONDS_PER_MINUTE = 60
 _SECONDS_PER_HOUR = 3600
 _IDLE_STAMP_MINUTES = 5
+_STAMP_TRAILER_LINES = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,12 +91,16 @@ class OperationsDashboard:
         self._message_ids: dict[str, int] = {}
         self._operator_labels: dict[int, str] = {}
         self._last_text: dict[str, str] = {}
+        self._last_digest: dict[str, str] = {}
         self._pin_retry_at: dict[str, float] = {}
         self._target_retry_at: dict[str, float] = {}
         self._target_health: dict[str, _TargetHealth] = {}
         self._previous_tasks: dict[tuple[int, int, str], TaskView] = {}
         self._completed: dict[tuple[int, int, str], _CompletedTask] = {}
         self._refresh_event = asyncio.Event()
+        self._dirty_target_keys: set[str] = set()
+        self._full_refresh_requested = False
+        self._last_idle_refresh_at = 0.0
         self._render_lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
         self._load_state()
@@ -114,6 +119,11 @@ class OperationsDashboard:
                 int(key): str(value)[:64]
                 for key, value in raw.get("operators", {}).items()
                 if str(value).strip()
+            }
+            self._last_digest = {
+                str(key): str(value)
+                for key, value in raw.get("digests", {}).items()
+                if str(value)
             }
             self._target_health = {
                 str(key): _TargetHealth(
@@ -144,8 +154,9 @@ class OperationsDashboard:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 json.dump(
                     {
-                        "version": 2,
+                        "version": 3,
                         "messages": self._message_ids,
+                        "digests": self._last_digest,
                         "operators": {
                             str(key): value
                             for key, value in self._operator_labels.items()
@@ -209,8 +220,66 @@ class OperationsDashboard:
             await task
         logger.info("Operations dashboard stopped")
 
-    def request_refresh(self) -> None:
+    def request_refresh(
+        self, chat_id: int | None = None, thread_id: int | None = None
+    ) -> None:
+        """Prioritize one task's topic and General, or request a full pass."""
+        if chat_id is None or thread_id is None:
+            self._full_refresh_requested = True
+        else:
+            if config.dashboard_scope in ("topic", "both") and thread_id > 1:
+                self._dirty_target_keys.add(f"topic:{chat_id}:{thread_id}")
+            if config.dashboard_scope in ("general", "both"):
+                self._dirty_target_keys.add(
+                    f"general:{chat_id}:{_GENERAL_THREAD_ID}"
+                )
         self._refresh_event.set()
+
+    def _refresh_targets(self) -> list[DashboardTarget]:
+        """Return hot targets first and visit idle topics only at low cadence."""
+        targets = self._targets()
+        by_key = {target.key: target for target in targets}
+        ordered: list[DashboardTarget] = []
+        selected: set[str] = set()
+
+        def add(key: str) -> None:
+            target = by_key.get(key)
+            if target is not None and key not in selected:
+                selected.add(key)
+                ordered.append(target)
+
+        # The originating topic gives the sender the fastest visible signal;
+        # General follows immediately for the group-wide observer.
+        for key in sorted(
+            self._dirty_target_keys,
+            key=lambda value: (0 if value.startswith("topic:") else 1, value),
+        ):
+            add(key)
+
+        hot_views = task_scheduler.views()
+        hot_rows = [
+            (view.chat_id, view.thread_id) for view in hot_views
+        ] + [
+            (row.view.chat_id, row.view.thread_id)
+            for row in self._completed.values()
+        ]
+        for chat_id, thread_id in hot_rows:
+            add(f"topic:{chat_id}:{thread_id}")
+            add(f"general:{chat_id}:{_GENERAL_THREAD_ID}")
+
+        now = time.monotonic()
+        idle_due = (
+            now - self._last_idle_refresh_at
+            >= config.dashboard_idle_refresh_seconds
+        )
+        if self._full_refresh_requested or idle_due:
+            for target in targets:
+                add(target.key)
+            self._last_idle_refresh_at = now
+
+        self._dirty_target_keys.difference_update(selected)
+        self._full_refresh_requested = False
+        return ordered
 
     async def refresh_target(self, chat_id: int, thread_id: int) -> bool:
         """Force-refresh the dashboard containing the callback message."""
@@ -262,16 +331,18 @@ class OperationsDashboard:
     async def _run(self) -> None:
         while True:
             try:
+                # Clear before rendering so a change arriving during a slow
+                # Telegram call remains set and immediately starts next pass.
+                self._refresh_event.clear()
                 async with self._render_lock:
                     self._capture_completions()
-                    for target in self._targets():
+                    for target in self._refresh_targets():
                         await self._upsert(target)
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(
                         self._refresh_event.wait(),
                         timeout=config.dashboard_refresh_seconds,
                     )
-                self._refresh_event.clear()
             except asyncio.CancelledError:
                 raise
             except RetryAfter as exc:
@@ -419,11 +490,31 @@ class OperationsDashboard:
         }
         self._previous_tasks = current
 
+    @staticmethod
+    def _content_digest(text: str) -> str:
+        """Hash stateful content while ignoring the cosmetic update stamp."""
+        lines = text.splitlines()
+        if len(lines) >= _STAMP_TRAILER_LINES and lines[-2] == "":
+            lines = lines[:-_STAMP_TRAILER_LINES]
+        return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
     async def _upsert(self, target: DashboardTarget, *, force: bool = False) -> None:
         if not force and time.monotonic() < self._target_retry_at.get(target.key, 0.0):
             return
         text = self._render(target, precise_time=force)
+        digest = self._content_digest(text)
         if not force and self._last_text.get(target.key) == text:
+            return
+        if (
+            not force
+            and self._message_ids.get(target.key) is not None
+            and self._last_digest.get(target.key) == digest
+        ):
+            # A restart should not re-edit every idle topic merely because the
+            # in-memory text cache is empty. Reassert pinning once, then stay
+            # silent until content actually changes.
+            self._last_text[target.key] = text
+            await self._try_pin(target, self._message_ids[target.key])
             return
         markup = self._markup(target)
         message_id = self._message_ids.get(target.key)
@@ -438,11 +529,13 @@ class OperationsDashboard:
                 reply_markup=markup,
             )
             self._last_text[target.key] = text
+            self._last_digest[target.key] = digest
             self._record_success(target)
             await self._try_pin(target, message_id)
         except BadRequest as exc:
             if "message is not modified" in str(exc).lower():
                 self._last_text[target.key] = text
+                self._last_digest[target.key] = digest
                 self._record_success(target)
                 await self._try_pin(target, message_id)
                 return
@@ -455,6 +548,7 @@ class OperationsDashboard:
             )
             self._message_ids.pop(target.key, None)
             self._last_text.pop(target.key, None)
+            self._last_digest.pop(target.key, None)
             self._save_state()
             await self._create(target, text, markup)
         except TelegramError as exc:
@@ -513,6 +607,7 @@ class OperationsDashboard:
             return
         self._message_ids[target.key] = message_id
         self._last_text[target.key] = text
+        self._last_digest[target.key] = self._content_digest(text)
         self._record_success(target)
         self._save_state()
         await self._try_pin(target, message_id)
@@ -753,6 +848,12 @@ def observe_dashboard_user(user: Any) -> None:
         _active_dashboard.observe_user(user)
 
 
+def request_operations_dashboard_refresh(chat_id: int, thread_id: int) -> None:
+    """Wake the observer with the originating topic and General prioritized."""
+    if _active_dashboard is not None:
+        _active_dashboard.request_refresh(chat_id, thread_id)
+
+
 async def refresh_operations_dashboard(chat_id: int, thread_id: int) -> bool:
     if _active_dashboard is None:
         return False
@@ -793,6 +894,7 @@ __all__ = [
     "operations_dashboard_status",
     "refresh_all_operations_dashboards",
     "refresh_operations_dashboard",
+    "request_operations_dashboard_refresh",
     "start_operations_dashboard",
     "stop_operations_dashboard",
 ]

@@ -113,6 +113,7 @@ CCGRAM_TASK_CANCEL_CONFIRM_SECONDS=8
 CCGRAM_TASK_ESTIMATE_DEFAULT_SECONDS=300
 CCGRAM_DASHBOARD_ENABLED=true
 CCGRAM_DASHBOARD_SCOPE=both
+CCGRAM_DASHBOARD_IDLE_REFRESH_SECONDS=300
 CCGRAM_LANG=zh
 CCGRAM_TIMEZONE=Asia/Shanghai
 ```
@@ -142,7 +143,7 @@ ccgram
 
 **Web 仪表盘** — 实时终端(xterm.js)、transcript 搜索、Telegram 内多 pane 网格视图。默认关闭。[开启方法](docs/guides.md#configuration)
 
-**Telegram 运行总览** — 在 General 和/或每个工作话题维护一条可置顶、原地更新的任务总览，不刷屏；展示成员任务、并发、排队、取消和短暂完成状态，且适配所有 Provider。[开启方法](docs/guides.md#telegram-operations-dashboard)
+**Telegram 运行总览** — 新任务立即回复临时“已收到”回执；General 和当前活动话题优先原地更新，空闲话题低频巡检，不刷屏；展示成员任务、并发、排队、取消和短暂完成状态，且适配所有 Provider。[开启方法](docs/guides.md#telegram-operations-dashboard)
 
 ---
 

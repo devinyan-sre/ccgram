@@ -16,7 +16,7 @@ from pathlib import Path
 import tempfile
 import threading
 import time
-from typing import Literal
+from typing import Callable, Literal
 from typing import cast
 
 import structlog
@@ -43,6 +43,7 @@ class InboundItem:
     state: InboundState
     created_at: float
     updated_at: float
+    receipt_message_id: int = 0
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> "InboundItem":
@@ -57,6 +58,7 @@ class InboundItem:
             state=cast(InboundState, str(data.get("state", "failed"))),
             created_at=float(str(data.get("created_at", 0.0))),
             updated_at=float(str(data.get("updated_at", 0.0))),
+            receipt_message_id=int(str(data.get("receipt_message_id", 0))),
         )
 
 
@@ -68,6 +70,7 @@ class InboundStore:
         self._lock = threading.RLock()
         self._items: dict[str, InboundItem] = {}
         self._seen: dict[str, float] = {}
+        self._window_done_callback: Callable[[str], None] | None = None
         self._load()
 
     @staticmethod
@@ -113,7 +116,7 @@ class InboundStore:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "version": 1,
+            "version": 2,
             "items": [asdict(item) for item in self._items.values()],
             "seen": self._seen,
         }
@@ -180,11 +183,77 @@ class InboundStore:
             item = self._items.get(key)
             if item is None:
                 return
+            if item.state in ("done", "failed", "interrupted") and state in (
+                "queued",
+                "dispatching",
+                "forwarded",
+            ):
+                logger.warning(
+                    "Ignored inbound terminal-state regression",
+                    key=key,
+                    current=item.state,
+                    requested=state,
+                )
+                return
             item.state = state
             item.updated_at = time.time()
             self._save_locked()
 
+    def set_receipt(self, key: str, message_id: int) -> bool:
+        """Attach a Telegram receipt message to an inbound item durably."""
+        if message_id <= 0:
+            return False
+        with self._lock:
+            item = self._items.get(key)
+            if item is None:
+                return False
+            item.receipt_message_id = message_id
+            item.updated_at = time.time()
+            self._save_locked()
+            return True
+
+    def receipt_refs_for_window(
+        self, window_id: str
+    ) -> list[tuple[str, int, int, int]]:
+        """Return ``(item key, chat id, thread id, receipt id)`` rows."""
+        with self._lock:
+            return [
+                (item.key, item.chat_id, item.thread_id, item.receipt_message_id)
+                for item in self._items.values()
+                if item.window_id == window_id and item.receipt_message_id > 0
+            ]
+
+    def completed_receipt_windows(self) -> list[str]:
+        """Return terminal windows with receipts left by an interrupted cleanup."""
+        with self._lock:
+            return sorted(
+                {
+                    item.window_id
+                    for item in self._items.values()
+                    if item.receipt_message_id > 0
+                    and item.state in ("done", "failed", "interrupted")
+                }
+            )
+
+    def clear_receipt(self, key: str, message_id: int) -> None:
+        """Clear a receipt only if it still matches the expected message."""
+        with self._lock:
+            item = self._items.get(key)
+            if item is None or item.receipt_message_id != message_id:
+                return
+            item.receipt_message_id = 0
+            item.updated_at = time.time()
+            self._save_locked()
+
+    def set_window_done_callback(
+        self, callback: Callable[[str], None] | None
+    ) -> None:
+        """Register a non-blocking observer invoked after a terminal window write."""
+        with self._lock:
+            self._window_done_callback = callback
+
     def mark_window_done(self, window_id: str, *, failed: bool = False) -> None:
+        callback: Callable[[str], None] | None = None
         with self._lock:
             changed = False
             for item in self._items.values():
@@ -198,6 +267,9 @@ class InboundStore:
                     changed = True
             if changed:
                 self._save_locked()
+                callback = self._window_done_callback
+        if callback is not None:
+            callback(window_id)
 
     def recoverable(self) -> list[InboundItem]:
         with self._lock:

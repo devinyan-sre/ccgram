@@ -9,6 +9,7 @@ from telegram import Message
 
 from ..i18n import t
 from ..inbound_store import inbound_store
+from ..operations_dashboard import request_operations_dashboard_refresh
 from ..request_context import record_request
 from ..task_scheduler import (
     TaskAdmission,
@@ -17,7 +18,8 @@ from ..task_scheduler import (
     TaskSupplementLimitError,
     task_scheduler,
 )
-from .messaging_pipeline.message_sender import safe_reply
+from ..task_receipts import publish_task_receipt
+from .messaging_pipeline.message_sender import safe_edit, safe_reply
 
 logger = structlog.get_logger()
 
@@ -71,6 +73,8 @@ async def admit_request(
             window_id=window_id,
         )
     )
+    inbound_key = inbound_store.make_key(chat_id, thread_id, message_id)
+    queue_message: Message | None = None
     await asyncio.sleep(0)
     if not admission_task.done():
         position = await task_scheduler.queue_position(
@@ -86,7 +90,7 @@ async def admit_request(
             ),
             None,
         )
-        await safe_reply(
+        queue_message = await safe_reply(
             message,
             t(
                 "⏳ Task {task_id} queued (position {position}, estimated ≤{eta}s)."
@@ -96,11 +100,12 @@ async def admit_request(
                 eta=queued_view.estimated_wait_seconds if queued_view else 0,
             ),
         )
+        request_operations_dashboard_refresh(chat_id, thread_id)
     try:
         admission = await admission_task
     except TaskSupplementLimitError:
         inbound_store.set_state(
-            inbound_store.make_key(chat_id, thread_id, message_id), "failed"
+            inbound_key, "failed"
         )
         await safe_reply(
             message,
@@ -111,7 +116,7 @@ async def admit_request(
         return None
     except TaskCancellingError as exc:
         inbound_store.set_state(
-            inbound_store.make_key(chat_id, thread_id, message_id), "failed"
+            inbound_key, "failed"
         )
         await safe_reply(
             message,
@@ -122,7 +127,7 @@ async def admit_request(
         return None
     except TaskQueueCancelledError:
         inbound_store.set_state(
-            inbound_store.make_key(chat_id, thread_id, message_id), "failed"
+            inbound_key, "failed"
         )
         return None
 
@@ -144,8 +149,19 @@ async def admit_request(
         continuation=admission.continuation,
         queued=admission.queued,
     )
+    request_operations_dashboard_refresh(chat_id, thread_id)
     if admission.continuation:
-        await safe_reply(message, t("➕ Added to your current task."))
+        if queue_message is not None:
+            await safe_edit(queue_message, t("➕ Added to your current task."))
+        else:
+            await safe_reply(message, t("➕ Added to your current task."))
+    else:
+        await publish_task_receipt(
+            message,
+            inbound_key=inbound_key,
+            task_id=admission.task_id,
+            existing=queue_message,
+        )
     return admission
 
 

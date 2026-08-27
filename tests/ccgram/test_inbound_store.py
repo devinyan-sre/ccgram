@@ -69,3 +69,48 @@ def test_completed_records_are_pruned_after_retention(tmp_path) -> None:
         store._items["-100:7:9"].updated_at = 0
         store.claim_message(chat_id=-100, thread_id=7, message_id=10)
     assert "-100:7:9" not in store._items
+
+
+def test_receipt_metadata_persists_and_is_cleared_conditionally(tmp_path) -> None:
+    path = tmp_path / "inbound.json"
+    store = InboundStore(path)
+    assert store.stage(
+        chat_id=-100,
+        thread_id=7,
+        user_id=10,
+        message_id=9,
+        window_id="@1",
+        text="check logs",
+    )
+    assert store.set_receipt("-100:7:9", 88) is True
+
+    restored = InboundStore(path)
+    assert restored.receipt_refs_for_window("@1") == [
+        ("-100:7:9", -100, 7, 88)
+    ]
+    restored.clear_receipt("-100:7:9", 77)
+    assert restored.receipt_refs_for_window("@1")
+    restored.clear_receipt("-100:7:9", 88)
+    assert restored.receipt_refs_for_window("@1") == []
+
+
+def test_window_done_callback_runs_after_durable_transition(tmp_path) -> None:
+    store = InboundStore(tmp_path / "inbound.json")
+    assert store.stage(
+        chat_id=-100,
+        thread_id=7,
+        user_id=10,
+        message_id=9,
+        window_id="@1",
+        text="deploy",
+    )
+    completed: list[str] = []
+    store.set_window_done_callback(completed.append)
+
+    store.mark_window_done("@1")
+
+    assert completed == ["@1"]
+    assert store.recoverable() == []
+
+    store.set_state("-100:7:9", "forwarded")
+    assert store._items["-100:7:9"].state == "done"

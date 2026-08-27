@@ -539,7 +539,10 @@ async def _forward_message(
     inbound_store.set_state(inbound_key, "dispatching")
     success, err_message = await send_to_window(window_id, send_text or text)
     if not success:
-        inbound_store.set_state(inbound_key, "failed")
+        if admission.continuation:
+            inbound_store.set_state(inbound_key, "failed")
+        else:
+            inbound_store.mark_window_done(window_id, failed=True)
         clear_request_window(window_id)
         if not admission.continuation:
             await task_scheduler.release_window(window_id)
@@ -660,7 +663,7 @@ async def text_handler(
         await handle_text_message(update, context, text_override=text)
 
 
-async def handle_text_message(  # noqa: C901, PLR0911 - explicit routing chain
+async def handle_text_message(  # noqa: C901, PLR0911, PLR0912 - explicit routing chain
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     *,
@@ -757,7 +760,10 @@ async def handle_text_message(  # noqa: C901, PLR0911 - explicit routing chain
             )
             inbound_store.set_state(inbound_key, "forwarded")
         except BaseException:
-            inbound_store.set_state(inbound_key, "failed")
+            if admission.continuation:
+                inbound_store.set_state(inbound_key, "failed")
+            else:
+                inbound_store.mark_window_done(window_id, failed=True)
             clear_request_window(window_id)
             if not admission.continuation:
                 await task_scheduler.release_window(window_id)

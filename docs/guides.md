@@ -202,6 +202,7 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_DASHBOARD_ENABLED`                           | `false`                        | 启用 Telegram 常驻运行总览；默认关闭，升级不会自动向群里发送消息                                      |
 | `CCGRAM_DASHBOARD_SCOPE`                             | `general`                      | 总览范围：`general`、`topic` 或 `both`                                                                |
 | `CCGRAM_DASHBOARD_REFRESH_SECONDS`                   | `5`                            | 后台检查间隔（最小 2 秒）；内容未变化时不会调用编辑接口                                                |
+| `CCGRAM_DASHBOARD_IDLE_REFRESH_SECONDS`              | `300`                          | 空闲话题总览低频巡检间隔；不会低于活动刷新间隔，任务状态变化仍会立即唤醒                               |
 | `CCGRAM_DASHBOARD_COMPLETED_TTL_SECONDS`             | `180`                          | 已结束任务在总览中保留的秒数；0 表示完成后立即移除                                                     |
 | `CCGRAM_DASHBOARD_MAX_ITEMS`                         | `20`                           | 每条总览最多展示的任务数（1–50）                                                                       |
 | `CCGRAM_DASHBOARD_PIN`                               | `true`                         | 尝试置顶总览；权限不足时自动降级为普通可编辑消息                                                       |
@@ -502,6 +503,7 @@ CCGRAM_INBOUND_DEDUPE_HOURS=72
 CCGRAM_DASHBOARD_ENABLED=true
 CCGRAM_DASHBOARD_SCOPE=both
 CCGRAM_DASHBOARD_REFRESH_SECONDS=5
+CCGRAM_DASHBOARD_IDLE_REFRESH_SECONDS=300
 CCGRAM_DASHBOARD_COMPLETED_TTL_SECONDS=180
 CCGRAM_DASHBOARD_MAX_ITEMS=20
 CCGRAM_DASHBOARD_PIN=true
@@ -604,6 +606,19 @@ Codex 等会在任务中途发送过程说明的 CLI，只有明确的最终答�
 超限显示排队位置和 ETA；取消中任务继续占槽；已结束任务短暂保留后自动收敛。刷新
 按钮受现有白名单和 RBAC 保护。Telegram 限流由全局 rate limiter 和内容去重共同
 控制，未变化的画面不会编辑。
+
+任务调度成功后，机器人会立即在原问题下回复
+`✅ 已收到 · 任务 T0001 · 分析中`。如果任务先进入队列，原排队提示会在获得执行槽后
+直接改成该回执，不会再发第二条状态消息；最终答复、取消或调度失败后自动删除回执，
+删除权限受限时改为“任务已结束”。回执消息 ID 与入站任务一起持久化，服务重启后会
+继续清理，不会长期留下错误的“分析中”。同一成员的补充消息仍只显示“已补充”，不会
+误建第二个任务回执。
+
+总览刷新采用分层优先队列：状态变化时先更新发起任务的当前话题，再更新 General；
+运行中、排队中和刚完成的任务按活动刷新间隔持续更新；其余空闲话题仅按
+`CCGRAM_DASHBOARD_IDLE_REFRESH_SECONDS` 低频巡检。每个总览内容摘要会持久化，重启后
+不会因为内存缓存为空而全量重复编辑。这能避免多个空闲话题顺序调用 Telegram API，
+拖慢用户真正关心的活动状态。
 
 CCGram 的一切隔离都建立在**三道边界**上。理解它们,就能明白什么可以随意放、什么必须遵守。
 

@@ -180,6 +180,7 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_DASHBOARD_ENABLED`                           | `false`                        | Enable persistent Telegram task overviews; off by default for upgrade compatibility                  |
 | `CCGRAM_DASHBOARD_SCOPE`                             | `general`                      | Dashboard targets: `general`, `topic`, or `both`                                                      |
 | `CCGRAM_DASHBOARD_REFRESH_SECONDS`                   | `5`                            | Background inspection cadence (minimum 2s); unchanged frames are not edited                          |
+| `CCGRAM_DASHBOARD_IDLE_REFRESH_SECONDS`              | `300`                          | Low-frequency sweep cadence for idle topics; active state changes still wake the dashboard immediately |
 | `CCGRAM_DASHBOARD_COMPLETED_TTL_SECONDS`             | `180`                          | Seconds to retain ended tasks in the overview; 0 removes immediately                                 |
 | `CCGRAM_DASHBOARD_MAX_ITEMS`                         | `20`                           | Maximum task rows per overview (1–50)                                                                 |
 | `CCGRAM_DASHBOARD_PIN`                               | `true`                         | Attempt to pin; missing permission degrades to a normal editable message                             |
@@ -463,6 +464,20 @@ recreated. Missing pin permission degrades to an unpinned editable message and
 does not affect task execution or answer delivery. Frames exclude prompts,
 terminal output, paths, tokens, and secrets. Use `CCGRAM_DASHBOARD_PRIVACY=strict`
 to replace observed names with stable anonymous labels.
+
+After admission, a new task immediately replies to the originating message with
+`✅ Received · task T0001 · analyzing`. A queued notice is edited into this receipt
+when its slot opens. Final delivery, cancellation, or dispatch failure removes
+the receipt (or settles it to “Task finished” if deletion is unavailable).
+Receipt IDs share the durable inbound journal, so restart recovery cannot leave
+a false analyzing status. Supplements remain part of the same task and do not
+create duplicate receipts.
+
+Refreshes use a hot-target queue: the originating topic is updated first,
+General follows, and running/queued/recently completed targets stay on the active
+cadence. Idle topics are swept only every
+`CCGRAM_DASHBOARD_IDLE_REFRESH_SECONDS`. Persisted frame digests also prevent a
+restart from re-editing every unchanged dashboard.
 
 - `/tasks` lists durable short IDs such as `T0007`, state, queue position, and
   an ETA based on an exponential moving average of released slot durations.

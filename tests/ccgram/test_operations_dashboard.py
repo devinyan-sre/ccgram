@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import time
 from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
@@ -45,6 +46,7 @@ def _configure(monkeypatch, *, scope: str = "both") -> None:
     monkeypatch.setattr(config, "dashboard_scope", scope)
     monkeypatch.setattr(config, "dashboard_max_items", 20)
     monkeypatch.setattr(config, "dashboard_completed_ttl_seconds", 180)
+    monkeypatch.setattr(config, "dashboard_idle_refresh_seconds", 300)
     monkeypatch.setattr(config, "dashboard_privacy", "normal")
     monkeypatch.setattr(config, "dashboard_pin", True)
     monkeypatch.setattr(config, "max_parallel_global", 4)
@@ -75,6 +77,47 @@ def test_new_topic_is_discovered_after_dashboard_has_started(
     thread_router.set_group_chat_id(42, 29, -1001)
 
     assert DashboardTarget(-1001, 29, False) in dashboard._targets()
+
+
+def test_dirty_topic_and_general_are_prioritized_before_idle_topics(
+    tmp_path, monkeypatch
+) -> None:
+    _configure(monkeypatch)
+    for thread_id in (17, 29):
+        thread_router.bind_thread(42, thread_id, f"@{thread_id}", f"topic-{thread_id}")
+        thread_router.set_group_chat_id(42, thread_id, -1001)
+    dashboard = OperationsDashboard(FakeTelegramClient(), tmp_path / "state.json")
+    dashboard._last_idle_refresh_at = time.monotonic()
+    dashboard.request_refresh(-1001, 29)
+
+    with patch("ccgram.operations_dashboard.task_scheduler.views", return_value=[]):
+        targets = dashboard._refresh_targets()
+
+    assert targets[:2] == [
+        DashboardTarget(-1001, 29, False),
+        DashboardTarget(-1001, 1, True),
+    ]
+    assert DashboardTarget(-1001, 17, False) not in targets
+
+
+def test_active_targets_refresh_while_idle_topics_wait(tmp_path, monkeypatch) -> None:
+    _configure(monkeypatch)
+    for thread_id in (17, 29):
+        thread_router.bind_thread(42, thread_id, f"@{thread_id}", f"topic-{thread_id}")
+        thread_router.set_group_chat_id(42, thread_id, -1001)
+    dashboard = OperationsDashboard(FakeTelegramClient(), tmp_path / "state.json")
+    dashboard._last_idle_refresh_at = time.monotonic()
+
+    with patch(
+        "ccgram.operations_dashboard.task_scheduler.views",
+        return_value=[_view(thread_id=17)],
+    ):
+        targets = dashboard._refresh_targets()
+
+    assert targets == [
+        DashboardTarget(-1001, 17, False),
+        DashboardTarget(-1001, 1, True),
+    ]
 
 
 async def test_existing_dashboard_reasserts_pin_on_first_edit(
@@ -146,6 +189,35 @@ async def test_creates_pins_then_edits_one_message(tmp_path, monkeypatch) -> Non
         assert edit is not None
         assert edit.kwargs["message_id"] == 88
         assert "T0001" in edit.kwargs["text"]
+
+
+async def test_persisted_digest_avoids_restart_edit_of_idle_topic(
+    tmp_path, monkeypatch
+) -> None:
+    _configure(monkeypatch, scope="topic")
+    state_path = tmp_path / "state.json"
+    first_client = FakeTelegramClient()
+    first_client.returns["send_message"] = SimpleNamespace(message_id=88)
+    target = DashboardTarget(-1001, 17, False)
+    first = OperationsDashboard(first_client, state_path)
+    earlier = datetime(2026, 8, 27, 11, 5, tzinfo=ZoneInfo("Asia/Shanghai"))
+    later = datetime(2026, 8, 27, 11, 25, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+    with (
+        patch("ccgram.operations_dashboard.task_scheduler.views", return_value=[]),
+        patch("ccgram.operations_dashboard.now_display", return_value=earlier),
+    ):
+        await first._upsert(target)
+    restored_client = FakeTelegramClient()
+    restored = OperationsDashboard(restored_client, state_path)
+    with (
+        patch("ccgram.operations_dashboard.task_scheduler.views", return_value=[]),
+        patch("ccgram.operations_dashboard.now_display", return_value=later),
+    ):
+        await restored._upsert(target)
+
+    assert restored_client.call_count("edit_message_text") == 0
+    assert restored_client.call_count("send_message") == 0
 
 
 async def test_general_uses_portable_send_without_thread_id(

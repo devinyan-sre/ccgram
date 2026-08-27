@@ -74,6 +74,10 @@ _ZH: dict[str, str] = {
         "⏳ 任务 {task_id} 已排队（位置 {position}，预计 ≤{eta} 秒）。"
     ),
     "➕ Added to your current task.": "➕ 已补充到你的当前任务。",
+    "✅ Received · task {task_id} · analyzing": (
+        "✅ 已收到 · 任务 {task_id} · 分析中"
+    ),
+    "✅ Task finished": "✅ 任务已结束",
     # Telegram command menu descriptions
     "Show ccgram welcome message": "显示 ccgram 欢迎信息",
     "List commands for this topic provider": "列出当前话题 Provider 的命令",

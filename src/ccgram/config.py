@@ -202,6 +202,10 @@ class Config:
         self.dashboard_refresh_seconds: int = max(
             2, _parse_int_env("CCGRAM_DASHBOARD_REFRESH_SECONDS", 5)
         )
+        self.dashboard_idle_refresh_seconds: int = max(
+            self.dashboard_refresh_seconds,
+            _parse_int_env("CCGRAM_DASHBOARD_IDLE_REFRESH_SECONDS", 300),
+        )
         self.dashboard_completed_ttl_seconds: int = max(
             0, _parse_int_env("CCGRAM_DASHBOARD_COMPLETED_TTL_SECONDS", 180)
         )
