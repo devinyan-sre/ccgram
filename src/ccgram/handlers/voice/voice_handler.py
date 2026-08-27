@@ -17,10 +17,12 @@ from telegram.constants import ChatAction
 from telegram.error import TelegramError
 from ...config import config
 from ...i18n import t
+from ...telegram_client import PTBTelegramClient
 from ...thread_router import thread_router
 from ...whisper import get_transcriber
 from ...whisper.base import TranscriptionResult, WhisperTranscriber
 from ..callback_helpers import get_thread_id
+from ..group_activation import evaluate_group_activation
 from ..messaging_pipeline.message_sender import safe_reply
 from ..user_state import VOICE_PENDING
 
@@ -151,7 +153,7 @@ async def _deliver_transcription(
         await safe_reply(message, f"❌ {error or t('Failed to send')}")
 
 
-async def handle_voice_message(
+async def handle_voice_message(  # noqa: PLR0911 - explicit fail-closed media pipeline
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle incoming voice messages: transcribe and present confirm keyboard."""
@@ -162,6 +164,14 @@ async def handle_voice_message(
 
     if not config.is_user_allowed(user.id):
         await safe_reply(message, t("You are not authorized to use this bot."))
+        return
+
+    # Voice has no caption, so in mention-gated groups it must be sent as a
+    # reply to one of the bot's messages. Unaddressed group voice is ignored.
+    activation = evaluate_group_activation(
+        message, PTBTelegramClient(context.bot), ""
+    )
+    if not activation.accepted:
         return
 
     thread_id = get_thread_id(update)

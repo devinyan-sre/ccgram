@@ -302,6 +302,7 @@ class OperationsDashboard:
                 reply_markup=markup,
             )
             self._last_text[target.key] = text
+            await self._try_pin(target, message_id)
         except BadRequest as exc:
             if "message is not modified" in str(exc).lower():
                 self._last_text[target.key] = text
@@ -395,6 +396,10 @@ class OperationsDashboard:
                 target=target.key,
                 error=str(exc),
             )
+        finally:
+            # Reassert occasionally so a manual/unexpected unpin self-heals,
+            # while avoiding a pin API call on every dashboard edit.
+            self._pin_retry_at[target.key] = now + _PIN_RETRY_SECONDS
 
     def _render(self, target: DashboardTarget, *, precise_time: bool) -> str:
         views = task_scheduler.views(chat_id=target.chat_id)

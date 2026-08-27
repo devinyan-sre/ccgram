@@ -186,7 +186,7 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_OPERATORS`                                   | _（白名单成员）_               | 可创建和修改任务的操作员 ID                                                                           |
 | `CCGRAM_VIEWERS`                                     | _（空）_                       | 只能查看状态、历史和结果的只读成员 ID                                                                  |
 | `CCGRAM_MEMBER_LANES`                                | `false`                        | 开启同一话题的多白名单成员独立 CLI 并行通道                                                          |
-| `CCGRAM_REQUIRE_MENTION`                             | 多人模式下为 `true`            | 群内文本必须 @机器人或回复机器人消息；私聊不受影响                                                   |
+| `CCGRAM_REQUIRE_MENTION`                             | 多人模式下为 `true`            | 群内文字、图片和文件必须 @机器人或回复机器人消息；无说明文字的媒体/语音需回复机器人；私聊不受影响     |
 | `CCGRAM_MAX_CONCURRENT_UPDATES`                      | `8`                            | Telegram handler 并发上限；同一成员的更新仍严格顺序处理                                               |
 | `CCGRAM_MAX_MEMBER_LANES_PER_TOPIC`                  | `8`                            | 单个物理话题可持久存在的成员通道上限                                                                  |
 | `CCGRAM_MAX_PARALLEL_PER_TOPIC`                      | `2`                            | 一个话题同时运行的不同成员任务数；同一成员的补充消息不另占槽位                                        |
@@ -561,6 +561,11 @@ CCGRAM_MEMBER_LANE_CLEANUP_DAYS=30
 ### Telegram 常驻运行总览
 
 ![Telegram 双层运行总览架构](images/telegram-operations-dashboard.png)
+
+总览目标不是写死的话题 ID：CCGram 每次刷新都会从当前话题绑定中发现新话题，
+自动在该话题创建并置顶总览，同时把任务同步到 General。文字、图片和文件都
+通过同一任务调度入口，因此均会显示处理中、排队、完成状态；最终答复会回复
+发起任务的原始 Telegram 消息，便于多人在同一话题内区分归属。
 
 启用 `CCGRAM_DASHBOARD_ENABLED=true` 后，ccgram 会维护“单消息、持续编辑”的
 运行总览，不会为每次状态变化发送新消息。`CCGRAM_DASHBOARD_SCOPE=general` 只在

@@ -1,7 +1,7 @@
-"""Photo and document message handlers for forwarding files to Claude Code.
+"""Photo and document handlers for provider-neutral agent file prompts.
 
 Saves uploaded files to `.ccgram-uploads/` in the session's cwd, then sends
-Claude a natural-language message with the relative path so it can read the
+the active agent a natural-language message with the relative path so it can read the
 file via its Read tool.
 
 Key handlers:
@@ -21,13 +21,20 @@ from telegram import Message, Update
 from telegram.constants import ChatAction
 from telegram.error import TelegramError
 from ..config import config
+from ..i18n import t
+from ..inbound_store import inbound_store
+from ..request_context import clear_window as clear_request_window
+from ..task_scheduler import task_scheduler
 from ..telegram_client import PTBTelegramClient
 from ..window_query import view_window
 from ..user_time import now_display
 from ..multiplexer.window_ops import send_to_window
 from ..thread_router import thread_router
 from .callback_helpers import get_thread_id
+from .group_activation import evaluate_group_activation
 from .messaging_pipeline.message_sender import ack_reaction, safe_reply
+from .task_intake import admit_request, message_ids
+from .text.member_lanes import ensure_member_lane
 
 if TYPE_CHECKING:
     from telegram.ext import ContextTypes
@@ -197,15 +204,16 @@ async def _download_and_save(
 async def _upload_and_notify(
     message: Message,
     user_id: int,
-    thread_id: int | None,
+    thread_id: int,
     filename: str,
     file_id: str,
     file_size: int | None,
     size_label: str,
-    claude_msg_tpl: str,
+    agent_msg_tpl: str,
     success_emoji: str,
+    caption: str,
 ) -> None:
-    """Shared upload flow: resolve dir, download, notify Claude, reply to user."""
+    """Resolve, save, schedule and dispatch one provider-neutral media task."""
     window_id, upload_path, error = _resolve_upload_dir(user_id, thread_id)
     if error or not window_id or not upload_path:
         await safe_reply(message, f"\u274c {error}")
@@ -220,70 +228,167 @@ async def _upload_and_notify(
         return
 
     rel_path = f"{_UPLOAD_DIR}/{saved_name}"
-    caption = message.caption or ""
-    claude_msg = claude_msg_tpl.format(name=saved_name, path=rel_path)
+    agent_msg = agent_msg_tpl.format(name=saved_name, path=rel_path)
     if caption:
-        claude_msg += f"\n\nUser note: {_sanitize_caption(caption)}"
+        agent_msg += f"\n\nUser note: {_sanitize_caption(caption)}"
 
-    success, err = await send_to_window(window_id, claude_msg)
+    admission = await admit_request(
+        window_id=window_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        message=message,
+        dispatch_text=agent_msg,
+    )
+    if admission is None:
+        return
+
+    chat_id, message_id = message_ids(message)
+    inbound_key = inbound_store.make_key(chat_id, thread_id, message_id)
+    inbound_store.set_state(inbound_key, "dispatching")
+    success, err = await send_to_window(window_id, agent_msg)
     if success:
+        inbound_store.set_state(inbound_key, "forwarded")
         await ack_reaction(
             PTBTelegramClient(message.get_bot()), message.chat.id, message.message_id
         )
-        await safe_reply(message, f"{success_emoji} Uploaded `{rel_path}`")
-    else:
         await safe_reply(
-            message, f"\u274c File saved but failed to notify Claude: {err}"
+            message,
+            t("{emoji} Uploaded `{path}`").format(
+                emoji=success_emoji, path=rel_path
+            ),
+        )
+    else:
+        inbound_store.set_state(inbound_key, "failed")
+        clear_request_window(window_id)
+        if not admission.continuation:
+            await task_scheduler.release_window(window_id)
+        await safe_reply(
+            message,
+            t("❌ File saved but failed to notify the agent: {error}").format(
+                error=err
+            ),
         )
 
 
-async def handle_photo_message(
-    update: Update, _context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """Handle photo uploads: save to .ccgram-uploads/ and notify Claude."""
+async def _prepare_media_request(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> tuple[Message, int, int, str] | None:
+    """Authorize, activate, deduplicate and resolve an isolated media lane."""
     user = update.effective_user
     message = update.message
-    if not user or not message or not message.photo:
-        return
+    if not user or not message:
+        return None
     if not config.is_user_allowed(user.id):
-        await safe_reply(message, "You are not authorized to use this bot.")
+        if message.chat.type == "private":
+            await safe_reply(message, t("You are not authorized to use this bot."))
+        return None
+
+    client = PTBTelegramClient(context.bot)
+    activation = evaluate_group_activation(message, client, message.caption or "")
+    if not activation.accepted:
+        return None
+
+    from ..operations_dashboard import observe_dashboard_user
+
+    observe_dashboard_user(user)
+    thread_id = get_thread_id(update)
+    if thread_id is None:
+        await safe_reply(
+            message,
+            t("❌ Please use a named topic. Create a new topic to start a session."),
+        )
+        return None
+
+    if message.chat.type in ("group", "supergroup"):
+        thread_router.set_group_chat_id(user.id, thread_id, message.chat.id)
+        lane = await ensure_member_lane(
+            user_id=user.id,
+            chat_id=message.chat.id,
+            thread_id=thread_id,
+        )
+        if lane.handled and not lane.ready:
+            await safe_reply(
+                message,
+                t("❌ Could not start your isolated workspace lane: {error}").format(
+                    error=lane.error
+                ),
+            )
+            return None
+
+    if thread_router.resolve_window_for_thread(user.id, thread_id) is None:
+        await safe_reply(
+            message,
+            t(
+                "⚠ Topic not bound — send a text message first to select a workspace, then resend the media."
+            ),
+        )
+        return None
+
+    chat_id, message_id = message_ids(message)
+    if not inbound_store.claim_message(
+        chat_id=chat_id,
+        thread_id=thread_id,
+        message_id=message_id,
+    ):
+        logger.info(
+            "Dropped duplicate Telegram media update",
+            chat_id=chat_id,
+            thread_id=thread_id,
+            user_id=user.id,
+            message_id=message_id,
+        )
+        return None
+    return message, user.id, thread_id, activation.text
+
+
+async def handle_photo_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Save a photo and dispatch it through the shared agent task pipeline."""
+    prepared = await _prepare_media_request(update, context)
+    if prepared is None:
+        return
+    message, user_id, thread_id, caption = prepared
+    if not message.photo:
         return
 
     photo = message.photo[-1]
     await _upload_and_notify(
         message,
-        user.id,
-        get_thread_id(update),
+        user_id,
+        thread_id,
         _generate_photo_filename(photo.file_unique_id),
         photo.file_id,
         photo.file_size,
         "Photo",
         "I've uploaded an image to {path} — please take a look.",
         "\U0001f4f7",
+        caption,
     )
 
 
 async def handle_document_message(
-    update: Update, _context: ContextTypes.DEFAULT_TYPE
+    update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Handle document uploads: save to .ccgram-uploads/ and notify Claude."""
-    user = update.effective_user
-    message = update.message
-    if not user or not message or not message.document:
+    """Save a document and dispatch it through the shared agent task pipeline."""
+    prepared = await _prepare_media_request(update, context)
+    if prepared is None:
         return
-    if not config.is_user_allowed(user.id):
-        await safe_reply(message, "You are not authorized to use this bot.")
+    message, user_id, thread_id, caption = prepared
+    if not message.document:
         return
 
     doc = message.document
     await _upload_and_notify(
         message,
-        user.id,
-        get_thread_id(update),
+        user_id,
+        thread_id,
         _sanitize_filename(doc.file_name or "document"),
         doc.file_id,
         doc.file_size,
         "File",
         "I've uploaded {name} to {path}",
         "\U0001f4ce",
+        caption,
     )

@@ -294,14 +294,7 @@ async def prune_stale_state(live_windows: "list[TmuxWindow]") -> None:
 # ── Topic existence probing ───────────────────────────────────────────────
 
 
-# Windows whose chat lacks can_pin_messages: the unpin-based probe can never
-# succeed there, so disable it permanently (per process) instead of counting it
-# as a probe failure (which would suspend deleted-topic detection and re-arm on
-# every inbound message). Reset on restart; mirrors _disabled_chats in
-# handlers/status/topic_emoji.py.
-_probe_pin_disabled: set[str] = set()
-
-# The probe is an admin API call and Telegram flood-limits it per chat.  Bound
+# Telegram flood-limits liveness probes per chat. Bound
 # topics used to be probed on every polling pass, which could stall unrelated
 # Bot API traffic behind AIORateLimiter.  Rotate a small, per-chat slice instead.
 PROBE_INTERVAL = 300.0
@@ -340,8 +333,7 @@ def _due_probe_targets(
     due = [
         binding
         for binding in bindings
-        if binding[3] not in _probe_pin_disabled
-        and not lifecycle_strategy.should_skip_probe(binding[3])
+        if not lifecycle_strategy.should_skip_probe(binding[3])
         and now - last_probe(binding) >= PROBE_INTERVAL
         and now >= _probe_backoff_until.get(binding[1], 0.0)
     ]
@@ -372,7 +364,7 @@ async def _confirm_topic_gone(
 ) -> bool:
     """Authoritatively re-check that a topic is gone before acting on it.
 
-    The unpin-based sweep is a cheap liveness ping, not a verdict — this module
+    The chat-action sweep is a cheap liveness ping, not a verdict — this module
     used to kill a running agent on a *single* ``Topic_id_invalid`` from it,
     while ``sync_command._probe_dead_topics`` documents that only
     ``send_message`` reliably reports a missing thread. Killing a process on
@@ -407,11 +399,11 @@ async def _confirm_topic_gone(
 async def _handle_probe_topic_gone(
     client: TelegramClient, user_id: int, thread_id: int, wid: str, reason: str
 ) -> None:
-    """Act on an unpin probe that claims the topic is gone.
+    """Act on a liveness probe that claims the topic is gone.
 
     Two gates stand between the claim and any destruction: the mass-death
     breaker (an outage is not a reason to reap) and an authoritative re-check
-    (the unpin verdict alone has been wrong).
+    (the first verdict alone may be wrong).
     """
     blocked = destruction_blocked()
     if blocked:
@@ -478,8 +470,13 @@ async def probe_topic_existence(client: TelegramClient) -> None:
         probe_key = (user_id, chat_id, thread_id)
         _probe_last_ts[probe_key] = time.monotonic()
         try:
-            await client.unpin_all_forum_topic_messages(
+            # This used to call unpin_all_forum_topic_messages as a liveness
+            # probe. That API is destructive: it silently removed the topic's
+            # operations-dashboard pin. A chat action validates the thread
+            # without changing message or pin state.
+            await client.send_chat_action(
                 chat_id=chat_id,
+                action="typing",
                 message_thread_id=thread_id,
             )
             terminal_poll_state.reset_probe_failures(wid)
@@ -490,12 +487,6 @@ async def probe_topic_existence(client: TelegramClient) -> None:
             ):
                 await _handle_probe_topic_gone(
                     client, user_id, thread_id, wid, e.message
-                )
-            elif isinstance(e, BadRequest) and "not enough rights" in e.message.lower():
-                _probe_pin_disabled.add(wid)
-                logger.info(
-                    "Topic probe disabled for window_id '%s': bot lacks pin rights",
-                    wid,
                 )
             elif isinstance(e, RetryAfter):
                 # Flood control is chat-wide and is not evidence that this

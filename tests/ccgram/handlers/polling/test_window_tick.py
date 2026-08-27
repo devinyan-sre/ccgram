@@ -570,8 +570,8 @@ class TestDeadWindowTopicDeleted:
     async def test_thread_not_found_unbinds_and_clears(self, error_msg):
         from telegram.error import BadRequest
 
-        bot = AsyncMock(spec=["unpin_all_forum_topic_messages"])
-        bot.unpin_all_forum_topic_messages = AsyncMock(
+        bot = AsyncMock(spec=["send_chat_action"])
+        bot.send_chat_action = AsyncMock(
             side_effect=BadRequest(error_msg)
         )
 

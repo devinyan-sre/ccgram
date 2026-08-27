@@ -53,6 +53,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Route photos and documents through the same mention gate, per-operator task
+  scheduler, inbound dedupe journal, and original-message correlation as text.
+  Media tasks now appear in both topic and General dashboards, final answers
+  reply to the initiating media message, and unrelated group media is ignored.
+  Topic liveness probes no longer remove dashboard pins; existing dashboard
+  messages periodically reassert their pin and newly bound topics are
+  discovered without configured topic IDs.
+
 - Route delivery-stall and task-queue alerts plus `/ops`, `/diag`, and
   destructive-action context fields through `CCGRAM_LANG`; Chinese deployments
   no longer receive English-only operational notices.

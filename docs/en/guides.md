@@ -164,7 +164,7 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_OPERATORS`                                   | _(allow-list users)_           | Operator IDs allowed to create and modify tasks                                                       |
 | `CCGRAM_VIEWERS`                                     | _(none)_                       | Read-only IDs limited to status/history/results                                                       |
 | `CCGRAM_MEMBER_LANES`                                | `false`                        | Give each allow-listed member an isolated CLI lane inside one physical topic                         |
-| `CCGRAM_REQUIRE_MENTION`                             | `true` in member-lane mode     | Group text must mention the bot or reply to a bot message                                             |
+| `CCGRAM_REQUIRE_MENTION`                             | `true` in member-lane mode     | Group text and captioned media must mention or reply to the bot; captionless media/voice must reply   |
 | `CCGRAM_MAX_CONCURRENT_UPDATES`                      | `8`                            | Telegram handler concurrency; updates from one operator remain ordered                               |
 | `CCGRAM_MAX_MEMBER_LANES_PER_TOPIC`                  | `8`                            | Maximum persistent operator lanes in one physical topic                                               |
 | `CCGRAM_MAX_PARALLEL_PER_TOPIC`                      | `2`                            | Active tasks from different operators per topic; supplements from one operator reuse its task        |

@@ -372,8 +372,10 @@ async def _handle_dead_window_notification(
     if sent is None:
         client = PTBTelegramClient(bot)
         try:
-            await client.unpin_all_forum_topic_messages(
-                chat_id=chat_id, message_thread_id=thread_id
+            await client.send_chat_action(
+                chat_id=chat_id,
+                action="typing",
+                message_thread_id=thread_id,
             )
         except BadRequest as probe_err:
             if (

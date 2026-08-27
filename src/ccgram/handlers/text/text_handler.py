@@ -68,20 +68,15 @@ from ..user_state import (
 from ... import provider_readiness, window_query
 from ...provider_handoff import handoff_provider
 from ...request_context import clear_window as clear_request_window
-from ...request_context import record_request
-from ...task_scheduler import (
-    TaskAdmission,
-    TaskCancellingError,
-    TaskQueueCancelledError,
-    TaskSupplementLimitError,
-    task_scheduler,
-)
+from ...task_scheduler import task_scheduler
 from ...thread_router import thread_router
 from ...providers import get_provider_for_window
 from ...multiplexer import multiplexer as tmux_manager
 from ...multiplexer.window_ops import send_to_window
 from ...utils import handle_general_topic_message, is_general_topic, task_done_callback
 from ...window_state_ports import lifecycle_state
+from ..group_activation import evaluate_group_activation
+from ..task_intake import admit_request, message_ids
 from .member_lanes import ensure_member_lane
 
 if TYPE_CHECKING:
@@ -99,20 +94,6 @@ PENDING_DELIVERY_NOTICE = "\U0001f4ac Will deliver once the agent starts."
 
 # Active bash capture tasks: (user_id, thread_id) -> asyncio.Task
 _bash_capture_tasks: dict[tuple[int, int], asyncio.Task[None]] = {}
-
-
-def _message_ids(message: Message) -> tuple[int, int]:
-    """Return concrete IDs while tolerating lightweight unit-test doubles."""
-    nested_chat_id = getattr(getattr(message, "chat", None), "id", None)
-    direct_chat_id = getattr(message, "chat_id", None)
-    chat_id = (
-        nested_chat_id
-        if isinstance(nested_chat_id, int)
-        else (direct_chat_id if isinstance(direct_chat_id, int) else 0)
-    )
-    raw_message_id = getattr(message, "message_id", None)
-    message_id = raw_message_id if isinstance(raw_message_id, int) else id(message)
-    return chat_id, message_id
 
 
 @topic_state.register("topic")
@@ -543,7 +524,7 @@ async def _forward_message(
 
     lifecycle_strategy.clear_probe_failures(window_id)
 
-    admission = await _admit_request(
+    admission = await admit_request(
         window_id=window_id,
         user_id=user_id,
         thread_id=thread_id,
@@ -553,7 +534,7 @@ async def _forward_message(
     if admission is None:
         return
 
-    chat_id, message_id = _message_ids(message)
+    chat_id, message_id = message_ids(message)
     inbound_key = inbound_store.make_key(chat_id, thread_id, message_id)
     inbound_store.set_state(inbound_key, "dispatching")
     success, err_message = await send_to_window(window_id, send_text or text)
@@ -589,120 +570,7 @@ async def _forward_message(
         await handle_interactive_ui(client, user_id, window_id, thread_id)
 
 
-async def _admit_request(
-    *,
-    window_id: str,
-    user_id: int,
-    thread_id: int,
-    message: Message,
-    dispatch_text: str,
-) -> TaskAdmission | None:
-    """Admit and correlate a task through the provider-neutral scheduler."""
-    chat_id, message_id = _message_ids(message)
-    if not inbound_store.stage(
-        chat_id=chat_id,
-        thread_id=thread_id,
-        user_id=user_id,
-        message_id=message_id,
-        window_id=window_id,
-        text=dispatch_text,
-    ):
-        logger.info(
-            "Dropped duplicate inbound message",
-            chat_id=chat_id,
-            thread_id=thread_id,
-            user_id=user_id,
-            message_id=message_id,
-        )
-        return None
-    admission_task = asyncio.create_task(
-        task_scheduler.acquire(
-            chat_id=chat_id,
-            thread_id=thread_id,
-            user_id=user_id,
-            window_id=window_id,
-        )
-    )
-    # acquire() completes synchronously when capacity exists. If it remains
-    # pending after one loop turn, the request is queued and the operator gets
-    # an immediate, explicit acknowledgement instead of silence.
-    await asyncio.sleep(0)
-    if not admission_task.done():
-        position = await task_scheduler.queue_position(
-            chat_id=chat_id,
-            thread_id=thread_id,
-            user_id=user_id,
-        )
-        queued_view = next(
-            (
-                view
-                for view in task_scheduler.views(chat_id=chat_id, thread_id=thread_id)
-                if view.user_id == user_id and view.state == "queued"
-            ),
-            None,
-        )
-        task_label = queued_view.task_id if queued_view else "-"
-        eta = queued_view.estimated_wait_seconds if queued_view else 0
-        await safe_reply(
-            message,
-            t(
-                "⏳ Task {task_id} queued (position {position}, estimated ≤{eta}s)."
-            ).format(
-                task_id=task_label,
-                position=max(1, position),
-                eta=eta,
-            ),
-        )
-    try:
-        admission = await admission_task
-    except TaskSupplementLimitError:
-        inbound_store.set_state(
-            inbound_store.make_key(chat_id, thread_id, message_id),
-            "failed",
-        )
-        await safe_reply(
-            message,
-            t(
-                "❌ This task has too many supplements. Use /task_new to start a new task."
-            ),
-        )
-        return None
-    except TaskCancellingError as exc:
-        inbound_store.set_state(
-            inbound_store.make_key(chat_id, thread_id, message_id),
-            "failed",
-        )
-        await safe_reply(
-            message,
-            t(
-                "⏸ Task {task_id} is still cancelling. Wait for confirmation or ask an admin to force-cancel it."
-            ).format(task_id=str(exc)),
-        )
-        return None
-    except TaskQueueCancelledError:
-        inbound_store.set_state(
-            inbound_store.make_key(chat_id, thread_id, message_id),
-            "failed",
-        )
-        return None
-
-    # Record before sending: fast providers can write their transcript almost
-    # immediately, and the outbound monitor needs the original Telegram
-    # message ID to route the answer back to the right operator.
-    record_request(
-        window_id,
-        user_id=user_id,
-        chat_id=chat_id,
-        thread_id=thread_id,
-        message_id=message_id,
-        preserve_existing=admission.continuation,
-    )
-    if admission.continuation:
-        await safe_reply(message, t("➕ Added to your current task."))
-    return admission
-
-
-async def text_handler(  # noqa: C901 - explicit auth/activation pipeline
+async def text_handler(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Top-level ``MessageHandler(filters.TEXT & ~filters.COMMAND)`` callback.
@@ -732,35 +600,20 @@ async def text_handler(  # noqa: C901 - explicit auth/activation pipeline
 
     observe_dashboard_user(user)
 
-    text = update.message.text
-    if config.require_mention_in_groups is True and update.message.chat.type in (
-        "group",
-        "supergroup",
-    ):
-        client = PTBTelegramClient(context.bot)
-        username = (client.username or "").strip()
-        mention = f"@{username}" if username else ""
-        reply = update.message.reply_to_message
-        replies_to_bot = bool(
-            reply and reply.from_user and reply.from_user.id == client.id
+    activation = evaluate_group_activation(
+        update.message, PTBTelegramClient(context.bot), update.message.text
+    )
+    if not activation.accepted:
+        return
+    text = activation.text
+    if not text:
+        await safe_reply(
+            update.message, t("Please include a question after the mention.")
         )
-        contains_mention = bool(mention and mention.lower() in text.lower())
-        if not contains_mention and not replies_to_bot:
-            return
-        if contains_mention:
-            # Telegram usernames are case-insensitive. Avoid regex so unusual
-            # display text can never influence replacement semantics.
-            lower = text.lower()
-            start = lower.find(mention.lower())
-            text = (text[:start] + text[start + len(mention) :]).strip()
-        if not text:
-            await safe_reply(
-                update.message, t("Please include a question after the mention.")
-            )
-            return
+        return
 
     thread_id = _get_thread_id(update)
-    chat_id, message_id = _message_ids(update.message)
+    chat_id, message_id = message_ids(update.message)
     if thread_id is not None and not inbound_store.claim_message(
         chat_id=chat_id,
         thread_id=thread_id,
@@ -881,7 +734,7 @@ async def handle_text_message(  # noqa: C901, PLR0911 - explicit routing chain
         # Lazy: shell.shell_commands ↔ text_handler via approval callback.
         from ..shell.shell_commands import handle_shell_message
 
-        admission = await _admit_request(
+        admission = await admit_request(
             window_id=window_id,
             user_id=user.id,
             thread_id=thread_id,
@@ -890,7 +743,7 @@ async def handle_text_message(  # noqa: C901, PLR0911 - explicit routing chain
         )
         if admission is None:
             return
-        chat_id, message_id = _message_ids(message)
+        chat_id, message_id = message_ids(message)
         inbound_key = inbound_store.make_key(chat_id, thread_id, message_id)
         inbound_store.set_state(inbound_key, "dispatching")
         try:

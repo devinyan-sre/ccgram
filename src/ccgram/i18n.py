@@ -61,6 +61,13 @@ _ZH: dict[str, str] = {
     "No session bound to this topic.": "此话题尚未绑定会话。",
     "You are not authorized to use this bot.": "你没有权限使用此机器人。",
     "Please include a question after the mention.": "请在 @机器人 后写上问题内容。",
+    "{emoji} Uploaded `{path}`": "{emoji} 已上传 `{path}`",
+    "❌ File saved but failed to notify the agent: {error}": (
+        "❌ 文件已保存，但通知 CLI 失败：{error}"
+    ),
+    "⚠ Topic not bound — send a text message first to select a workspace, then resend the media.": (
+        "⚠ 此话题尚未绑定会话，请先发送文字消息选择工作目录，再重新发送媒体。"
+    ),
     "⏳ Task queued (position {position}).": "⏳ 任务已排队（第 {position} 位）。",
     "⏳ Task {task_id} queued (position {position}, estimated ≤{eta}s).": (
         "⏳ 任务 {task_id} 已排队（位置 {position}，预计 ≤{eta} 秒）。"

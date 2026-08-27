@@ -3,16 +3,19 @@
 import re
 import unicodedata
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from ccgram.handlers.file_handler import (
     _generate_photo_filename,
+    _upload_and_notify,
     _sanitize_caption,
     _sanitize_filename,
     _unique_dest,
     _validate_dest_path,
 )
+from ccgram.task_scheduler import TaskAdmission
 
 
 class TestSanitizeFilename:
@@ -134,3 +137,56 @@ class TestGeneratePhotoFilename:
     def test_format(self) -> None:
         result = _generate_photo_filename("ABCDEFGHIJKLMNOP")
         assert re.match(r"^photo_\d{8}_\d{6}_ABCDEFGH\.jpg$", result)
+
+
+async def test_media_dispatch_uses_shared_scheduler_and_request_correlation(
+    tmp_path: Path,
+) -> None:
+    message = MagicMock()
+    message.chat.id = -1001
+    message.chat.send_action = AsyncMock()
+    message.message_id = 55
+
+    with (
+        patch(
+            "ccgram.handlers.file_handler._resolve_upload_dir",
+            return_value=("@7", tmp_path, None),
+        ),
+        patch(
+            "ccgram.handlers.file_handler._download_and_save",
+            new_callable=AsyncMock,
+            return_value="image.jpg",
+        ),
+        patch(
+            "ccgram.handlers.file_handler.admit_request",
+            new_callable=AsyncMock,
+            return_value=TaskAdmission(False, False, task_id="T0001"),
+        ) as admit,
+        patch(
+            "ccgram.handlers.file_handler.send_to_window",
+            new_callable=AsyncMock,
+            return_value=(True, ""),
+        ) as send,
+        patch("ccgram.handlers.file_handler.inbound_store") as inbound,
+        patch("ccgram.handlers.file_handler.ack_reaction", new_callable=AsyncMock),
+        patch("ccgram.handlers.file_handler.safe_reply", new_callable=AsyncMock),
+    ):
+        inbound.make_key.return_value = "request-key"
+        await _upload_and_notify(
+            message,
+            user_id=42,
+            thread_id=17,
+            filename="image.jpg",
+            file_id="telegram-file",
+            file_size=100,
+            size_label="Photo",
+            agent_msg_tpl="image at {path}",
+            success_emoji="📷",
+            caption="检查告警",
+        )
+
+    expected = "image at .ccgram-uploads/image.jpg\n\nUser note: 检查告警"
+    admit.assert_awaited_once()
+    assert admit.await_args.kwargs["dispatch_text"] == expected
+    send.assert_awaited_once_with("@7", expected)
+    assert inbound.set_state.call_args_list[-1].args == ("request-key", "forwarded")

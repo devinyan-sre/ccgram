@@ -1,6 +1,6 @@
 # ccgram Architecture
 
-Generated from code state 2026-08-26.
+Generated from code state 2026-08-27.
 
 ## System Overview
 
@@ -57,9 +57,10 @@ The routing identities are deliberately separate:
 
 ### Inbound execution
 
-1. Group text is accepted only from an `ALLOWED_USERS` member and, by default,
-   only when it mentions the bot or replies to a bot message. Unauthorized
-   group input is ignored silently.
+1. Group text and captioned media are accepted only from an `ALLOWED_USERS`
+   member and, by default, only when they mention the bot or reply to a bot
+   message. Captionless media/voice must reply to a bot message. Unauthorized
+   or unaddressed group input is ignored silently.
 2. `OperatorUpdateProcessor` permits different users to run concurrently but
    serializes one user's updates. This preserves PTB `user_data` state-machine
    safety while removing the previous global one-update bottleneck.
@@ -70,6 +71,10 @@ The routing identities are deliberately separate:
 5. A clean Git workspace gets a `ccg/member-<thread>-<user>` worktree branch.
    Dirty, detached, merging/rebasing, or non-Git workspaces fail closed unless
    `CCGRAM_ALLOW_SHARED_MEMBER_CWD=true` is explicitly configured.
+6. Text, photos, and documents enter the same inbound journal, scheduler, and
+   request-correlation path. This makes media tasks visible in the topic and
+   General dashboards and routes the final answer back to the exact source
+   message instead of merely posting into the surrounding topic.
 
 ### Outbound execution
 

@@ -519,7 +519,7 @@ class TestHerdrKillPaths:
     async def test_herdr_deleted_topic_kills_window_via_proxy(self):
         """probe_topic_existence kills the herdr window via proxy on topic deletion."""
         bot = AsyncMock(spec=Bot)
-        bot.unpin_all_forum_topic_messages = AsyncMock(
+        bot.send_chat_action = AsyncMock(
             side_effect=BadRequest("Topic_id_invalid")
         )
         bot.send_message = AsyncMock(side_effect=BadRequest("Thread not found"))
@@ -572,7 +572,7 @@ class TestProbeTopicExistence:
         from ccgram.handlers.topics import topic_lifecycle as tl
 
         bot = AsyncMock(spec=Bot)
-        bot.unpin_all_forum_topic_messages = AsyncMock(
+        bot.send_chat_action = AsyncMock(
             side_effect=[RetryAfter(3), None]
         )
         with (
@@ -587,17 +587,17 @@ class TestProbeTopicExistence:
             await probe_topic_existence(bot)
             mock_strategy.record_probe_failure.assert_not_called()
 
-            bot.unpin_all_forum_topic_messages.reset_mock()
+            bot.send_chat_action.reset_mock()
             await probe_topic_existence(bot)
-            bot.unpin_all_forum_topic_messages.assert_not_called()
+            bot.send_chat_action.assert_not_called()
 
             tl._probe_backoff_until[42] = 0.0
             await probe_topic_existence(bot)
-            bot.unpin_all_forum_topic_messages.assert_called_once()
+            bot.send_chat_action.assert_called_once()
 
     async def test_probe_budget_allows_only_one_topic_per_chat(self):
         bot = AsyncMock(spec=Bot)
-        bot.unpin_all_forum_topic_messages = AsyncMock()
+        bot.send_chat_action = AsyncMock()
         bindings = [(1, 100 + i, f"@{i}") for i in range(4)]
         with patch(
             "ccgram.handlers.topics.topic_lifecycle.thread_router"
@@ -606,11 +606,11 @@ class TestProbeTopicExistence:
             mock_router.resolve_chat_id.return_value = 42
             await probe_topic_existence(bot)
 
-        bot.unpin_all_forum_topic_messages.assert_called_once()
+        bot.send_chat_action.assert_called_once()
 
     async def test_probe_budget_rotates_across_chats(self):
         bot = AsyncMock(spec=Bot)
-        bot.unpin_all_forum_topic_messages = AsyncMock()
+        bot.send_chat_action = AsyncMock()
         bindings = [(1, 100 + i, f"@{i}") for i in range(3 * PROBE_MAX_PER_CYCLE)]
         chat_by_thread = {100 + i: 1000 + i for i in range(len(bindings))}
         with patch(
@@ -622,21 +622,21 @@ class TestProbeTopicExistence:
             )
             probed: list[int] = []
             for _ in range(3):
-                bot.unpin_all_forum_topic_messages.reset_mock()
+                bot.send_chat_action.reset_mock()
                 await probe_topic_existence(bot)
                 assert (
-                    bot.unpin_all_forum_topic_messages.call_count == PROBE_MAX_PER_CYCLE
+                    bot.send_chat_action.call_count == PROBE_MAX_PER_CYCLE
                 )
                 probed.extend(
                     call.kwargs["message_thread_id"]
-                    for call in bot.unpin_all_forum_topic_messages.call_args_list
+                    for call in bot.send_chat_action.call_args_list
                 )
 
         assert sorted(probed) == [binding[1] for binding in bindings]
 
     async def test_deleted_topic_unbinds(self):
         bot = AsyncMock(spec=Bot)
-        bot.unpin_all_forum_topic_messages = AsyncMock(
+        bot.send_chat_action = AsyncMock(
             side_effect=BadRequest("Topic_id_invalid")
         )
         # The authoritative send-probe must agree before anything is torn down.
@@ -664,9 +664,9 @@ class TestProbeTopicExistence:
             mock_tmux.kill_window.assert_not_called()
 
     async def test_unconfirmed_probe_never_kills(self):
-        """The unpin sweep is a ping, not a verdict — a hiccup must not destroy."""
+        """The liveness sweep is a ping, not a verdict — never destroy on one error."""
         bot = AsyncMock(spec=Bot)
-        bot.unpin_all_forum_topic_messages = AsyncMock(
+        bot.send_chat_action = AsyncMock(
             side_effect=BadRequest("Topic_id_invalid")
         )
         # Authoritative probe succeeds → the topic is alive after all.
@@ -695,7 +695,7 @@ class TestProbeTopicExistence:
     async def test_inconclusive_network_error_never_kills(self):
         """A transient failure on the confirmation probe is not a verdict."""
         bot = AsyncMock(spec=Bot)
-        bot.unpin_all_forum_topic_messages = AsyncMock(
+        bot.send_chat_action = AsyncMock(
             side_effect=BadRequest("Topic_id_invalid")
         )
         bot.send_message = AsyncMock(side_effect=TelegramError("network down"))
@@ -715,7 +715,7 @@ class TestProbeTopicExistence:
 
     async def test_confirmed_deletion_kills_and_audits(self):
         bot = AsyncMock(spec=Bot)
-        bot.unpin_all_forum_topic_messages = AsyncMock(
+        bot.send_chat_action = AsyncMock(
             side_effect=BadRequest("Topic_id_invalid")
         )
         bot.send_message = AsyncMock(side_effect=BadRequest("Thread not found"))
@@ -758,36 +758,24 @@ class TestProbeTopicExistence:
         ) as mock_router:
             mock_router.iter_thread_bindings.return_value = [(1, 100, "@0")]
             await probe_topic_existence(bot)
-        bot.unpin_all_forum_topic_messages.assert_not_called()
+        bot.send_chat_action.assert_not_called()
 
-    async def test_missing_pin_rights_disables_probe_without_suspending(self):
+    async def test_probe_is_non_destructive_and_never_unpins(self):
         from ccgram.handlers.topics import topic_lifecycle as tl
 
         bot = AsyncMock(spec=Bot)
-        # Real Telegram error for unpin without can_pin_messages is lowercase.
-        bot.unpin_all_forum_topic_messages = AsyncMock(
-            side_effect=BadRequest("not enough rights to manage pinned messages")
+        bot.send_chat_action = AsyncMock()
+        with (
+            patch.object(tl, "thread_router") as mock_router,
+            patch.object(tl, "lifecycle_strategy") as mock_strategy,
+        ):
+            mock_router.iter_thread_bindings.return_value = [(1, 100, "@probe")]
+            mock_router.resolve_chat_id.return_value = 42
+            mock_strategy.should_skip_probe.return_value = False
+
+            await probe_topic_existence(bot)
+
+        bot.send_chat_action.assert_awaited_once_with(
+            chat_id=42, action="typing", message_thread_id=100
         )
-        wid = "@probe-pin"
-        tl._probe_pin_disabled.discard(wid)
-        try:
-            with (
-                patch.object(tl, "thread_router") as mock_router,
-                patch.object(tl, "lifecycle_strategy") as mock_strategy,
-            ):
-                mock_router.iter_thread_bindings.return_value = [(1, 100, wid)]
-                mock_router.resolve_chat_id.return_value = 42
-                mock_strategy.should_skip_probe.return_value = False
-
-                await probe_topic_existence(bot)
-
-                # Permission error must not count as a probe failure (no suspend).
-                mock_strategy.record_probe_failure.assert_not_called()
-                assert wid in tl._probe_pin_disabled
-
-                # Next tick skips the window entirely — no further API call.
-                bot.unpin_all_forum_topic_messages.reset_mock()
-                await probe_topic_existence(bot)
-                bot.unpin_all_forum_topic_messages.assert_not_called()
-        finally:
-            tl._probe_pin_disabled.discard(wid)
+        bot.unpin_all_forum_topic_messages.assert_not_called()
