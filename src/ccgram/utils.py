@@ -425,6 +425,16 @@ async def handle_general_topic_message(
     On first General-topic message per chat, sends a warning and pins it.
     Subsequent messages get a silent 🤔 reaction instead.
     """
+    # When the operations dashboard is enabled for General it owns the single
+    # persistent pin. Keep the legacy guard silent and avoid replacing that
+    # dashboard with the old "use a named topic" hint.
+    from .operations_dashboard import dashboard_owns_general_pin
+
+    if dashboard_owns_general_pin():
+        with contextlib.suppress(TelegramError):
+            await message.set_reaction("🤔")
+        return
+
     # Check cache first to avoid unnecessary API calls
     if not _general_topic_pin_cache.get(chat_id):
         try:

@@ -1,0 +1,160 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from telegram.error import BadRequest, Forbidden
+
+from ccgram.config import config
+from ccgram.operations_dashboard import DashboardTarget, OperationsDashboard
+from ccgram.task_scheduler import TaskView
+from ccgram.telegram_client import FakeTelegramClient
+from ccgram.thread_router import thread_router
+
+
+def _view(**overrides: object) -> TaskView:
+    values: dict[str, object] = {
+        "chat_id": -1001,
+        "thread_id": 17,
+        "user_id": 42,
+        "window_id": "@7",
+        "state": "active",
+        "age_seconds": 35.0,
+        "supplements": 0,
+        "task_id": "T0001",
+    }
+    values.update(overrides)
+    return TaskView(**values)  # type: ignore[arg-type]
+
+
+def _configure(monkeypatch, *, scope: str = "both") -> None:
+    monkeypatch.setattr(config, "group_id", -1001)
+    monkeypatch.setattr(config, "dashboard_scope", scope)
+    monkeypatch.setattr(config, "dashboard_max_items", 20)
+    monkeypatch.setattr(config, "dashboard_completed_ttl_seconds", 180)
+    monkeypatch.setattr(config, "dashboard_privacy", "normal")
+    monkeypatch.setattr(config, "dashboard_pin", True)
+    monkeypatch.setattr(config, "max_parallel_global", 4)
+    monkeypatch.setattr(config, "max_parallel_per_topic", 2)
+
+
+def test_targets_are_discovered_without_hardcoded_chat_or_topic(
+    tmp_path, monkeypatch
+) -> None:
+    _configure(monkeypatch)
+    thread_router.bind_thread(42, 17, "@7", "ccgram-codex-1")
+    thread_router.set_group_chat_id(42, 17, -1001)
+    dashboard = OperationsDashboard(FakeTelegramClient(), tmp_path / "state.json")
+
+    targets = dashboard._targets()
+    assert DashboardTarget(-1001, 1, True) in targets
+    assert DashboardTarget(-1001, 17, False) in targets
+
+
+async def test_creates_pins_then_edits_one_message(tmp_path, monkeypatch) -> None:
+    _configure(monkeypatch, scope="topic")
+    client = FakeTelegramClient()
+    client.returns["send_message"] = SimpleNamespace(message_id=88)
+    thread_router.bind_thread(42, 17, "@7", "ccgram-codex-1")
+    thread_router.set_group_chat_id(42, 17, -1001)
+    dashboard = OperationsDashboard(client, tmp_path / "state.json")
+    target = DashboardTarget(-1001, 17, False)
+
+    with patch("ccgram.operations_dashboard.task_scheduler.views", return_value=[]):
+        await dashboard._upsert(target)
+        assert client.call_count("send_message") == 1
+        assert client.call_count("pin_chat_message") == 1
+        assert client.last_call("send_message").kwargs["message_thread_id"] == 17  # type: ignore[union-attr]
+
+        # Same frame is de-duplicated instead of creating or editing spam.
+        await dashboard._upsert(target)
+        assert client.call_count("send_message") == 1
+        assert client.call_count("edit_message_text") == 0
+
+        # A changed task snapshot edits the original message in place.
+        with patch(
+            "ccgram.operations_dashboard.task_scheduler.views",
+            return_value=[_view()],
+        ):
+            await dashboard._upsert(target)
+        edit = client.last_call("edit_message_text")
+        assert edit is not None
+        assert edit.kwargs["message_id"] == 88
+        assert "T0001" in edit.kwargs["text"]
+
+
+async def test_deleted_dashboard_is_recreated(tmp_path, monkeypatch) -> None:
+    _configure(monkeypatch, scope="topic")
+    client = FakeTelegramClient()
+    client.returns["send_message"] = SimpleNamespace(message_id=99)
+    dashboard = OperationsDashboard(client, tmp_path / "state.json")
+    target = DashboardTarget(-1001, 17, False)
+    dashboard._message_ids[target.key] = 55
+    client.set_side_effect(
+        "edit_message_text", [BadRequest("message to edit not found")]
+    )
+
+    with patch("ccgram.operations_dashboard.task_scheduler.views", return_value=[]):
+        await dashboard._upsert(target)
+
+    assert client.call_count("edit_message_text") == 1
+    assert client.call_count("send_message") == 1
+    assert dashboard._message_ids[target.key] == 99
+
+
+async def test_pin_permission_failure_degrades_to_editable_message(
+    tmp_path, monkeypatch
+) -> None:
+    _configure(monkeypatch, scope="topic")
+    client = FakeTelegramClient()
+    client.returns["send_message"] = SimpleNamespace(message_id=77)
+    client.set_side_effect("pin_chat_message", [Forbidden("not enough rights")])
+    dashboard = OperationsDashboard(client, tmp_path / "state.json")
+    target = DashboardTarget(-1001, 17, False)
+
+    with patch("ccgram.operations_dashboard.task_scheduler.views", return_value=[]):
+        await dashboard._upsert(target)
+
+    assert dashboard._message_ids[target.key] == 77
+    assert client.call_count("send_message") == 1
+
+
+def test_render_hides_prompts_and_supports_operator_privacy(
+    tmp_path, monkeypatch
+) -> None:
+    _configure(monkeypatch)
+    dashboard = OperationsDashboard(FakeTelegramClient(), tmp_path / "state.json")
+    dashboard.observe_user(SimpleNamespace(id=42, username="alice", full_name="Alice"))
+    target = DashboardTarget(-1001, 1, True)
+
+    with patch(
+        "ccgram.operations_dashboard.task_scheduler.views", return_value=[_view()]
+    ):
+        rendered = dashboard._render(target, precise_time=False)
+        assert "@alice" in rendered
+        assert "T0001" in rendered
+        assert "prompt" not in rendered.lower()
+
+        monkeypatch.setattr(config, "dashboard_privacy", "strict")
+        strict = dashboard._render(target, precise_time=False)
+        assert "@alice" not in strict
+        assert dashboard._operator(42).startswith("member-")
+        assert dashboard._operator(42) != "42"
+
+
+def test_completed_task_is_retained_briefly(tmp_path, monkeypatch) -> None:
+    _configure(monkeypatch)
+    dashboard = OperationsDashboard(FakeTelegramClient(), tmp_path / "state.json")
+
+    with patch(
+        "ccgram.operations_dashboard.task_scheduler.views", return_value=[_view()]
+    ):
+        dashboard._capture_completions()
+    with patch("ccgram.operations_dashboard.task_scheduler.views", return_value=[]):
+        dashboard._capture_completions()
+        rendered = dashboard._render(
+            DashboardTarget(-1001, 1, True), precise_time=False
+        )
+
+    assert "T0001" in rendered
+    assert "✅" in rendered

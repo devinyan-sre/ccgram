@@ -16,6 +16,19 @@ CLI exposing native sub-agents.
 
 ![Multi-operator topic architecture](images/multi-operator-topic-architecture.png)
 
+### Persistent Telegram operations dashboard
+
+![Provider-neutral dual-scope operations dashboard](images/telegram-operations-dashboard.png)
+
+`operations_dashboard.py` observes the shared `TaskScheduler` and
+`ThreadRouter`; it never parses provider output. With scope `both`, one message
+in General summarizes the group while one message in every bound named topic
+shows only that physical workspace. Message IDs and safe operator labels are
+stored in mode-`0600` `dashboard.json`, so restarts continue editing in place.
+A deleted message is recreated. Missing pin permission degrades to an unpinned
+editable message and never blocks task execution or answer delivery. Prompt
+text, terminal output, paths, tokens, and secrets are excluded from frames.
+
 ### Cancellation state machine
 
 ![Provider-neutral cancellation state machine](images/task-cancellation-state-machine.png)

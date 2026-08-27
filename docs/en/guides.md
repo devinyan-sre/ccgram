@@ -176,6 +176,13 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_TASK_CANCEL_CONFIRM_SECONDS`                 | `8`                            | Seconds to observe a CLI stop after Ctrl+C; timeout retains the cancelling task and its slot          |
 | `CCGRAM_TASK_ESTIMATE_DEFAULT_SECONDS`               | `300`                          | Initial task duration used for queue ETA until completion history is available                         |
 | `CCGRAM_INBOUND_DEDUPE_HOURS`                        | `72`                           | Durable Telegram message-ID deduplication retention                                                   |
+| `CCGRAM_DASHBOARD_ENABLED`                           | `false`                        | Enable persistent Telegram task overviews; off by default for upgrade compatibility                  |
+| `CCGRAM_DASHBOARD_SCOPE`                             | `general`                      | Dashboard targets: `general`, `topic`, or `both`                                                      |
+| `CCGRAM_DASHBOARD_REFRESH_SECONDS`                   | `5`                            | Background inspection cadence (minimum 2s); unchanged frames are not edited                          |
+| `CCGRAM_DASHBOARD_COMPLETED_TTL_SECONDS`             | `180`                          | Seconds to retain ended tasks in the overview; 0 removes immediately                                 |
+| `CCGRAM_DASHBOARD_MAX_ITEMS`                         | `20`                           | Maximum task rows per overview (1–50)                                                                 |
+| `CCGRAM_DASHBOARD_PIN`                               | `true`                         | Attempt to pin; missing permission degrades to a normal editable message                             |
+| `CCGRAM_DASHBOARD_PRIVACY`                           | `normal`                       | `normal` shows observed names; `strict` uses stable anonymous member labels                          |
 | `CCGRAM_MEMBER_LANE_WORKTREES`                       | `true`                         | Create an isolated clean Git worktree/branch for every derived member lane                            |
 | `CCGRAM_ALLOW_SHARED_MEMBER_CWD`                     | `false`                        | Explicitly permit non-Git lanes to share a cwd; safe only for trusted read-only work                  |
 | `CCGRAM_MEMBER_LANE_CLEANUP_DAYS`                    | `0`                            | Remove only parked, clean and merged member worktrees after N days; 0 disables                        |
@@ -418,6 +425,23 @@ gets an isolated provider session and, for clean Git repositories, a dedicated
 worktree. Different members can run concurrently within the configurable topic
 and global limits; one member's messages stay ordered and supplement one task.
 Claude, Codex, Gemini, Pi, and Shell all use this provider-neutral scheduler.
+
+### Persistent Telegram operations dashboard
+
+![Dual-scope Telegram operations dashboard](../images/telegram-operations-dashboard.png)
+
+Set `CCGRAM_DASHBOARD_ENABLED=true` to maintain one in-place overview message
+instead of posting status updates repeatedly. `CCGRAM_DASHBOARD_SCOPE` selects
+the group-wide General view, a local view in every bound named topic, or both.
+General never binds a CLI workspace. The feature reads only the common scheduler
+and router, so every provider and multiplexer backend behaves identically.
+
+The mode-`0600` `~/.ccgram/dashboard.json` stores message IDs and safe operator
+labels. Restarts keep editing the original message; deleted messages are
+recreated. Missing pin permission degrades to an unpinned editable message and
+does not affect task execution or answer delivery. Frames exclude prompts,
+terminal output, paths, tokens, and secrets. Use `CCGRAM_DASHBOARD_PRIVACY=strict`
+to replace observed names with stable anonymous labels.
 
 - `/tasks` lists durable short IDs such as `T0007`, state, queue position, and
   an ETA based on an exponential moving average of released slot durations.

@@ -404,6 +404,12 @@ async def bootstrap_application(application: Application) -> None:
     await start_miniapp_if_enabled()
     await start_metrics_if_enabled()
 
+    # The observer is optional and provider-neutral.  Starting it after task
+    # recovery ensures its first frame reflects recovered operator lanes.
+    from .operations_dashboard import start_operations_dashboard
+
+    start_operations_dashboard(PTBTelegramClient(application.bot))
+
     # Arm error-rate alerting now that the bot can DM the operator.
     if config.error_alerts_enabled:
         # Lazy: operator_alerts pulls telegram_client + i18n.
@@ -532,6 +538,10 @@ async def shutdown_runtime() -> None:
 
     set_audit_client(None)
 
+    from .operations_dashboard import stop_operations_dashboard
+
+    await stop_operations_dashboard()
+
     if _status_poll_task is not None:
         _status_poll_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -603,5 +613,7 @@ def reset_for_testing() -> None:
 
     # Lazy: clear the error-alert sink + tracker so state can't leak between runs.
     from .operator_alerts import reset_error_alerts_for_testing
+    from .operations_dashboard import reset_for_testing as reset_dashboard_for_testing
 
     reset_error_alerts_for_testing()
+    reset_dashboard_for_testing()

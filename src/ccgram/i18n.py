@@ -66,6 +66,30 @@ _ZH: dict[str, str] = {
         "⏳ 任务 {task_id} 已排队（位置 {position}，预计 ≤{eta} 秒）。"
     ),
     "➕ Added to your current task.": "➕ 已补充到你的当前任务。",
+    # Persistent operations dashboard
+    "🛰 CCGram operations overview": "🛰 CCGram 全局运行总览",
+    "🛰 Topic operations overview": "🛰 话题运行总览",
+    "Concurrency {used}/{limit} · queued {queued} · cancelling {cancelling}": (
+        "并发 {used}/{limit} · 排队 {queued} · 取消中 {cancelling}"
+    ),
+    "⚪ No active or queued tasks": "⚪ 当前没有运行或排队任务",
+    "🟢 processing": "🟢 处理中",
+    "🟡 queued #{position}": "🟡 排队第 {position} 位",
+    "🟠 cancelling": "🟠 取消中",
+    " · ETA ≤{seconds}s": " · 预计 ≤{seconds} 秒",
+    " · +{count} supplements": " · +{count} 条补充",
+    "… and {count} more": "… 另有 {count} 项",
+    "Updated {time} · one operator is serial, operators are parallel": (
+        "更新于 {time} · 同一成员串行，不同成员并行"
+    ),
+    "cancelled": "已取消",
+    "ended": "已结束",
+    "member-{code}": "成员-{code}",
+    "topic {thread_id}": "话题 {thread_id}",
+    "{seconds}s": "{seconds}秒",
+    "{minutes}m": "{minutes}分",
+    "{hours}h{minutes}m": "{hours}时{minutes}分",
+    "Dashboard unavailable": "总览暂不可用",
     "❌ This task has too many supplements. Use /task_new to start a new task.": (
         "❌ 当前任务的补充消息过多，请使用 /task_new 开始新任务。"
     ),

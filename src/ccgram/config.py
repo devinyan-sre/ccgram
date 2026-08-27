@@ -179,6 +179,41 @@ class Config:
         self.task_estimate_default_seconds: int = max(
             1, _parse_int_env("CCGRAM_TASK_ESTIMATE_DEFAULT_SECONDS", 300)
         )
+        # Telegram operations dashboard.  Disabled by default so existing
+        # installations never receive new/pinned messages after an upgrade.
+        # ``general`` renders one group-wide view, ``topic`` renders one view
+        # per bound workspace topic, and ``both`` enables both scopes.
+        self.dashboard_enabled: bool = os.getenv(
+            "CCGRAM_DASHBOARD_ENABLED", "false"
+        ).lower() in ("1", "true", "yes")
+        raw_dashboard_scope = os.getenv(
+            "CCGRAM_DASHBOARD_SCOPE", "general"
+        ).strip().lower()
+        self.dashboard_scope: str = (
+            raw_dashboard_scope
+            if raw_dashboard_scope in ("general", "topic", "both")
+            else "general"
+        )
+        self.dashboard_refresh_seconds: int = max(
+            2, _parse_int_env("CCGRAM_DASHBOARD_REFRESH_SECONDS", 5)
+        )
+        self.dashboard_completed_ttl_seconds: int = max(
+            0, _parse_int_env("CCGRAM_DASHBOARD_COMPLETED_TTL_SECONDS", 180)
+        )
+        self.dashboard_max_items: int = min(
+            50, max(1, _parse_int_env("CCGRAM_DASHBOARD_MAX_ITEMS", 20))
+        )
+        self.dashboard_pin: bool = os.getenv(
+            "CCGRAM_DASHBOARD_PIN", "true"
+        ).lower() in ("1", "true", "yes")
+        raw_dashboard_privacy = os.getenv(
+            "CCGRAM_DASHBOARD_PRIVACY", "normal"
+        ).strip().lower()
+        self.dashboard_privacy: str = (
+            raw_dashboard_privacy
+            if raw_dashboard_privacy in ("normal", "strict")
+            else "normal"
+        )
         self.inbound_dedupe_hours: int = max(
             1, _parse_int_env("CCGRAM_INBOUND_DEDUPE_HOURS", 72)
         )
@@ -202,6 +237,7 @@ class Config:
         self.outbox_file = self.config_dir / "outbox.json"
         self.inbound_file = self.config_dir / "inbound.json"
         self.task_state_file = self.config_dir / "tasks.json"
+        self.dashboard_state_file = self.config_dir / "dashboard.json"
         self.task_audit_file = self.config_dir / "task-audit.jsonl"
         self.events_file = self.config_dir / "events.jsonl"
 
@@ -530,7 +566,7 @@ class Config:
             return "operator"
         return None
 
-    def validate(self) -> tuple[list[str], list[str]]:
+    def validate(self) -> tuple[list[str], list[str]]:  # noqa: C901
         """Check env values, returning ``(fatal, warnings)`` problem descriptions.
 
         Split by blast radius rather than treating every bad value the same:
@@ -574,6 +610,31 @@ class Config:
             warnings.append(
                 f"CCGRAM_LANG={raw_lang!r} is not recognised; falling back to English "
                 f"(expected one of: {', '.join(sorted(_VALID_LANG_PREFIXES))})"
+            )
+
+        raw_dashboard_scope = os.getenv(
+            "CCGRAM_DASHBOARD_SCOPE", ""
+        ).strip().lower()
+        if raw_dashboard_scope and raw_dashboard_scope not in (
+            "general",
+            "topic",
+            "both",
+        ):
+            warnings.append(
+                f"CCGRAM_DASHBOARD_SCOPE={raw_dashboard_scope!r} is not recognised; "
+                "using 'general' (expected one of: general, topic, both)"
+            )
+
+        raw_dashboard_privacy = os.getenv(
+            "CCGRAM_DASHBOARD_PRIVACY", ""
+        ).strip().lower()
+        if raw_dashboard_privacy and raw_dashboard_privacy not in (
+            "normal",
+            "strict",
+        ):
+            warnings.append(
+                f"CCGRAM_DASHBOARD_PRIVACY={raw_dashboard_privacy!r} is not "
+                "recognised; using 'normal' (expected one of: normal, strict)"
             )
 
         roles_configured = any(

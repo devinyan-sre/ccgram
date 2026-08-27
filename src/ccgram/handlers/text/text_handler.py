@@ -725,6 +725,13 @@ async def text_handler(  # noqa: C901 - explicit auth/activation pipeline
     if not update.message or not update.message.text:
         return
 
+    # Keep the dashboard label human-friendly without making Telegram profile
+    # lookups or provider-specific assumptions. Only authorized users reach
+    # this point, and strict dashboard privacy ignores the stored label.
+    from ...operations_dashboard import observe_dashboard_user
+
+    observe_dashboard_user(user)
+
     text = update.message.text
     if config.require_mention_in_groups is True and update.message.chat.type in (
         "group",

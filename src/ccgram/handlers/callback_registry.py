@@ -143,6 +143,7 @@ def load_handlers() -> None:
         command_history,
         hook_events,
         lifecycle_commands,
+        operations_dashboard,
         sessions_dashboard,
         sync_command,
     )

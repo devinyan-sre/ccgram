@@ -28,6 +28,7 @@ def fake_bot() -> MagicMock:
         "edit_message_media",
         "edit_message_caption",
         "delete_message",
+        "pin_chat_message",
         "send_photo",
         "send_document",
         "send_chat_action",
@@ -81,6 +82,15 @@ class TestPTBTelegramClient:
         client = PTBTelegramClient(fake_bot)
         await client.delete_message(chat_id=1, message_id=2)
         fake_bot.delete_message.assert_awaited_once_with(chat_id=1, message_id=2)
+
+    async def test_pin_chat_message_delegates(self, fake_bot: MagicMock):
+        client = PTBTelegramClient(fake_bot)
+        await client.pin_chat_message(
+            chat_id=1, message_id=2, disable_notification=True
+        )
+        fake_bot.pin_chat_message.assert_awaited_once_with(
+            chat_id=1, message_id=2, disable_notification=True
+        )
 
     async def test_send_chat_action_delegates(self, fake_bot: MagicMock):
         client = PTBTelegramClient(fake_bot)

@@ -94,6 +94,13 @@ class TelegramClient(Protocol):
         **kwargs: Any,
     ) -> bool: ...
 
+    async def pin_chat_message(
+        self,
+        chat_id: int | str,
+        message_id: int,
+        **kwargs: Any,
+    ) -> bool: ...
+
     async def send_photo(
         self,
         chat_id: int | str,
@@ -258,6 +265,13 @@ class PTBTelegramClient:
         self, chat_id: int | str, message_id: int, **kwargs: Any
     ) -> bool:
         return await self._bot.delete_message(
+            chat_id=chat_id, message_id=message_id, **kwargs
+        )
+
+    async def pin_chat_message(
+        self, chat_id: int | str, message_id: int, **kwargs: Any
+    ) -> bool:
+        return await self._bot.pin_chat_message(
             chat_id=chat_id, message_id=message_id, **kwargs
         )
 
@@ -477,6 +491,14 @@ class FakeTelegramClient:
             {"chat_id": chat_id, "message_id": message_id, **kwargs},
         )
 
+    async def pin_chat_message(
+        self, chat_id: int | str, message_id: int, **kwargs: Any
+    ) -> bool:
+        return self._record(
+            "pin_chat_message",
+            {"chat_id": chat_id, "message_id": message_id, **kwargs},
+        )
+
     async def send_photo(
         self, chat_id: int | str, photo: Any, **kwargs: Any
     ) -> Message:
@@ -607,6 +629,7 @@ _DEFAULT_RETURNS: dict[str, Any] = {
     # bool-returning methods default to True; tests that need a Message can
     # pre-seed `returns["send_message"] = my_fake_message`.
     "delete_message": True,
+    "pin_chat_message": True,
     "send_chat_action": True,
     "set_message_reaction": True,
     "edit_forum_topic": True,

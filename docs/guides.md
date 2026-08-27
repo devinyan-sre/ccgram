@@ -198,6 +198,13 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_TASK_CANCEL_CONFIRM_SECONDS`                 | `8`                            | 发送 Ctrl+C 后等待 CLI 可观测停止的秒数；超时后保持取消中且不释放并发槽                               |
 | `CCGRAM_TASK_ESTIMATE_DEFAULT_SECONDS`               | `300`                          | 尚无足够历史样本时，排队 ETA 使用的初始任务耗时                                                        |
 | `CCGRAM_INBOUND_DEDUPE_HOURS`                        | `72`                           | Telegram 消息 ID 持久化去重保留时间                                                                    |
+| `CCGRAM_DASHBOARD_ENABLED`                           | `false`                        | 启用 Telegram 常驻运行总览；默认关闭，升级不会自动向群里发送消息                                      |
+| `CCGRAM_DASHBOARD_SCOPE`                             | `general`                      | 总览范围：`general`、`topic` 或 `both`                                                                |
+| `CCGRAM_DASHBOARD_REFRESH_SECONDS`                   | `5`                            | 后台检查间隔（最小 2 秒）；内容未变化时不会调用编辑接口                                                |
+| `CCGRAM_DASHBOARD_COMPLETED_TTL_SECONDS`             | `180`                          | 已结束任务在总览中保留的秒数；0 表示完成后立即移除                                                     |
+| `CCGRAM_DASHBOARD_MAX_ITEMS`                         | `20`                           | 每条总览最多展示的任务数（1–50）                                                                       |
+| `CCGRAM_DASHBOARD_PIN`                               | `true`                         | 尝试置顶总览；权限不足时自动降级为普通可编辑消息                                                       |
+| `CCGRAM_DASHBOARD_PRIVACY`                           | `normal`                       | `normal` 显示已知用户名/昵称，`strict` 只显示稳定匿名成员代号                                         |
 | `CCGRAM_MEMBER_LANE_WORKTREES`                       | `true`                         | 为派生成员通道自动创建独立 Git worktree/分支                                                         |
 | `CCGRAM_ALLOW_SHARED_MEMBER_CWD`                     | `false`                        | 允许非 Git 多人通道共享目录；仅适合可信只读任务，并发写入可能冲突                                    |
 | `CCGRAM_DIR` / `--config-dir`                        | `~/.ccgram`                    | 配置与状态目录                                                                                       |
@@ -487,6 +494,13 @@ CCGRAM_TASK_QUEUE_ALERT_SECONDS=300
 CCGRAM_TASK_CANCEL_CONFIRM_SECONDS=8
 CCGRAM_TASK_ESTIMATE_DEFAULT_SECONDS=300
 CCGRAM_INBOUND_DEDUPE_HOURS=72
+CCGRAM_DASHBOARD_ENABLED=true
+CCGRAM_DASHBOARD_SCOPE=both
+CCGRAM_DASHBOARD_REFRESH_SECONDS=5
+CCGRAM_DASHBOARD_COMPLETED_TTL_SECONDS=180
+CCGRAM_DASHBOARD_MAX_ITEMS=20
+CCGRAM_DASHBOARD_PIN=true
+CCGRAM_DASHBOARD_PRIVACY=normal
 CCGRAM_MEMBER_LANE_WORKTREES=true
 CCGRAM_ALLOW_SHARED_MEMBER_CWD=false
 CCGRAM_AUTO_PARK_DAYS=1
@@ -532,6 +546,7 @@ CCGRAM_MEMBER_LANE_CLEANUP_DAYS=30
 - `/ops` 展示活动、排队、取消中任务数，平均耗时、最久等待，以及近 24 小时
   已确认/超时/强制取消计数。取消审计追加到权限为 `0600` 的
   `~/.ccgram/task-audit.jsonl`，达到 5 MiB 后轮换为 `.1`；审计不保存问题正文。
+
 - `/lane status` 查看 CLI、目录、分支和重叠文件；`/lane archive` 挂起，
   `/lane restore` 恢复；`/lane cleanup` 只删除干净且已合并的成员 worktree。
 - 完成任务后会检查其他成员是否修改相同文件；检测到重叠只告警，不自动合并。
@@ -539,6 +554,33 @@ CCGRAM_MEMBER_LANE_CLEANUP_DAYS=30
 > 当前并发粒度是“每个成员一个交互式 CLI 通道”。同一成员在自己的 CLI 尚忙时
 > 连续发送消息，仍遵循该 CLI 的 steering/follow-up 语义；若同一个人也需要两个
 > 完全独立的并行任务，请建立两个话题。
+
+<a id="telegram-operations-dashboard"></a>
+
+### Telegram 常驻运行总览
+
+![Telegram 双层运行总览架构](images/telegram-operations-dashboard.png)
+
+启用 `CCGRAM_DASHBOARD_ENABLED=true` 后，ccgram 会维护“单消息、持续编辑”的
+运行总览，不会为每次状态变化发送新消息。`CCGRAM_DASHBOARD_SCOPE=general` 只在
+General 显示全群任务；`topic` 只在每个已绑定工作话题显示本话题任务；`both` 同时
+启用两层。General 不绑定 CLI 工作区，也不会接收普通任务。
+
+总览只使用 provider-neutral 的调度和路由状态，因此 Claude、Codex、Gemini、Pi、
+Shell，以及 tmux/herdr 都使用同一实现。它不会读取或展示问题正文、终端输出、文件
+路径、token 或密钥。`normal` 隐私级别显示机器人已经从授权消息观察到的用户名或
+昵称；`strict` 使用不可反推 Telegram ID 的稳定匿名代号。
+
+机器人会把每个总览的消息 ID 保存到权限为 `0600` 的
+`~/.ccgram/dashboard.json`。服务重启后继续编辑原消息；消息被人工删除后自动重建。
+如果机器人有置顶消息权限，会静默置顶；权限不足只记录告警并降级为普通可编辑消息，
+不会阻断任务和回复，之后会定期重试。启用 General 总览后，它会接管原“请使用命名
+话题”提示的置顶位置，避免两个机器人置顶互相覆盖。
+
+显示规则：同一成员的后续消息仍归入其当前任务；不同成员按每话题/全局并发上限并行；
+超限显示排队位置和 ETA；取消中任务继续占槽；已结束任务短暂保留后自动收敛。刷新
+按钮受现有白名单和 RBAC 保护。Telegram 限流由全局 rate limiter 和内容去重共同
+控制，未变化的画面不会编辑。
 
 CCGram 的一切隔离都建立在**三道边界**上。理解它们,就能明白什么可以随意放、什么必须遵守。
 
