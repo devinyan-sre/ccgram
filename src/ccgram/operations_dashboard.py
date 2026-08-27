@@ -314,13 +314,19 @@ class OperationsDashboard:
         text: str,
         markup: InlineKeyboardMarkup,
     ) -> None:
+        # Telegram represents General inconsistently across updates. Sending
+        # without message_thread_id is the portable Bot API form; an explicit
+        # ``1`` is rejected as "Message thread not found" in some forum groups.
+        thread_kwargs = (
+            {} if target.global_view else {"message_thread_id": target.thread_id}
+        )
         try:
             sent = await self._client.send_message(
                 chat_id=target.chat_id,
                 text=text,
-                message_thread_id=target.thread_id,
                 reply_markup=markup,
                 disable_notification=True,
+                **thread_kwargs,
             )
         except TelegramError as exc:
             logger.warning(

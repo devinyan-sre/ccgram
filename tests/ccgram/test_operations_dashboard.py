@@ -83,6 +83,22 @@ async def test_creates_pins_then_edits_one_message(tmp_path, monkeypatch) -> Non
         assert "T0001" in edit.kwargs["text"]
 
 
+async def test_general_uses_portable_send_without_thread_id(
+    tmp_path, monkeypatch
+) -> None:
+    _configure(monkeypatch, scope="general")
+    client = FakeTelegramClient()
+    client.returns["send_message"] = SimpleNamespace(message_id=66)
+    dashboard = OperationsDashboard(client, tmp_path / "state.json")
+
+    with patch("ccgram.operations_dashboard.task_scheduler.views", return_value=[]):
+        await dashboard._upsert(DashboardTarget(-1001, 1, True))
+
+    sent = client.last_call("send_message")
+    assert sent is not None
+    assert "message_thread_id" not in sent.kwargs
+
+
 async def test_deleted_dashboard_is_recreated(tmp_path, monkeypatch) -> None:
     _configure(monkeypatch, scope="topic")
     client = FakeTelegramClient()
