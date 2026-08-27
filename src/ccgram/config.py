@@ -11,6 +11,7 @@ Key class: Config (singleton instantiated as `config`).
 import structlog
 import os
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import load_dotenv
 
@@ -119,6 +120,10 @@ class Config:
                 "Expected comma-separated Telegram user IDs."
             ) from e
 
+        # Time zone used only for human-facing timestamps and scheduled local
+        # jobs. Durable state and ordering remain UTC epoch/ISO values.
+        self.timezone_name: str = os.getenv("CCGRAM_TIMEZONE", "UTC").strip() or "UTC"
+
         # Optional RBAC. When no role variables are configured every legacy
         # allow-listed user remains an admin, preserving existing installs.
         configured_admins = _parse_user_ids("CCGRAM_ADMINS")
@@ -186,9 +191,9 @@ class Config:
         self.dashboard_enabled: bool = os.getenv(
             "CCGRAM_DASHBOARD_ENABLED", "false"
         ).lower() in ("1", "true", "yes")
-        raw_dashboard_scope = os.getenv(
-            "CCGRAM_DASHBOARD_SCOPE", "general"
-        ).strip().lower()
+        raw_dashboard_scope = (
+            os.getenv("CCGRAM_DASHBOARD_SCOPE", "general").strip().lower()
+        )
         self.dashboard_scope: str = (
             raw_dashboard_scope
             if raw_dashboard_scope in ("general", "topic", "both")
@@ -206,9 +211,9 @@ class Config:
         self.dashboard_pin: bool = os.getenv(
             "CCGRAM_DASHBOARD_PIN", "true"
         ).lower() in ("1", "true", "yes")
-        raw_dashboard_privacy = os.getenv(
-            "CCGRAM_DASHBOARD_PRIVACY", "normal"
-        ).strip().lower()
+        raw_dashboard_privacy = (
+            os.getenv("CCGRAM_DASHBOARD_PRIVACY", "normal").strip().lower()
+        )
         self.dashboard_privacy: str = (
             raw_dashboard_privacy
             if raw_dashboard_privacy in ("normal", "strict")
@@ -258,11 +263,11 @@ class Config:
 
         self._load_monitoring_env()
 
-        # Quiet hours: "HH:MM-HH:MM" local time; automated notifications are
-        # delivered silently inside the window. Empty disables.
+        # Quiet hours: "HH:MM-HH:MM" in CCGRAM_TIMEZONE; automated
+        # notifications are delivered silently inside the window. Empty disables.
         self.quiet_hours = os.getenv("CCGRAM_QUIET_HOURS", "").strip()
 
-        # Daily digest: "HH:MM" local time to post a per-topic activity
+        # Daily digest: "HH:MM" in CCGRAM_TIMEZONE to post a per-topic activity
         # summary to the group's General topic. Empty disables.
         self.daily_digest_time = os.getenv("CCGRAM_DAILY_DIGEST", "").strip()
 
@@ -612,9 +617,7 @@ class Config:
                 f"(expected one of: {', '.join(sorted(_VALID_LANG_PREFIXES))})"
             )
 
-        raw_dashboard_scope = os.getenv(
-            "CCGRAM_DASHBOARD_SCOPE", ""
-        ).strip().lower()
+        raw_dashboard_scope = os.getenv("CCGRAM_DASHBOARD_SCOPE", "").strip().lower()
         if raw_dashboard_scope and raw_dashboard_scope not in (
             "general",
             "topic",
@@ -625,9 +628,9 @@ class Config:
                 "using 'general' (expected one of: general, topic, both)"
             )
 
-        raw_dashboard_privacy = os.getenv(
-            "CCGRAM_DASHBOARD_PRIVACY", ""
-        ).strip().lower()
+        raw_dashboard_privacy = (
+            os.getenv("CCGRAM_DASHBOARD_PRIVACY", "").strip().lower()
+        )
         if raw_dashboard_privacy and raw_dashboard_privacy not in (
             "normal",
             "strict",
@@ -635,6 +638,14 @@ class Config:
             warnings.append(
                 f"CCGRAM_DASHBOARD_PRIVACY={raw_dashboard_privacy!r} is not "
                 "recognised; using 'normal' (expected one of: normal, strict)"
+            )
+
+        try:
+            ZoneInfo(self.timezone_name)
+        except ZoneInfoNotFoundError:
+            fatal.append(
+                f"CCGRAM_TIMEZONE={self.timezone_name!r} is not a valid IANA "
+                "time zone (for Beijing use 'Asia/Shanghai')"
             )
 
         roles_configured = any(

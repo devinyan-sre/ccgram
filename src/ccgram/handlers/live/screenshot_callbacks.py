@@ -17,7 +17,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 import contextlib
 import io
-import time
 
 import structlog
 
@@ -34,6 +33,7 @@ from ...i18n import t
 from ...screenshot import text_to_image
 from ...telegram_client import PTBTelegramClient
 from ...thread_router import thread_router
+from ...user_time import now_display
 from ...multiplexer import multiplexer as tmux_manager
 
 from ..callback_data import (
@@ -173,7 +173,9 @@ async def _handle_live_start(
         await query.edit_message_media(
             media=InputMediaPhoto(
                 media=io.BytesIO(png_bytes),
-                caption=t("Live \u00b7 {time}").format(time=time.strftime("%H:%M:%S")),
+                caption=t("Live \u00b7 {time}").format(
+                    time=now_display().strftime("%H:%M:%S")
+                ),
             ),
             reply_markup=keyboard,
         )
@@ -527,7 +529,9 @@ async def live_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         sent = await client.send_photo(
             chat_id=chat_id,
             photo=io.BytesIO(png_bytes),
-            caption=t("Live \u00b7 {time}").format(time=time.strftime("%H:%M:%S")),
+            caption=t("Live \u00b7 {time}").format(
+                time=now_display().strftime("%H:%M:%S")
+            ),
             reply_markup=keyboard,
             message_thread_id=thread_id,
         )

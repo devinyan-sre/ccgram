@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING
 import structlog
 import re
 import unicodedata
-from datetime import datetime, timezone
 from pathlib import Path
 
 from telegram import Message, Update
@@ -24,6 +23,7 @@ from telegram.error import TelegramError
 from ..config import config
 from ..telegram_client import PTBTelegramClient
 from ..window_query import view_window
+from ..user_time import now_display
 from ..multiplexer.window_ops import send_to_window
 from ..thread_router import thread_router
 from .callback_helpers import get_thread_id
@@ -108,13 +108,13 @@ def _unique_dest(dest: Path) -> Path:
         if not candidate.exists() and not candidate.is_symlink():
             return candidate
     # Fallback: use timestamp
-    ts = datetime.now(tz=timezone.utc).strftime("%H%M%S%f")
+    ts = now_display().strftime("%H%M%S%f")
     return parent / f"{stem}_{ts}{suffix}"
 
 
 def _generate_photo_filename(file_unique_id: str) -> str:
     """Generate a photo filename: photo_YYYYMMDD_HHMMSS_<8chars>.jpg."""
-    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    timestamp = now_display().strftime("%Y%m%d_%H%M%S")
     short_id = file_unique_id[:8]
     return f"photo_{timestamp}_{short_id}.jpg"
 

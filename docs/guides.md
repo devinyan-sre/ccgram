@@ -268,8 +268,9 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_ACK_REACTION`                                | _(关闭)_                      | 转发消息后回贴的表情(如 `👀`);留空关闭                                                             |
 | `CCGRAM_EPHEMERAL_TOOLS`                             | `0`                            | 工具调用消息在完成后自动清理;每话题可用 `/verbose` 覆盖                                             |
 | `CCGRAM_LANG`                                        | `en`                           | 机器人界面语言;设为 `zh` 切换为简体中文                                                             |
-| `CCGRAM_QUIET_HOURS`                                 | _(关闭)_                       | 免打扰时段 `HH:MM-HH:MM`(服务器本地时间,支持跨午夜);时段内自动消息静默送达                        |
-| `CCGRAM_DAILY_DIGEST`                                | _(关闭)_                       | 每日摘要时间 `HH:MM`(服务器本地时间);向 General 话题发送各话题过去 24 小时的活动汇总               |
+| `CCGRAM_TIMEZONE`                                    | `UTC`                          | 人类可见时间和本地定时任务使用的 IANA 时区；北京时间设为 `Asia/Shanghai`                             |
+| `CCGRAM_QUIET_HOURS`                                 | _(关闭)_                       | 免打扰时段 `HH:MM-HH:MM`（按 `CCGRAM_TIMEZONE`，支持跨午夜）；时段内自动消息静默送达                 |
+| `CCGRAM_DAILY_DIGEST`                                | _(关闭)_                       | 每日摘要时间 `HH:MM`（按 `CCGRAM_TIMEZONE`）；向 General 话题发送各话题过去 24 小时的活动汇总        |
 | `CCGRAM_OPERATOR_CHAT_ID`                            | _(最小 allowed-user)_          | 运营者告警/启动自检的私信目标;留空则取 allowed-users 中最小的 id                                    |
 | `CCGRAM_OPERATOR_FALLBACK_CHAT_ID`                   | _(回落到 `CCGRAM_GROUP_ID`)_   | 私信投递失败时的降级目标(机器人已加入的群/话题),避免运营者未开私聊导致告警静默丢失                |
 | `CCGRAM_ERROR_ALERTS`                                | `1`                            | 同类错误短时间内多次出现时向运营者发告警;设为 `0` 关闭                                              |
@@ -570,6 +571,11 @@ General 显示全群任务；`topic` 只在每个已绑定工作话题显示本�
 Shell，以及 tmux/herdr 都使用同一实现。它不会读取或展示问题正文、终端输出、文件
 路径、token 或密钥。`normal` 隐私级别显示机器人已经从授权消息观察到的用户名或
 昵称；`strict` 使用不可反推 Telegram ID 的稳定匿名代号。
+
+总览时间按 `CCGRAM_TIMEZONE` 显示；例如设置 `Asia/Shanghai` 后显示“北京时间”。
+Codex 等会在任务中途发送过程说明的 CLI，只有明确的最终答复才会结束总览任务，
+过程说明不会再导致“任务仍在执行、置顶却提前显示已结束”。没有阶段元数据的 CLI
+继续沿用完整助手回复作为完成信号，因此兼容现有 Claude、Gemini、Pi 和 Shell 流程。
 
 机器人会把每个总览的消息 ID 保存到权限为 `0600` 的
 `~/.ccgram/dashboard.json`。服务重启后继续编辑原消息；消息被人工删除后自动重建。

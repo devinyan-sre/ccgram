@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import timedelta
 import hashlib
 import json
 import os
@@ -29,6 +29,7 @@ from .i18n import t
 from .task_scheduler import TaskView, task_scheduler
 from .telegram_client import TelegramClient
 from .thread_router import thread_router
+from .user_time import now_display
 from .utils import task_done_callback
 
 logger = structlog.get_logger()
@@ -94,7 +95,7 @@ class OperationsDashboard:
                 for key, value in raw.get("operators", {}).items()
                 if str(value).strip()
             }
-        except (OSError, ValueError, TypeError):
+        except OSError, ValueError, TypeError:
             logger.warning("Could not load operations dashboard state", exc_info=True)
 
     def _save_state(self) -> None:
@@ -142,9 +143,7 @@ class OperationsDashboard:
     def start(self) -> None:
         if self._task is not None and not self._task.done():
             return
-        self._task = asyncio.create_task(
-            self._run(), name="operations-dashboard"
-        )
+        self._task = asyncio.create_task(self._run(), name="operations-dashboard")
         self._task.add_done_callback(task_done_callback)
         logger.info(
             "Operations dashboard started",
@@ -172,8 +171,7 @@ class OperationsDashboard:
             (
                 candidate
                 for candidate in targets
-                if candidate.chat_id == chat_id
-                and candidate.thread_id == thread_id
+                if candidate.chat_id == chat_id and candidate.thread_id == thread_id
             ),
             None,
         )
@@ -200,7 +198,13 @@ class OperationsDashboard:
             except asyncio.CancelledError:
                 raise
             except RetryAfter as exc:
-                delay = min(30.0, max(1.0, float(exc.retry_after)))
+                retry_after = exc.retry_after
+                retry_seconds = (
+                    retry_after.total_seconds()
+                    if isinstance(retry_after, timedelta)
+                    else float(retry_after)
+                )
+                delay = min(30.0, max(1.0, retry_seconds))
                 logger.warning("Dashboard rate limited", retry_after=delay)
                 await asyncio.sleep(delay)
             except Exception:  # optional observer must self-heal
@@ -232,14 +236,13 @@ class OperationsDashboard:
                     for _user_id, thread_id, _window_id in (
                         thread_router.iter_thread_bindings()
                     )
-                    if isinstance(thread_id, int)
-                    and thread_id > _GENERAL_THREAD_ID
+                    if isinstance(thread_id, int) and thread_id > _GENERAL_THREAD_ID
                 )
             for key, chat_id in thread_router.group_chat_ids.items():
                 try:
                     _user_id, raw_thread = key.split(":", 1)
                     thread_id = int(raw_thread)
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     continue
                 if (
                     isinstance(chat_id, int)
@@ -257,8 +260,7 @@ class OperationsDashboard:
         now = time.time()
         current_views = task_scheduler.views()
         current = {
-            (view.chat_id, view.thread_id, view.task_id): view
-            for view in current_views
+            (view.chat_id, view.thread_id, view.task_id): view for view in current_views
         }
         for key, old_view in self._previous_tasks.items():
             if key not in current:
@@ -274,15 +276,19 @@ class OperationsDashboard:
         self._previous_tasks = current
 
     async def _upsert(self, target: DashboardTarget, *, force: bool = False) -> None:
-        if not force and time.monotonic() < self._target_retry_at.get(
-            target.key, 0.0
-        ):
+        if not force and time.monotonic() < self._target_retry_at.get(target.key, 0.0):
             return
         text = self._render(target, precise_time=force)
         if not force and self._last_text.get(target.key) == text:
             return
         markup = InlineKeyboardMarkup(
-            [[InlineKeyboardButton(t("🔄 Refresh"), callback_data=CB_DASHBOARD_REFRESH)]]
+            [
+                [
+                    InlineKeyboardButton(
+                        t("🔄 Refresh"), callback_data=CB_DASHBOARD_REFRESH
+                    )
+                ]
+            ]
         )
         message_id = self._message_ids.get(target.key)
         if message_id is None:
@@ -412,7 +418,9 @@ class OperationsDashboard:
             cap = config.max_parallel_per_topic
         lines = [
             title,
-            t("Concurrency {used}/{limit} · queued {queued} · cancelling {cancelling}").format(
+            t(
+                "Concurrency {used}/{limit} · queued {queued} · cancelling {cancelling}"
+            ).format(
                 used=active + cancelling,
                 limit=cap,
                 queued=queued,
@@ -444,7 +452,7 @@ class OperationsDashboard:
         else:
             lines.append(t("⚪ No active or queued tasks"))
 
-        now = datetime.now(UTC)
+        now = now_display()
         if not precise_time:
             # Idle topic dashboards must not consume the group's Telegram API
             # budget once per minute. State changes still render immediately;
@@ -454,13 +462,18 @@ class OperationsDashboard:
                 second=0,
                 microsecond=0,
             )
-        stamp_format = "%H:%M:%S UTC" if precise_time else "%H:%M UTC"
+        stamp_format = "%H:%M:%S" if precise_time else "%H:%M"
+        timezone_label = (
+            t("Beijing Time")
+            if config.timezone_name == "Asia/Shanghai"
+            else config.timezone_name
+        )
         lines.extend(
             [
                 "",
-                t("Updated {time} · one operator is serial, operators are parallel").format(
-                    time=now.strftime(stamp_format)
-                ),
+                t(
+                    "Updated {time} · one operator is serial, operators are parallel"
+                ).format(time=f"{now.strftime(stamp_format)} {timezone_label}"),
             ]
         )
         return "\n".join(lines)[:4096]
@@ -490,13 +503,11 @@ class OperationsDashboard:
             f"{topic} · {self._duration(view.age_seconds)}{supplements}{suffix}"
         )
 
-    def _render_completed(
-        self, row: _CompletedTask, *, include_topic: bool
-    ) -> str:
-        topic = (
-            f" · {self._topic_name_for_view(row.view)}" if include_topic else ""
+    def _render_completed(self, row: _CompletedTask, *, include_topic: bool) -> str:
+        topic = f" · {self._topic_name_for_view(row.view)}" if include_topic else ""
+        outcome = (
+            t("cancelled") if row.view.state in ("queued", "cancelling") else t("ended")
         )
-        outcome = t("cancelled") if row.view.state in ("queued", "cancelling") else t("ended")
         return (
             f"✅ {row.view.task_id} · {self._operator(row.view.user_id)}{topic}"
             f" · {outcome} {self._duration(time.time() - row.ended_at)} ago"

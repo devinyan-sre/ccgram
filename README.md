@@ -112,6 +112,8 @@ CCGRAM_TASK_CANCEL_CONFIRM_SECONDS=8
 CCGRAM_TASK_ESTIMATE_DEFAULT_SECONDS=300
 CCGRAM_DASHBOARD_ENABLED=true
 CCGRAM_DASHBOARD_SCOPE=both
+CCGRAM_LANG=zh
+CCGRAM_TIMEZONE=Asia/Shanghai
 ```
 
 用户 ID 可从 [@userinfobot](https://t.me/userinfobot) 获取。群组 ID 可通过 [@RawDataBot](https://t.me/RawDataBot) 获取(在 Peer ID 前加 `-100` 前缀)。

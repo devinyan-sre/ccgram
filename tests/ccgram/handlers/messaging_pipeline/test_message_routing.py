@@ -4,7 +4,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from ccgram.handlers.messaging_pipeline import message_routing
-from ccgram.handlers.messaging_pipeline.message_routing import handle_new_message
+from ccgram.handlers.messaging_pipeline.message_routing import (
+    _is_terminal_assistant_text,
+    handle_new_message,
+)
 from ccgram.session_monitor import NewMessage
 
 
@@ -164,6 +167,20 @@ async def test_complete_message_enqueues_content(bot, mock_deps):
     assert kwargs["user_id"] == 100
     assert kwargs["window_id"] == "@5"
     assert kwargs["thread_id"] == 42
+
+
+def test_commentary_does_not_close_operator_task() -> None:
+    assert not _is_terminal_assistant_text(
+        _make_msg(text="working", phase="commentary")
+    )
+
+
+def test_explicit_final_answer_closes_operator_task() -> None:
+    assert _is_terminal_assistant_text(_make_msg(text="done", phase="final_answer"))
+
+
+def test_provider_without_phase_keeps_legacy_completion() -> None:
+    assert _is_terminal_assistant_text(_make_msg(text="done", phase=None))
 
 
 async def test_incomplete_assistant_text_streams_then_final_enqueues(bot, mock_deps):

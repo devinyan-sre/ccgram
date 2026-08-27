@@ -21,6 +21,7 @@ from ...providers import get_provider_for_window
 from ...telegram_client import TelegramClient
 from ...user_preferences import user_preferences
 from ...thread_router import thread_router
+from ...user_time import localize_timestamp
 from ...telegram_sender import split_message
 from ..callback_data import CB_HISTORY_NEXT, CB_HISTORY_PREV
 from ..callback_helpers import get_thread_id as _get_thread_id
@@ -37,7 +38,7 @@ def _format_timestamp(ts: str | None) -> str:
     if not ts:
         return ""
     try:
-        return datetime.fromisoformat(ts).strftime("%H:%M")
+        return localize_timestamp(datetime.fromisoformat(ts)).strftime("%H:%M")
     except (ValueError, TypeError):  # fmt: skip
         return ""
 

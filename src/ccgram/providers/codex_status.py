@@ -7,9 +7,12 @@ messages; this snapshot provides a reliable fallback.
 
 import json
 from collections.abc import Iterator
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from ..config import config
+from ..i18n import t
+from ..user_time import format_epoch
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
@@ -35,11 +38,19 @@ def _fmt_int(value: Any) -> str:
 
 
 def _fmt_epoch_utc(value: Any) -> str:
-    """Format UNIX epoch seconds as UTC timestamp."""
+    """Format UNIX epoch seconds in the configured display timezone.
+
+    The legacy private name is kept for compatibility with downstream imports.
+    """
     parsed = _as_int(value)
     if parsed is None:
         return "?"
-    return datetime.fromtimestamp(parsed, UTC).strftime("%Y-%m-%d %H:%M UTC")
+    zone = (
+        t("Beijing Time")
+        if config.timezone_name == "Asia/Shanghai"
+        else config.timezone_name
+    )
+    return f"{format_epoch(parsed, '%Y-%m-%d %H:%M')} {zone}"
 
 
 def _display_cwd(cwd: str) -> str:

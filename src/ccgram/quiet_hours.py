@@ -63,11 +63,12 @@ def silent_kwargs() -> dict[str, bool]:
     """
     # Lazy: config requires bot env vars; resolve only when the bot sends.
     from .config import config
+    from .user_time import now_display
 
     spec = getattr(config, "quiet_hours", "")
     window = parse_spec(spec)
     if window is None:
         return {}
-    if is_quiet(window, _dt.datetime.now().time()):
+    if is_quiet(window, now_display().time()):
         return {"disable_notification": True}
     return {}

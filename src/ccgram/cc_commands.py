@@ -22,6 +22,7 @@ from ccgram.command_catalog import (
     discover_user_defined_commands,
     parse_frontmatter as _parse_frontmatter,
 )
+from ccgram.i18n import t
 from ccgram.providers.base import AgentProvider
 from telegram import Bot, BotCommand, BotCommandScope
 
@@ -135,6 +136,13 @@ def _sanitize_telegram_name(name: str) -> str:
 def _cc_desc(desc: str) -> str:
     """Ensure description has ↗ prefix for CC-forwarded commands."""
     return desc if desc.startswith("↗") else f"↗ {desc}"
+
+
+def _localized_command_description(description: str) -> str:
+    """Translate known menu descriptions while preserving the CLI marker."""
+    marker = "↗ " if description.startswith("↗ ") else ""
+    source = description[len(marker) :]
+    return f"{marker}{t(source)}"[:_MAX_DESCRIPTION_LEN]
 
 
 def parse_frontmatter(path: Path) -> dict[str, str]:
@@ -339,7 +347,10 @@ async def register_commands(
         else []
     )
 
-    bot_commands = [BotCommand(name, desc) for name, desc in _BOT_COMMANDS]
+    bot_commands = [
+        BotCommand(name, _localized_command_description(desc))
+        for name, desc in _BOT_COMMANDS
+    ]
     max_cc = _MAX_TELEGRAM_COMMANDS - len(bot_commands)
 
     # Pre-populate with bot-native names to avoid collisions
@@ -352,7 +363,7 @@ async def register_commands(
         if not cmd.telegram_name or cmd.telegram_name in seen_names:
             continue
         seen_names.add(cmd.telegram_name)
-        desc = cmd.description[:_MAX_DESCRIPTION_LEN]
+        desc = _localized_command_description(cmd.description)
         bot_commands.append(BotCommand(cmd.telegram_name, desc))
         cc_count += 1
 

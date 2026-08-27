@@ -166,7 +166,9 @@ async def _tick_one_view(
             return
 
         png_bytes = await text_to_image(text, with_ansi=True, live_mode=True)
-        ts = time.strftime("%H:%M:%S")
+        from ...user_time import now_display
+
+        ts = now_display().strftime("%H:%M:%S")
 
         await rate_limit_send(view.chat_id)
 

@@ -41,6 +41,21 @@ _active_drafts: dict[tuple[int, str, int | None, int], DraftStream] = {}
 _draft_expiry_tasks: dict[tuple[int, str, int | None, int], asyncio.Task[None]] = {}
 
 
+def _is_terminal_assistant_text(msg: NewMessage) -> bool:
+    """Return whether an assistant text closes the current operator task.
+
+    Providers without phase metadata retain the historical behaviour: a
+    complete assistant text ends the task. Providers that expose a phase can
+    send commentary/progress before the final answer; only an explicit final
+    phase may release the scheduler slot.
+    """
+    if msg.role != "assistant" or msg.content_type != "text" or not msg.is_complete:
+        return False
+    if msg.phase is None:
+        return True
+    return msg.phase.lower() in {"final", "final_answer"}
+
+
 def _arm_draft_expiry(
     key: tuple[int, str, int | None, int], draft: DraftStream
 ) -> None:
@@ -219,7 +234,7 @@ async def handle_new_message(  # noqa: C901, PLR0912 - explicit routing stages
                     )
                 except OSError:
                     pass
-            if msg.content_type == "text" and msg.role == "assistant":
+            if _is_terminal_assistant_text(msg):
                 inbound_store.mark_window_done(window_id)
                 await task_scheduler.release_window(window_id)
                 # File overlap detection is advisory and must not delay final

@@ -103,6 +103,7 @@ def test_dynamic_t_calls_are_allowlisted() -> None:
     # Each allowlisted site passes a module-level constant / dict value into
     # t(); test_dynamic_site_values_are_translated verifies those values.
     allowlist = [
+        "cc_commands.py:145",
         "destructive_audit.py:117",
         "handlers/interactive/interactive_callbacks.py:137",
         "handlers/interactive/interactive_ui.py:102",
@@ -133,6 +134,8 @@ def test_dynamic_site_values_are_translated() -> None:
     from ccgram.handlers.live.pane_callbacks import _RENAME_PROMPT
     from ccgram.handlers.sync_command import _CATEGORY_LABELS
     from ccgram.handlers.text.text_handler import PENDING_DELIVERY_NOTICE
+    from ccgram.cc_commands import _BOT_COMMANDS
+    from ccgram.providers.codex import _CODEX_BUILTINS
 
     values = [
         INTERACTIVE_INSTRUCTION_LINE,
@@ -141,6 +144,8 @@ def test_dynamic_site_values_are_translated() -> None:
         *INTERACTIVE_KEY_LABELS.values(),
         *_CATEGORY_LABELS.values(),
         *_ACTION_TEXT.values(),
+        *(description for _name, description in _BOT_COMMANDS),
+        *_CODEX_BUILTINS.values(),
     ]
     missing = [v for v in values if v not in _ZH]
     assert not missing, (

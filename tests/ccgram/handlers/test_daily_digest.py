@@ -148,7 +148,9 @@ class TestSetup:
             mock_config.daily_digest_time = "08:30"
             setup_daily_digest_job(app)
         app.job_queue.run_daily.assert_called_once()
-        assert app.job_queue.run_daily.call_args.kwargs["time"] == dt.time(8, 30)
+        assert app.job_queue.run_daily.call_args.kwargs["time"] == dt.time(
+            8, 30, tzinfo=dt.UTC
+        )
 
     def test_invalid_spec_skipped(self) -> None:
         app = MagicMock()

@@ -246,8 +246,9 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_ACK_REACTION`                                | _(disabled)_                   | Emoji reaction applied to forwarded messages (e.g. `👀`); empty disables it                          |
 | `CCGRAM_EPHEMERAL_TOOLS`                             | `0`                            | Clean up tool-call messages once they complete; `/verbose` overrides per topic                       |
 | `CCGRAM_LANG`                                        | `en`                           | Bot UI language; set `zh` for Simplified Chinese                                                     |
-| `CCGRAM_QUIET_HOURS`                                 | _(disabled)_                   | Do-not-disturb window `HH:MM-HH:MM` (server local time, wraps midnight); automated messages arrive silently |
-| `CCGRAM_DAILY_DIGEST`                                | _(disabled)_                   | Daily digest time `HH:MM` (server local time); posts a per-topic 24h activity summary to General      |
+| `CCGRAM_TIMEZONE`                                    | `UTC`                          | IANA timezone for human-facing timestamps and local schedules; use `Asia/Shanghai` for Beijing time   |
+| `CCGRAM_QUIET_HOURS`                                 | _(disabled)_                   | Do-not-disturb window `HH:MM-HH:MM` in `CCGRAM_TIMEZONE` (wraps midnight); automated messages arrive silently |
+| `CCGRAM_DAILY_DIGEST`                                | _(disabled)_                   | Daily digest time `HH:MM` in `CCGRAM_TIMEZONE`; posts a per-topic 24h activity summary to General     |
 | `CCGRAM_OPERATOR_CHAT_ID`                            | _(lowest allowed-user)_        | DM target for operator alerts / startup self-checks; empty uses the lowest allowed-user id            |
 | `CCGRAM_OPERATOR_FALLBACK_CHAT_ID`                   | _(falls back to `CCGRAM_GROUP_ID`)_ | Fallback sink when the operator DM can't be delivered (a group/topic the bot is in), so alerts aren't silently lost when the operator never opened a private chat |
 | `CCGRAM_ERROR_ALERTS`                                | `1`                            | Alert the operator when the same error fires repeatedly in a short window; set `0` to disable         |
@@ -435,6 +436,11 @@ instead of posting status updates repeatedly. `CCGRAM_DASHBOARD_SCOPE` selects
 the group-wide General view, a local view in every bound named topic, or both.
 General never binds a CLI workspace. The feature reads only the common scheduler
 and router, so every provider and multiplexer backend behaves identically.
+
+Dashboard timestamps use `CCGRAM_TIMEZONE`. Providers such as Codex can emit
+commentary while a task is still running; only an explicit final answer closes
+that task. Providers without phase metadata retain their complete-reply completion
+behaviour for compatibility.
 
 The mode-`0600` `~/.ccgram/dashboard.json` stores message IDs and safe operator
 labels. Restarts keep editing the original message; deleted messages are

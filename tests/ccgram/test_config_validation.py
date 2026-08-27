@@ -118,6 +118,11 @@ def test_regional_chinese_variant_is_accepted(env):
     assert not any("CCGRAM_LANG" in w for w in warnings)
 
 
+def test_invalid_timezone_is_fatal(env):
+    fatal, _ = env(CCGRAM_TIMEZONE="Invalid/Zone").validate()
+    assert any("CCGRAM_TIMEZONE" in error for error in fatal)
+
+
 def test_malformed_quiet_hours_warns(env):
     _, warnings = env(CCGRAM_QUIET_HOURS="22-7").validate()
     assert any("CCGRAM_QUIET_HOURS" in w for w in warnings)

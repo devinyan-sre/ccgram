@@ -14,7 +14,7 @@ class TestFormatTimestamp:
         [
             ("2024-01-15T14:32:00.000Z", "14:32"),
             ("2024-01-15T14:32:00Z", "14:32"),
-            ("2024-01-15T14:32:00+05:30", "14:32"),
+            ("2024-01-15T14:32:00+05:30", "09:02"),
             ("2024-01-15T14:32:59", "14:32"),
             ("2024-01-15 14:32:00", "14:32"),
             ("not-a-timestamp", ""),
@@ -34,6 +34,12 @@ class TestFormatTimestamp:
     )
     def test_format_timestamp(self, ts: str | None, expected: str) -> None:
         assert _format_timestamp(ts) == expected
+
+    def test_format_timestamp_in_configured_timezone(self, monkeypatch) -> None:
+        from ccgram.config import config
+
+        monkeypatch.setattr(config, "timezone_name", "Asia/Shanghai")
+        assert _format_timestamp("2024-01-15T14:32:00Z") == "22:32"
 
 
 class TestSendHistoryDirectSend:

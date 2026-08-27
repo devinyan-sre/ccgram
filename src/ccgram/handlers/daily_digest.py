@@ -20,6 +20,7 @@ import structlog
 
 from ..i18n import t
 from ..thread_router import thread_router
+from ..user_time import display_timezone
 from ..window_query import view_window
 from .digest_text import DigestStats, analyze, entry_ts
 
@@ -240,5 +241,5 @@ def setup_daily_digest_job(application: Application) -> None:
 
     jq = getattr(application, "job_queue", None)
     if jq is not None:
-        jq.run_daily(_run, time=at)
+        jq.run_daily(_run, time=at.replace(tzinfo=display_timezone()))
         logger.info("Daily digest scheduled at %s", spec)

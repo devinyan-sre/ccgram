@@ -262,6 +262,26 @@ class TestRegisterCommands:
         assert "clear" in names
         assert "compact" in names
 
+    async def test_chinese_menu_descriptions_with_english_fallback(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from ccgram.i18n import _reset_language_for_testing
+        from ccgram.providers.codex import CodexProvider
+
+        monkeypatch.setenv("CCGRAM_LANG", "zh")
+        _reset_language_for_testing()
+        try:
+            bot = AsyncMock()
+            await register_commands(bot, claude_dir=tmp_path, provider=CodexProvider())
+            registered = {
+                command.command: command.description
+                for command in bot.set_my_commands.call_args.args[0]
+            }
+            assert registered["start"] == "显示 ccgram 欢迎信息"
+            assert registered["compact"] == "↗ 压缩历史并释放上下文"
+        finally:
+            _reset_language_for_testing()
+
     async def test_skips_reregistration_when_unchanged(self, tmp_path: Path) -> None:
         bot = AsyncMock()
         await register_commands(bot, claude_dir=tmp_path)

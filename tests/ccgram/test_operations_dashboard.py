@@ -1,15 +1,28 @@
 from __future__ import annotations
 
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
+import pytest
 from telegram.error import BadRequest, Forbidden
 
+import ccgram.thread_router as thread_router_module
 from ccgram.config import config
 from ccgram.operations_dashboard import DashboardTarget, OperationsDashboard
 from ccgram.task_scheduler import TaskView
 from ccgram.telegram_client import FakeTelegramClient
-from ccgram.thread_router import thread_router
+from ccgram.thread_router import ThreadRouter, thread_router
+
+
+@pytest.fixture(autouse=True)
+def _wire_test_router(monkeypatch) -> None:
+    router = ThreadRouter(
+        schedule_save=lambda: None,
+        has_window_state=lambda _window_id: True,
+    )
+    monkeypatch.setattr(thread_router_module, "_active_router", router)
 
 
 def _view(**overrides: object) -> TaskView:
@@ -140,9 +153,7 @@ async def test_missing_topic_backs_off_instead_of_retrying_every_tick(
 ) -> None:
     _configure(monkeypatch, scope="topic")
     client = FakeTelegramClient()
-    client.set_side_effect(
-        "send_message", [BadRequest("Message thread not found")]
-    )
+    client.set_side_effect("send_message", [BadRequest("Message thread not found")])
     dashboard = OperationsDashboard(client, tmp_path / "state.json")
     target = DashboardTarget(-1001, 4268, False)
 
@@ -193,6 +204,22 @@ def test_completed_task_is_retained_briefly(tmp_path, monkeypatch) -> None:
 
     assert "T0001" in rendered
     assert "✅" in rendered
+
+
+def test_render_uses_configured_beijing_time(tmp_path, monkeypatch) -> None:
+    _configure(monkeypatch)
+    monkeypatch.setattr(config, "timezone_name", "Asia/Shanghai")
+    dashboard = OperationsDashboard(FakeTelegramClient(), tmp_path / "state.json")
+    target = DashboardTarget(-1001, 17, False)
+    fixed = datetime(2026, 8, 27, 11, 5, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+    with (
+        patch("ccgram.operations_dashboard.task_scheduler.views", return_value=[]),
+        patch("ccgram.operations_dashboard.now_display", return_value=fixed),
+    ):
+        rendered = dashboard._render(target, precise_time=True)
+
+    assert "11:05:00 Beijing Time" in rendered
 
 
 def test_subminute_durations_use_coarse_api_safe_buckets() -> None:
