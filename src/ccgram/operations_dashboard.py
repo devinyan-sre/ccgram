@@ -349,6 +349,7 @@ class OperationsDashboard:
         health.last_success_at = time.time()
         DASHBOARD_SYNC_TIMESTAMP.set(health.last_success_at, target=target.key)
         DASHBOARD_QUARANTINED.set(0, target=target.key)
+        self._save_state()
 
     def _record_failure(
         self, target: DashboardTarget, error: Exception, *, definitive: bool
@@ -534,7 +535,6 @@ class OperationsDashboard:
         except TelegramError as exc:
             # Posting/editing remains useful without the admin pin permission.
             self._pin_retry_at[target.key] = now + _PIN_RETRY_SECONDS
-            self._save_state()
             health = self._target_health.setdefault(target.key, _TargetHealth())
             health.pinned = False
             DASHBOARD_PINNED.set(0, target=target.key)
@@ -547,6 +547,7 @@ class OperationsDashboard:
             # Reassert occasionally so a manual/unexpected unpin self-heals,
             # while avoiding a pin API call on every dashboard edit.
             self._pin_retry_at[target.key] = now + _PIN_RETRY_SECONDS
+            self._save_state()
 
     def _render(self, target: DashboardTarget, *, precise_time: bool) -> str:
         views = task_scheduler.views(chat_id=target.chat_id)

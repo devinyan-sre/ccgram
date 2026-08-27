@@ -93,6 +93,10 @@ async def test_existing_dashboard_reasserts_pin_on_first_edit(
     assert client.call_count("pin_chat_message") == 1
     assert client.last_call("pin_chat_message").kwargs["message_id"] == 55  # type: ignore[union-attr]
 
+    restored = OperationsDashboard(FakeTelegramClient(), tmp_path / "state.json")
+    assert restored._target_health[target.key].pinned is True
+    assert restored._target_health[target.key].last_success_at > 0
+
 
 async def test_unchanged_existing_dashboard_still_reasserts_pin(
     tmp_path, monkeypatch
