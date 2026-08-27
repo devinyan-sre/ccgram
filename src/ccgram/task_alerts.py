@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 from .config import config
+from .i18n import t
 from .operator_alerts import notify_operator
 from .task_scheduler import task_scheduler
 from .telegram_client import TelegramClient
@@ -26,9 +27,16 @@ async def check_task_queue_alerts(client: TelegramClient) -> int:
             continue
         await notify_operator(
             client,
-            "⚠️ *CCGram task queue stalled*\n\n"
-            f"topic `{view.thread_id}` · user `{view.user_id}` · "
-            f"waiting `{int(view.age_seconds)}s` · position `{view.queue_position}`",
+            t(
+                "⚠️ *CCGram task queue stalled*\n\n"
+                "topic `{thread_id}` · user `{user_id}` · "
+                "waiting `{age}s` · position `{position}`"
+            ).format(
+                thread_id=view.thread_id,
+                user_id=view.user_id,
+                age=int(view.age_seconds),
+                position=view.queue_position,
+            ),
         )
         _last_alert[key] = now
         alerted += 1

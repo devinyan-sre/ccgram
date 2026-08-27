@@ -1,11 +1,14 @@
 from unittest.mock import AsyncMock, patch
 
+from ccgram.i18n import _reset_language_for_testing
 from ccgram.task_alerts import check_task_queue_alerts, reset_for_testing
 from ccgram.task_scheduler import TaskView
 from ccgram.telegram_client import FakeTelegramClient
 
 
-async def test_stalled_queue_alerts_operator_once_per_cooldown() -> None:
+async def test_stalled_queue_alerts_operator_once_per_cooldown(monkeypatch) -> None:
+    monkeypatch.setenv("CCGRAM_LANG", "zh")
+    _reset_language_for_testing()
     reset_for_testing()
     queued = TaskView(
         chat_id=-100,
@@ -26,3 +29,8 @@ async def test_stalled_queue_alerts_operator_once_per_cooldown() -> None:
         assert await check_task_queue_alerts(FakeTelegramClient()) == 0
 
     notify.assert_awaited_once()
+    call = notify.await_args
+    assert call is not None
+    assert "任务排队停滞" in call.args[1]
+    assert "队列位置 `2`" in call.args[1]
+    _reset_language_for_testing()

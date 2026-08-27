@@ -317,6 +317,23 @@ def _diagnostic_problems(
     return problems
 
 
+def _localized_diagnostic_problem(problem: str) -> str:
+    translations = {
+        "window is parked/dead": t("window is parked/dead"),
+        "foreground provider differs from state": t(
+            "foreground provider differs from state"
+        ),
+        "transcript provider differs from state": t(
+            "transcript provider differs from state"
+        ),
+        "no session binding": t("no session binding"),
+        "session is not tracked by the delivery monitor": t(
+            "session is not tracked by the delivery monitor"
+        ),
+    }
+    return translations.get(problem, problem)
+
+
 def _file_size(path: str) -> int:
     if not path:
         return 0
@@ -363,22 +380,34 @@ async def _diagnose(window_id: str) -> str:
         session_id=session_id,
         tracked=tracked_found or not session_id,
     )
-    health = "✅ consistent" if not problems else "⚠ " + "; ".join(problems)
-    lifecycle = "parked" if lifecycle_state.is_parked(window_id) else "active"
-    process = "dead"
+    health = (
+        t("✅ consistent")
+        if not problems
+        else "⚠ "
+        + t("; ").join(_localized_diagnostic_problem(problem) for problem in problems)
+    )
+    lifecycle = t("parked") if lifecycle_state.is_parked(window_id) else t("active")
+    process = t("dead")
     if foreground:
-        process = f"pid {foreground.pid} · {' '.join(foreground.argv[:3])}"
+        process = t("pid {pid} · {command}").format(
+            pid=foreground.pid,
+            command=" ".join(foreground.argv[:3]),
+        )
     return "\n".join(
         [
-            f"Topic diagnostic · `{window_id}`",
-            f"Health: {health}",
-            f"Lifecycle: {lifecycle}",
-            f"Provider: state `{view.provider_name or '-'}` · detected `{detected or '-'}`",
-            f"Process: {process}",
-            f"Session: `{session_id or '-'}`",
-            f"Transcript: `{transcript or '-'}`",
-            f"Delivery: file {file_size} bytes · committed {delivered} · lag {lag}",
-            f"CWD: `{view.cwd}`",
+            t("Topic diagnostic · `{window_id}`").format(window_id=window_id),
+            t("Health: {health}").format(health=health),
+            t("Lifecycle: {lifecycle}").format(lifecycle=lifecycle),
+            t("Provider: state `{state}` · detected `{detected}`").format(
+                state=view.provider_name or "-", detected=detected or "-"
+            ),
+            t("Process: {process}").format(process=process),
+            t("Session: `{session_id}`").format(session_id=session_id or "-"),
+            t("Transcript: `{transcript}`").format(transcript=transcript or "-"),
+            t(
+                "Delivery: file {file_size} bytes · committed {delivered} · lag {lag}"
+            ).format(file_size=file_size, delivered=delivered, lag=lag),
+            t("CWD: `{cwd}`").format(cwd=view.cwd),
         ]
     )
 
@@ -420,34 +449,45 @@ async def ops_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> No
         "queued_force_cancelled", 0
     )
     health = (
-        "✅ healthy"
+        t("✅ healthy")
         if not pending and not lag and not task_stats.cancelling
-        else "⚠ attention needed"
+        else t("⚠ attention needed")
     )
     await safe_reply(
         update.message,
         "\n".join(
             [
-                f"ccgram ops · {health}",
-                f"Sessions: {tracked} tracked · {stalled} stalled",
-                f"Delivery: {lag} bytes lag · {pending} durable pending",
-                f"Queues: {topic_queues} topics · {queued} queued · {unfinished} active",
-                (
-                    "Provider tasks: "
-                    f"{task_stats.active} active · {task_stats.queued} queued · "
-                    f"{task_stats.cancelling} cancelling"
+                t("ccgram ops · {health}").format(health=health),
+                t("Sessions: {tracked} tracked · {stalled} stalled").format(
+                    tracked=tracked, stalled=stalled
                 ),
-                (
-                    "Task timing: "
-                    f"avg {task_stats.average_duration_seconds}s · "
-                    f"oldest wait {task_stats.oldest_queue_seconds}s"
+                t("Delivery: {lag} bytes lag · {pending} durable pending").format(
+                    lag=lag, pending=pending
                 ),
-                (
-                    "Cancels (24h): "
-                    f"{cancel_confirmed} confirmed · {cancel_timeouts} timed out · "
-                    f"{force_cancelled} forced"
+                t("Queues: {topics} topics · {queued} queued · {active} active").format(
+                    topics=topic_queues, queued=queued, active=unfinished
                 ),
-                f"Retries: {retrying}",
+                t(
+                    "Provider tasks: {active} active · {queued} queued · "
+                    "{cancelling} cancelling"
+                ).format(
+                    active=task_stats.active,
+                    queued=task_stats.queued,
+                    cancelling=task_stats.cancelling,
+                ),
+                t("Task timing: avg {average}s · oldest wait {oldest}s").format(
+                    average=task_stats.average_duration_seconds,
+                    oldest=task_stats.oldest_queue_seconds,
+                ),
+                t(
+                    "Cancels (24h): {confirmed} confirmed · {timed_out} timed out · "
+                    "{forced} forced"
+                ).format(
+                    confirmed=cancel_confirmed,
+                    timed_out=cancel_timeouts,
+                    forced=force_cancelled,
+                ),
+                t("Retries: {retrying}").format(retrying=retrying),
             ]
         ),
     )

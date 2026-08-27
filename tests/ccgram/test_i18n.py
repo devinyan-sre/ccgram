@@ -37,3 +37,22 @@ class TestCatalogHygiene:
                 assert ph in value, (
                     f"placeholder {ph} missing in translation of {key!r}"
                 )
+
+
+def test_delivery_stalled_alert_translates_all_fixed_fields(monkeypatch) -> None:
+    monkeypatch.setenv("CCGRAM_LANG", "zh")
+    _reset_language_for_testing()
+    text = t(
+        "⚠️ ccgram delivery stalled\n"
+        "session: `{session_id}`\n"
+        "pending: {lag} bytes · {duration}s\n"
+        "Use /ops and /diag for details."
+    ).format(session_id="abc", lag=5112, duration=30)
+
+    assert text == (
+        "⚠️ ccgram 投递暂时停滞\n"
+        "会话：`abc`\n"
+        "待投递：5112 字节 · 已持续 30 秒\n"
+        "请使用 /ops 和 /diag 查看详情。"
+    )
+    _reset_language_for_testing()

@@ -291,15 +291,24 @@ async def start_session_monitor(application: Application) -> SessionMonitor:
     monitor.set_delivery_drained_callback(is_session_delivery_drained)
 
     async def delivery_lag_callback(session_id: str, lag: int, duration: float) -> None:
-        # Lazy: operator alerts pull i18n and Telegram delivery helpers.
+        # Lazy: i18n is only needed when this uncommon alert actually fires.
+        from .i18n import t
+
+        # Lazy: operator alerts pull Telegram delivery helpers.
         from .operator_alerts import SEVERITY_WARNING, notify_operator
 
         await notify_operator(
             client,
-            "⚠️ ccgram delivery stalled\n"
-            f"session: `{session_id}`\n"
-            f"pending: {lag} bytes · {duration:.0f}s\n"
-            "Use /ops and /diag for details.",
+            t(
+                "⚠️ ccgram delivery stalled\n"
+                "session: `{session_id}`\n"
+                "pending: {lag} bytes · {duration}s\n"
+                "Use /ops and /diag for details."
+            ).format(
+                session_id=session_id,
+                lag=lag,
+                duration=int(duration),
+            ),
             severity=SEVERITY_WARNING,
         )
 

@@ -72,6 +72,17 @@ _ZH: dict[str, str] = {
     "⏸ Task {task_id} is still cancelling. Wait for confirmation or ask an admin to force-cancel it.": (
         "⏸ 任务 {task_id} 仍在取消确认中。请等待确认，或让管理员强制取消。"
     ),
+    "⚠️ ccgram delivery stalled\nsession: `{session_id}`\npending: {lag} bytes · {duration}s\nUse /ops and /diag for details.": (
+        "⚠️ ccgram 投递暂时停滞\n"
+        "会话：`{session_id}`\n"
+        "待投递：{lag} 字节 · 已持续 {duration} 秒\n"
+        "请使用 /ops 和 /diag 查看详情。"
+    ),
+    "⚠️ *CCGram task queue stalled*\n\ntopic `{thread_id}` · user `{user_id}` · waiting `{age}s` · position `{position}`": (
+        "⚠️ *CCGram 任务排队停滞*\n\n"
+        "话题 `{thread_id}` · 用户 `{user_id}` · "
+        "已等待 `{age}` 秒 · 队列位置 `{position}`"
+    ),
     "❌ Could not start your isolated workspace lane: {error}": (
         "❌ 无法启动你的隔离工作通道：{error}"
     ),
@@ -94,6 +105,53 @@ _ZH: dict[str, str] = {
     "State error": "状态错误",
     "(unknown)": "(未知)",
     "unknown": "未知",
+    "; ": "；",
+    # /ops and /diag
+    "✅ healthy": "✅ 运行正常",
+    "⚠ attention needed": "⚠ 需要关注",
+    "ccgram ops · {health}": "ccgram 运维状态 · {health}",
+    "Sessions: {tracked} tracked · {stalled} stalled": (
+        "会话：跟踪 {tracked} 个 · 停滞 {stalled} 个"
+    ),
+    "Delivery: {lag} bytes lag · {pending} durable pending": (
+        "投递：积压 {lag} 字节 · 持久化待投递 {pending} 条"
+    ),
+    "Queues: {topics} topics · {queued} queued · {active} active": (
+        "队列：{topics} 个话题 · 排队 {queued} 条 · 处理中 {active} 条"
+    ),
+    "Provider tasks: {active} active · {queued} queued · {cancelling} cancelling": (
+        "CLI 任务：运行 {active} 个 · 排队 {queued} 个 · 取消确认中 {cancelling} 个"
+    ),
+    "Task timing: avg {average}s · oldest wait {oldest}s": (
+        "任务耗时：平均 {average} 秒 · 最久等待 {oldest} 秒"
+    ),
+    "Cancels (24h): {confirmed} confirmed · {timed_out} timed out · {forced} forced": (
+        "取消统计（24 小时）：确认 {confirmed} 个 · 超时 {timed_out} 个 · 强制 {forced} 个"
+    ),
+    "Retries: {retrying}": "重试中：{retrying} 条",
+    "✅ consistent": "✅ 状态一致",
+    "window is parked/dead": "窗口已挂起或退出",
+    "foreground provider differs from state": "前台 CLI 与记录的 provider 不一致",
+    "transcript provider differs from state": "转录文件 provider 与记录状态不一致",
+    "no session binding": "没有会话绑定",
+    "session is not tracked by the delivery monitor": "投递监控未跟踪此会话",
+    "parked": "已挂起",
+    "pid {pid} · {command}": "进程 {pid} · {command}",
+    "Topic diagnostic · `{window_id}`": "话题诊断 · `{window_id}`",
+    "Health: {health}": "健康状态：{health}",
+    "Lifecycle: {lifecycle}": "生命周期：{lifecycle}",
+    "Provider: state `{state}` · detected `{detected}`": (
+        "Provider：记录 `{state}` · 检测 `{detected}`"
+    ),
+    "Process: {process}": "进程：{process}",
+    "Session: `{session_id}`": "会话：`{session_id}`",
+    "Transcript: `{transcript}`": "转录文件：`{transcript}`",
+    "Delivery: file {file_size} bytes · committed {delivered} · lag {lag}": (
+        "投递：文件 {file_size} 字节 · 已提交 {delivered} · 积压 {lag}"
+    ),
+    "CWD: `{cwd}`": "工作目录：`{cwd}`",
+    "window `{window_id}`": "窗口 `{window_id}`",
+    "topic `{thread_id}`": "话题 `{thread_id}`",
     # /diff
     "❌ Not a git repository: {cwd}": "❌ 不是 git 仓库:{cwd}",
     "❌ git failed: {error}": "❌ git 执行失败:{error}",

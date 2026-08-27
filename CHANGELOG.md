@@ -53,6 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Route delivery-stall and task-queue alerts plus `/ops`, `/diag`, and
+  destructive-action context fields through `CCGRAM_LANG`; Chinese deployments
+  no longer receive English-only operational notices.
+
 - Harden Telegram HTTP recovery against concurrent stale-client failures and
   use bounded per-chat topic probes with flood-control backoff.
 - Preserve the original provider when an agent exits to a shell, and ensure

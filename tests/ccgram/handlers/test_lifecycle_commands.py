@@ -10,6 +10,7 @@ from ccgram.handlers.lifecycle_commands import (
     build_auth_failure_keyboard,
     ops_command,
 )
+from ccgram.i18n import _reset_language_for_testing
 from ccgram.task_scheduler import TaskStats
 from ccgram.topic_naming import ReservedTopicName
 
@@ -91,7 +92,11 @@ async def test_autoname_updates_parked_topic_without_live_window() -> None:
     sync_name.assert_awaited_once()
 
 
-async def test_ops_reports_scheduler_timing_and_cancel_outcomes() -> None:
+async def test_ops_reports_scheduler_timing_and_cancel_outcomes_in_chinese(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CCGRAM_LANG", "zh")
+    _reset_language_for_testing()
     update = MagicMock()
     update.effective_user.id = 7
     update.message = MagicMock()
@@ -132,6 +137,8 @@ async def test_ops_reports_scheduler_timing_and_cancel_outcomes() -> None:
     call = reply.await_args
     assert call is not None
     text = call.args[1]
-    assert "1 active · 2 queued · 1 cancelling" in text
-    assert "avg 45s · oldest wait 12s" in text
-    assert "3 confirmed · 1 timed out · 2 forced" in text
+    assert "ccgram 运维状态 · ⚠ 需要关注" in text
+    assert "CLI 任务：运行 1 个 · 排队 2 个 · 取消确认中 1 个" in text
+    assert "任务耗时：平均 45 秒 · 最久等待 12 秒" in text
+    assert "取消统计（24 小时）：确认 3 个 · 超时 1 个 · 强制 2 个" in text
+    _reset_language_for_testing()

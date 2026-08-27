@@ -128,9 +128,9 @@ def format_destructive_alert(event: DestructiveAction) -> str:
         lines.append(event.detail)
     context: list[str] = []
     if event.window_id:
-        context.append(f"window `{event.window_id}`")
+        context.append(t("window `{window_id}`").format(window_id=event.window_id))
     if event.thread_id is not None:
-        context.append(f"topic `{event.thread_id}`")
+        context.append(t("topic `{thread_id}`").format(thread_id=event.thread_id))
     if context:
         lines.append(" · ".join(context))
     lines += [
