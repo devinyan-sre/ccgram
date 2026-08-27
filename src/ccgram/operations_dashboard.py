@@ -36,6 +36,8 @@ logger = structlog.get_logger()
 CB_DASHBOARD_REFRESH = "od:refresh"
 _GENERAL_THREAD_ID = 1
 _PIN_RETRY_SECONDS = 3600.0
+_TARGET_RETRY_SECONDS = 3600.0
+_TRANSIENT_RETRY_SECONDS = 60.0
 _SECONDS_PER_MINUTE = 60
 _SECONDS_PER_HOUR = 3600
 
@@ -68,6 +70,7 @@ class OperationsDashboard:
         self._operator_labels: dict[int, str] = {}
         self._last_text: dict[str, str] = {}
         self._pin_retry_at: dict[str, float] = {}
+        self._target_retry_at: dict[str, float] = {}
         self._previous_tasks: dict[tuple[int, int, str], TaskView] = {}
         self._completed: dict[tuple[int, int, str], _CompletedTask] = {}
         self._refresh_event = asyncio.Event()
@@ -270,6 +273,10 @@ class OperationsDashboard:
         self._previous_tasks = current
 
     async def _upsert(self, target: DashboardTarget, *, force: bool = False) -> None:
+        if not force and time.monotonic() < self._target_retry_at.get(
+            target.key, 0.0
+        ):
+            return
         text = self._render(target, precise_time=force)
         if not force and self._last_text.get(target.key) == text:
             return
@@ -328,7 +335,26 @@ class OperationsDashboard:
                 disable_notification=True,
                 **thread_kwargs,
             )
+        except RetryAfter:
+            raise
+        except BadRequest as exc:
+            retry = (
+                _TARGET_RETRY_SECONDS
+                if "message thread not found" in str(exc).lower()
+                else _TRANSIENT_RETRY_SECONDS
+            )
+            self._target_retry_at[target.key] = time.monotonic() + retry
+            logger.warning(
+                "Dashboard target unavailable; backing off",
+                target=target.key,
+                retry_seconds=int(retry),
+                error=str(exc),
+            )
+            return
         except TelegramError as exc:
+            self._target_retry_at[target.key] = (
+                time.monotonic() + _TRANSIENT_RETRY_SECONDS
+            )
             logger.warning(
                 "Dashboard message creation failed", target=target.key, error=str(exc)
             )

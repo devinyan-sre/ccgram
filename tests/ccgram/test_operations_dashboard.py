@@ -135,6 +135,25 @@ async def test_pin_permission_failure_degrades_to_editable_message(
     assert client.call_count("send_message") == 1
 
 
+async def test_missing_topic_backs_off_instead_of_retrying_every_tick(
+    tmp_path, monkeypatch
+) -> None:
+    _configure(monkeypatch, scope="topic")
+    client = FakeTelegramClient()
+    client.set_side_effect(
+        "send_message", [BadRequest("Message thread not found")]
+    )
+    dashboard = OperationsDashboard(client, tmp_path / "state.json")
+    target = DashboardTarget(-1001, 4268, False)
+
+    with patch("ccgram.operations_dashboard.task_scheduler.views", return_value=[]):
+        await dashboard._upsert(target)
+        await dashboard._upsert(target)
+
+    assert client.call_count("send_message") == 1
+    assert dashboard._target_retry_at[target.key] > 0
+
+
 def test_render_hides_prompts_and_supports_operator_privacy(
     tmp_path, monkeypatch
 ) -> None:
