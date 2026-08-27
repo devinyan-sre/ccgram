@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from ccgram.handlers.file_handler import (
+    _AlbumItem,
+    _build_album_prompt,
     _generate_photo_filename,
     _upload_and_notify,
     _sanitize_caption,
@@ -137,6 +139,20 @@ class TestGeneratePhotoFilename:
     def test_format(self) -> None:
         result = _generate_photo_filename("ABCDEFGHIJKLMNOP")
         assert re.match(r"^photo_\d{8}_\d{6}_ABCDEFGH\.jpg$", result)
+
+
+def test_album_prompt_merges_paths_and_deduplicates_caption() -> None:
+    message = MagicMock()
+    items = [
+        _AlbumItem(message, "@7", 42, 17, ".ccgram-uploads/a.jpg", "检查"),
+        _AlbumItem(message, "@7", 42, 17, ".ccgram-uploads/b.jpg", "检查"),
+    ]
+
+    prompt = _build_album_prompt(items)
+
+    assert "with 2 files" in prompt
+    assert "a.jpg" in prompt and "b.jpg" in prompt
+    assert prompt.count("检查") == 1
 
 
 async def test_media_dispatch_uses_shared_scheduler_and_request_correlation(

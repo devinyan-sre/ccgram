@@ -47,20 +47,26 @@ class DeliveryOutbox:
                 for key, value in dict(raw.get("delivered", {})).items()
             }
         except FileNotFoundError:
-            return
+            pass
         except OSError, ValueError, TypeError:
             logger.exception("Could not read delivery outbox; starting empty")
+        finally:
+            self._sync_metrics()
+
+    def _sync_metrics(self) -> None:
+        """Reconcile gauges with durable state, including an empty restart."""
+        OUTBOX_ITEMS.set(len(self._pending), state="pending")
+        OUTBOX_ITEMS.set(
+            sum(bool(row.get("last_error")) for row in self._pending.values()),
+            state="retrying",
+        )
 
     async def _save(self) -> None:
         delivered = sorted(self._delivered.items(), key=lambda item: item[1])
         self._delivered = dict(delivered[-_DELIVERED_LIMIT:])
         data = {"version": 1, "pending": self._pending, "delivered": self._delivered}
         await asyncio.to_thread(atomic_write_json, self._path, data)
-        OUTBOX_ITEMS.set(len(self._pending), state="pending")
-        OUTBOX_ITEMS.set(
-            sum(bool(r.get("last_error")) for r in self._pending.values()),
-            state="retrying",
-        )
+        self._sync_metrics()
 
     async def add(self, task: ContentTask, user_id: int) -> bool:
         """Persist *task* before enqueue; False means it is already known."""
@@ -139,6 +145,7 @@ class DeliveryOutbox:
         self._pending.clear()
         self._delivered.clear()
         self._path = config.outbox_file
+        self._sync_metrics()
 
 
 delivery_outbox = DeliveryOutbox()

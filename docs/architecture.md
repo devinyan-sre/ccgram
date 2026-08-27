@@ -28,6 +28,11 @@ stored in mode-`0600` `dashboard.json`, so restarts continue editing in place.
 A deleted message is recreated. Missing pin permission degrades to an unpinned
 editable message and never blocks task execution or answer delivery. Prompt
 text, terminal output, paths, tokens, and secrets are excluded from frames.
+Per-target health is persisted alongside message IDs: repeated definitive
+missing-topic failures quarantine only that dashboard endpoint. General stays
+available and exposes error/queue/refresh controls, direct topic links, last
+sync state, and provider-neutral task phases. Prometheus metrics cover sync
+timestamps, errors, pin confirmation, and quarantine state.
 
 ### Cancellation state machine
 
@@ -75,6 +80,9 @@ The routing identities are deliberately separate:
    request-correlation path. This makes media tasks visible in the topic and
    General dashboards and routes the final answer back to the exact source
    message instead of merely posting into the surrounding topic.
+7. Telegram albums are grouped by `(chat_id, thread_id, user_id,
+   media_group_id)` during a configurable debounce window. The whole album is
+   sent to the lane as one task; albums from different operators cannot merge.
 
 ### Outbound execution
 
@@ -91,6 +99,12 @@ and are deliberately never replayed after a crash. `task_scheduler.py` persists
 active admissions separately so restart does not temporarily exceed topic or
 global limits. Both files are mode `0600` because the inbound journal contains
 operator prompt text.
+
+The Outbox reconciles its gauges whenever durable state is loaded, including an
+empty file after restart. Delivery-stall alerts require both a configurable
+duration and byte threshold, so short self-recovering cursor gaps remain normal
+telemetry instead of warning noise. `/selftest` probes these shared seams without
+invoking a provider.
 
 ### Provider compatibility
 

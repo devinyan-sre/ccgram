@@ -58,9 +58,23 @@ exit 0
         bindir / "uv",
         """#!/usr/bin/env bash
 # record each install target so the test can assert what was installed
+if [[ "$1" == "build" ]]; then
+  out=""
+  previous=""
+  for arg in "$@"; do
+    if [[ "${previous}" == "--out-dir" ]]; then out="${arg}"; fi
+    previous="${arg}"
+  done
+  source="${@: -1}"
+  mkdir -p "${out}"
+  touch "${out}/ccgram-test.whl"
+  cp "${source}/marker" "${out}/marker"
+  exit 0
+fi
 target="${@: -1}"
 marker=""
 if [[ -f "${target}/marker" ]]; then marker="|$(<"${target}/marker")"; fi
+if [[ -f "$(dirname "${target}")/marker" ]]; then marker="|$(<"$(dirname "${target}")/marker")"; fi
 echo "$*${marker}" >>"$UV_CALLS"
 exit 0
 """,

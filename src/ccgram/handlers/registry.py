@@ -53,6 +53,7 @@ from .usage_command import usage_command
 from .recovery import restore_command, resume_command
 from .recovery.history import history_command
 from .search_command import search_command
+from .selftest_command import selftest_command
 from .send import send_command
 from .sessions_dashboard import sessions_command
 from .split_command import split_command
@@ -127,6 +128,7 @@ def register_all(
         CommandSpec("diag", diag_command, "viewer"),
         CommandSpec("replay", replay_command, "viewer"),
         CommandSpec("ops", ops_command, "viewer"),
+        CommandSpec("selftest", selftest_command, "viewer"),
         CommandSpec("tasks", tasks_command, "viewer"),
         CommandSpec("task_add", task_add_command),
         CommandSpec("task_new", task_new_command),
@@ -245,6 +247,7 @@ COMMAND_NAMES: tuple[str, ...] = (
     "diag",
     "replay",
     "ops",
+    "selftest",
     "tasks",
     "task_add",
     "task_new",

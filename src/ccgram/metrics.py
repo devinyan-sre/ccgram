@@ -379,6 +379,26 @@ MEMBER_LANE_CREATE_FAILED = registry.counter(
     "Isolated member-lane creation failures by reason",
     ("reason",),
 )
+DASHBOARD_SYNC_TIMESTAMP = registry.gauge(
+    "ccgram_dashboard_last_sync_timestamp_seconds",
+    "Unix timestamp of the last successful dashboard update",
+    ("target",),
+)
+DASHBOARD_SYNC_ERRORS = registry.counter(
+    "ccgram_dashboard_sync_errors",
+    "Dashboard update errors by target and reason",
+    ("target", "reason"),
+)
+DASHBOARD_PINNED = registry.gauge(
+    "ccgram_dashboard_pinned",
+    "Whether the dashboard pin was last confirmed successfully",
+    ("target",),
+)
+DASHBOARD_QUARANTINED = registry.gauge(
+    "ccgram_dashboard_quarantined",
+    "Whether a dashboard target is isolated after definitive failures",
+    ("target",),
+)
 INBOUND_DUPLICATES = registry.counter(
     "ccgram_duplicate_update_dropped",
     "Duplicate Telegram messages suppressed before provider dispatch",

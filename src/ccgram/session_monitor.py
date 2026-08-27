@@ -70,7 +70,6 @@ _WAKE_DEBOUNCE = 0.05
 _MSG_PREVIEW_LENGTH = 80
 # Cap for the per-session error circuit breaker (see _process_session_guarded).
 _SESSION_ERROR_BACKOFF_MAX = 300.0
-_DELIVERY_LAG_WARN_SECS = 30.0
 
 logger = structlog.get_logger()
 
@@ -167,13 +166,15 @@ class SessionMonitor:
             active.add(session_id)
             started = self._delivery_lag_since.setdefault(session_id, now)
             if (
-                now - started >= _DELIVERY_LAG_WARN_SECS
+                lag >= config.delivery_lag_min_bytes
+                and now - started >= config.delivery_lag_warn_seconds
                 and session_id not in self._delivery_lag_alerted
             ):
                 logger.warning(
-                    "Delivery cursor stalled for session %s: %d bytes pending",
-                    session_id,
-                    lag,
+                    "Delivery cursor persistently stalled",
+                    session_id=session_id,
+                    lag_bytes=lag,
+                    lag_seconds=int(now - started),
                 )
                 self._delivery_lag_alerted.add(session_id)
                 DELIVERY_STALLS.inc(outcome="stalled")

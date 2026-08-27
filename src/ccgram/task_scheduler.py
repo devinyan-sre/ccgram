@@ -77,6 +77,7 @@ class TaskView:
     queue_position: int = 0
     task_id: str = ""
     estimated_wait_seconds: int | None = None
+    phase: str = "analysis"
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +101,7 @@ class _ActiveTask:
     state: Literal["active", "cancelling"] = "active"
     cancel_requested_wall: float = 0.0
     cancel_requester_id: int = 0
+    phase: str = "analysis"
 
 
 @dataclass(slots=True)
@@ -168,6 +170,7 @@ class TaskScheduler:
                     state=state,
                     cancel_requested_wall=float(row.get("cancel_requested_at", 0.0)),
                     cancel_requester_id=int(row.get("cancel_requester_id", 0)),
+                    phase=str(row.get("phase", "analysis")),
                 )
                 self._active[key] = task
                 self._window_to_key[task.window_id] = key
@@ -191,6 +194,7 @@ class TaskScheduler:
                 "state": task.state,
                 "cancel_requested_at": task.cancel_requested_wall,
                 "cancel_requester_id": task.cancel_requester_id,
+                "phase": task.phase,
             }
             for key, task in self._active.items()
         ]
@@ -419,6 +423,22 @@ class TaskScheduler:
                     return position
         return 0
 
+    async def set_phase(self, window_id: str, phase: str) -> bool:
+        """Set a provider-neutral progress phase for the active task."""
+        allowed = {"analysis", "tool", "waiting", "generating", "delivery"}
+        if phase not in allowed:
+            raise ValueError(f"unsupported task phase: {phase}")
+        async with self._lock:
+            key = self._window_to_key.get(window_id)
+            task = self._active.get(key) if key is not None else None
+            if task is None or task.phase == phase:
+                return task is not None
+            task.phase = phase
+            task.touched_at = time.monotonic()
+            task.touched_wall = time.time()
+            self._save_state()
+            return True
+
     async def release_window(self, window_id: str, *, outcome: str = "done") -> bool:
         async with self._lock:
             key = self._window_to_key.pop(window_id, None)
@@ -604,6 +624,7 @@ class TaskScheduler:
                 ),
                 supplements=task.supplements,
                 task_id=task.task_id,
+                phase=task.phase,
             )
             for key, task in self._active.items()
             if (chat_id is None or key[0] == chat_id)
@@ -643,6 +664,7 @@ class TaskScheduler:
                     estimated_wait_seconds=max(
                         1, int(rounds * self._average_duration_seconds)
                     ),
+                    phase="waiting",
                 )
             )
         return views

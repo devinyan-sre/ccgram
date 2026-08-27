@@ -14,6 +14,7 @@ Key functions: hook_main() (CLI entry), _install_hook().
 """
 
 import fcntl
+from datetime import datetime
 import json
 import logging
 import os
@@ -22,6 +23,7 @@ import structlog
 import sys
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ccgram.hooks.adapters import (
     detect_provider_from_payload,
@@ -700,7 +702,7 @@ def _configure_hook_logging() -> None:
     structlog.configure(
         processors=[
             structlog.stdlib.add_log_level,
-            structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S"),
+            _hook_timestamp,
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.dev.ConsoleRenderer(colors=False),
@@ -708,6 +710,19 @@ def _configure_hook_logging() -> None:
         logger_factory=structlog.PrintLoggerFactory(file=sys.stderr),
         cache_logger_on_first_use=False,
     )
+
+
+def _hook_timestamp(
+    _logger: object, _method: str, event_dict: structlog.typing.EventDict
+) -> structlog.typing.EventDict:
+    """Add the same configured-zone timestamp used by the daemon."""
+    name = os.environ.get("CCGRAM_TIMEZONE", "UTC").strip() or "UTC"
+    try:
+        zone = ZoneInfo(name)
+    except ZoneInfoNotFoundError:
+        zone = ZoneInfo("UTC")
+    event_dict["timestamp"] = datetime.now(zone).strftime("%Y-%m-%d %H:%M:%S %Z")
+    return event_dict
 
 
 def hook_main(

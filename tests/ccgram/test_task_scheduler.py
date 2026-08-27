@@ -295,6 +295,19 @@ async def test_task_id_sequence_survives_restart(tmp_path) -> None:
     assert second.task_id == "T0002"
 
 
+async def test_provider_neutral_phase_survives_restart(tmp_path) -> None:
+    path = tmp_path / "tasks.json"
+    scheduler = TaskScheduler(path)
+    await scheduler.acquire(chat_id=-100, thread_id=7, user_id=10, window_id="@1")
+
+    assert await scheduler.set_phase("@1", "tool") is True
+    assert scheduler.views()[0].phase == "tool"
+    assert TaskScheduler(path).views()[0].phase == "tool"
+
+    with pytest.raises(ValueError, match="unsupported task phase"):
+        await scheduler.set_phase("@1", "provider-specific")
+
+
 async def test_cancelling_state_survives_restart_past_normal_lease(tmp_path) -> None:
     path = tmp_path / "tasks.json"
     scheduler = TaskScheduler(path)

@@ -482,7 +482,7 @@ class TranscriptReader:
                 )
                 if signature == last_signature:
                     TRANSCRIPT_DUPLICATES.inc(provider=provider_name)
-                    logger.warning(
+                    logger.info(
                         "Suppressed duplicate complete assistant text",
                         session_id=session_id,
                         provider=provider_name,

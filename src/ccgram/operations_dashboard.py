@@ -26,6 +26,12 @@ from telegram.error import BadRequest, RetryAfter, TelegramError
 
 from .config import config
 from .i18n import t
+from .metrics import (
+    DASHBOARD_PINNED,
+    DASHBOARD_QUARANTINED,
+    DASHBOARD_SYNC_ERRORS,
+    DASHBOARD_SYNC_TIMESTAMP,
+)
 from .task_scheduler import TaskView, task_scheduler
 from .telegram_client import TelegramClient
 from .thread_router import thread_router
@@ -35,6 +41,9 @@ from .utils import task_done_callback
 logger = structlog.get_logger()
 
 CB_DASHBOARD_REFRESH = "od:refresh"
+CB_DASHBOARD_REFRESH_ALL = "od:all"
+CB_DASHBOARD_ERRORS = "od:errors"
+CB_DASHBOARD_QUEUE = "od:queue"
 _GENERAL_THREAD_ID = 1
 _PIN_RETRY_SECONDS = 3600.0
 _TARGET_RETRY_SECONDS = 3600.0
@@ -62,6 +71,16 @@ class _CompletedTask:
     ended_at: float
 
 
+@dataclass(slots=True)
+class _TargetHealth:
+    failures: int = 0
+    quarantined: bool = False
+    last_error: str = ""
+    last_failure_at: float = 0.0
+    last_success_at: float = 0.0
+    pinned: bool = False
+
+
 class OperationsDashboard:
     """Own and refresh one editable overview message per configured target."""
 
@@ -73,6 +92,7 @@ class OperationsDashboard:
         self._last_text: dict[str, str] = {}
         self._pin_retry_at: dict[str, float] = {}
         self._target_retry_at: dict[str, float] = {}
+        self._target_health: dict[str, _TargetHealth] = {}
         self._previous_tasks: dict[tuple[int, int, str], TaskView] = {}
         self._completed: dict[tuple[int, int, str], _CompletedTask] = {}
         self._refresh_event = asyncio.Event()
@@ -95,6 +115,23 @@ class OperationsDashboard:
                 for key, value in raw.get("operators", {}).items()
                 if str(value).strip()
             }
+            self._target_health = {
+                str(key): _TargetHealth(
+                    failures=max(0, int(value.get("failures", 0))),
+                    quarantined=bool(value.get("quarantined", False)),
+                    last_error=str(value.get("last_error", ""))[:300],
+                    last_failure_at=float(value.get("last_failure_at", 0.0)),
+                    last_success_at=float(value.get("last_success_at", 0.0)),
+                    pinned=bool(value.get("pinned", False)),
+                )
+                for key, value in raw.get("targets", {}).items()
+                if isinstance(value, dict)
+            }
+            for key, health in self._target_health.items():
+                DASHBOARD_QUARANTINED.set(int(health.quarantined), target=key)
+                DASHBOARD_PINNED.set(int(health.pinned), target=key)
+                if health.last_success_at:
+                    DASHBOARD_SYNC_TIMESTAMP.set(health.last_success_at, target=key)
         except OSError, ValueError, TypeError:
             logger.warning("Could not load operations dashboard state", exc_info=True)
 
@@ -107,11 +144,22 @@ class OperationsDashboard:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 json.dump(
                     {
-                        "version": 1,
+                        "version": 2,
                         "messages": self._message_ids,
                         "operators": {
                             str(key): value
                             for key, value in self._operator_labels.items()
+                        },
+                        "targets": {
+                            key: {
+                                "failures": value.failures,
+                                "quarantined": value.quarantined,
+                                "last_error": value.last_error,
+                                "last_failure_at": value.last_failure_at,
+                                "last_success_at": value.last_success_at,
+                                "pinned": value.pinned,
+                            }
+                            for key, value in self._target_health.items()
                         },
                     },
                     handle,
@@ -181,6 +229,35 @@ class OperationsDashboard:
             self._capture_completions()
             await self._upsert(target, force=True)
         return True
+
+    async def refresh_all(self) -> None:
+        """Force every healthy dashboard target to refresh now."""
+        async with self._render_lock:
+            self._capture_completions()
+            for target in self._targets():
+                await self._upsert(target, force=True)
+
+    def status_summary(self, kind: str) -> str:
+        """Return a compact Chinese-first operator diagnostic for callbacks."""
+        if kind == "errors":
+            broken = [
+                (key, health)
+                for key, health in self._target_health.items()
+                if health.quarantined or health.last_error
+            ]
+            if not broken:
+                return t("✅ No dashboard errors.")
+            lines = [t("⚠️ Dashboard errors: {count}").format(count=len(broken))]
+            for key, health in broken[:8]:
+                state = t("isolated") if health.quarantined else t("retrying")
+                lines.append(f"{key} · {state} · {health.last_error[:80]}")
+            return "\n".join(lines)[:190]
+        views = task_scheduler.views()
+        queued = [view for view in views if view.state == "queued"]
+        active = [view for view in views if view.state != "queued"]
+        return t("⏳ Queue: {queued} · running: {active}").format(
+            queued=len(queued), active=len(active)
+        )
 
     async def _run(self) -> None:
         while True:
@@ -254,7 +331,73 @@ class OperationsDashboard:
                 DashboardTarget(chat_id, thread_id, False)
                 for chat_id, thread_id in sorted(physical_topics)
             )
-        return targets
+        return [
+            target
+            for target in targets
+            if not self._target_health.get(target.key, _TargetHealth()).quarantined
+        ]
+
+    @staticmethod
+    def _is_missing_topic(error: Exception) -> bool:
+        text = str(error).lower()
+        return "message thread not found" in text or "topic_id_invalid" in text
+
+    def _record_success(self, target: DashboardTarget) -> None:
+        health = self._target_health.setdefault(target.key, _TargetHealth())
+        health.failures = 0
+        health.last_error = ""
+        health.last_success_at = time.time()
+        DASHBOARD_SYNC_TIMESTAMP.set(health.last_success_at, target=target.key)
+        DASHBOARD_QUARANTINED.set(0, target=target.key)
+
+    def _record_failure(
+        self, target: DashboardTarget, error: Exception, *, definitive: bool
+    ) -> bool:
+        health = self._target_health.setdefault(target.key, _TargetHealth())
+        health.failures += 1
+        health.last_error = str(error)[:300]
+        health.last_failure_at = time.time()
+        DASHBOARD_SYNC_ERRORS.inc(
+            target=target.key, reason="missing_topic" if definitive else "telegram"
+        )
+        if definitive and health.failures >= config.dashboard_missing_topic_failures:
+            health.quarantined = True
+            DASHBOARD_QUARANTINED.set(1, target=target.key)
+            logger.warning(
+                "Dashboard target quarantined after definitive failures",
+                target=target.key,
+                failures=health.failures,
+                error=health.last_error,
+            )
+        self._save_state()
+        return health.quarantined
+
+    def _markup(self, target: DashboardTarget) -> InlineKeyboardMarkup:
+        rows = [
+            [
+                InlineKeyboardButton(t("🔄 Refresh"), callback_data=CB_DASHBOARD_REFRESH),
+                InlineKeyboardButton(t("🔄 Refresh all"), callback_data=CB_DASHBOARD_REFRESH_ALL),
+            ]
+        ]
+        if target.global_view:
+            rows.append(
+                [
+                    InlineKeyboardButton(t("⚠️ Errors"), callback_data=CB_DASHBOARD_ERRORS),
+                    InlineKeyboardButton(t("⏳ Queue"), callback_data=CB_DASHBOARD_QUEUE),
+                ]
+            )
+            active_topics = sorted(
+                {view.thread_id for view in task_scheduler.views(chat_id=target.chat_id)}
+            )[:3]
+            chat_ref = str(target.chat_id).removeprefix("-100")
+            for thread_id in active_topics:
+                rows.append(
+                    [InlineKeyboardButton(
+                        t("Open topic {thread_id}").format(thread_id=thread_id),
+                        url=f"https://t.me/c/{chat_ref}/{thread_id}",
+                    )]
+                )
+        return InlineKeyboardMarkup(rows)
 
     def _capture_completions(self) -> None:
         now = time.time()
@@ -281,15 +424,7 @@ class OperationsDashboard:
         text = self._render(target, precise_time=force)
         if not force and self._last_text.get(target.key) == text:
             return
-        markup = InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(
-                        t("🔄 Refresh"), callback_data=CB_DASHBOARD_REFRESH
-                    )
-                ]
-            ]
-        )
+        markup = self._markup(target)
         message_id = self._message_ids.get(target.key)
         if message_id is None:
             await self._create(target, text, markup)
@@ -302,10 +437,12 @@ class OperationsDashboard:
                 reply_markup=markup,
             )
             self._last_text[target.key] = text
+            self._record_success(target)
             await self._try_pin(target, message_id)
         except BadRequest as exc:
             if "message is not modified" in str(exc).lower():
                 self._last_text[target.key] = text
+                self._record_success(target)
                 await self._try_pin(target, message_id)
                 return
             # Deleted, inaccessible, or too-old messages are replaced once;
@@ -320,6 +457,7 @@ class OperationsDashboard:
             self._save_state()
             await self._create(target, text, markup)
         except TelegramError as exc:
+            self._record_failure(target, exc, definitive=False)
             logger.warning(
                 "Dashboard message edit failed", target=target.key, error=str(exc)
             )
@@ -347,23 +485,23 @@ class OperationsDashboard:
         except RetryAfter:
             raise
         except BadRequest as exc:
-            retry = (
-                _TARGET_RETRY_SECONDS
-                if "message thread not found" in str(exc).lower()
-                else _TRANSIENT_RETRY_SECONDS
-            )
+            definitive = self._is_missing_topic(exc)
+            quarantined = self._record_failure(target, exc, definitive=definitive)
+            retry = _TRANSIENT_RETRY_SECONDS if definitive else _TARGET_RETRY_SECONDS
             self._target_retry_at[target.key] = time.monotonic() + retry
-            logger.warning(
-                "Dashboard target unavailable; backing off",
-                target=target.key,
-                retry_seconds=int(retry),
-                error=str(exc),
-            )
+            if not quarantined:
+                logger.info(
+                    "Dashboard target unavailable; backing off",
+                    target=target.key,
+                    retry_seconds=int(retry),
+                    error=str(exc),
+                )
             return
         except TelegramError as exc:
             self._target_retry_at[target.key] = (
                 time.monotonic() + _TRANSIENT_RETRY_SECONDS
             )
+            self._record_failure(target, exc, definitive=False)
             logger.warning(
                 "Dashboard message creation failed", target=target.key, error=str(exc)
             )
@@ -374,6 +512,7 @@ class OperationsDashboard:
             return
         self._message_ids[target.key] = message_id
         self._last_text[target.key] = text
+        self._record_success(target)
         self._save_state()
         await self._try_pin(target, message_id)
 
@@ -389,9 +528,16 @@ class OperationsDashboard:
                 message_id=message_id,
                 disable_notification=True,
             )
+            health = self._target_health.setdefault(target.key, _TargetHealth())
+            health.pinned = True
+            DASHBOARD_PINNED.set(1, target=target.key)
         except TelegramError as exc:
             # Posting/editing remains useful without the admin pin permission.
             self._pin_retry_at[target.key] = now + _PIN_RETRY_SECONDS
+            self._save_state()
+            health = self._target_health.setdefault(target.key, _TargetHealth())
+            health.pinned = False
+            DASHBOARD_PINNED.set(0, target=target.key)
             logger.warning(
                 "Dashboard pin unavailable; continuing unpinned",
                 target=target.key,
@@ -434,6 +580,21 @@ class OperationsDashboard:
             ),
             "",
         ]
+        if target.global_view:
+            isolated = sum(
+                health.quarantined for health in self._target_health.values()
+            )
+            latest = max(
+                (health.last_success_at for health in self._target_health.values()),
+                default=0.0,
+            )
+            sync_age = max(0, int(time.time() - latest)) if latest else 0
+            lines.append(
+                t("Dashboard sync {age}s ago · isolated topics {count}").format(
+                    age=sync_age, count=isolated
+                )
+            )
+            lines.append("")
 
         rows: list[str] = []
         ordered = sorted(
@@ -496,7 +657,14 @@ class OperationsDashboard:
             state = t("🟠 cancelling")
             suffix = ""
         else:
-            state = t("🟢 processing")
+            phase_labels = {
+                "analysis": t("🔵 analyzing"),
+                "tool": t("🛠 using tools"),
+                "waiting": t("🟣 waiting"),
+                "generating": t("🟢 generating reply"),
+                "delivery": t("📨 delivering"),
+            }
+            state = phase_labels.get(view.phase, t("🟢 processing"))
             suffix = ""
         topic = f" · {self._topic_name_for_view(view)}" if include_topic else ""
         supplements = (
@@ -590,6 +758,19 @@ async def refresh_operations_dashboard(chat_id: int, thread_id: int) -> bool:
     return await _active_dashboard.refresh_target(chat_id, thread_id)
 
 
+async def refresh_all_operations_dashboards() -> bool:
+    if _active_dashboard is None:
+        return False
+    await _active_dashboard.refresh_all()
+    return True
+
+
+def operations_dashboard_status(kind: str) -> str:
+    if _active_dashboard is None:
+        return t("Dashboard unavailable")
+    return _active_dashboard.status_summary(kind)
+
+
 def dashboard_owns_general_pin() -> bool:
     return config.dashboard_enabled and config.dashboard_scope in ("general", "both")
 
@@ -600,11 +781,16 @@ def reset_for_testing() -> None:
 
 
 __all__ = [
+    "CB_DASHBOARD_ERRORS",
+    "CB_DASHBOARD_QUEUE",
     "CB_DASHBOARD_REFRESH",
+    "CB_DASHBOARD_REFRESH_ALL",
     "DashboardTarget",
     "OperationsDashboard",
     "dashboard_owns_general_pin",
     "observe_dashboard_user",
+    "operations_dashboard_status",
+    "refresh_all_operations_dashboards",
     "refresh_operations_dashboard",
     "start_operations_dashboard",
     "stop_operations_dashboard",

@@ -14,11 +14,13 @@ not pay PTB or aiohttp startup cost.
 """
 
 import asyncio
+from datetime import datetime
 import logging
 import os
 import signal
 import sys
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
 
@@ -82,6 +84,19 @@ _GRAY_OFF = "\x1b[39m"
 _DEBUG_RESERVED_KEYS = frozenset(
     {"event", "level", "timestamp", "logger", "logger_name"}
 )
+
+
+def _configured_timestamp(
+    _logger: object, _method: str, event_dict: structlog.typing.EventDict
+) -> structlog.typing.EventDict:
+    """Add a full timestamp in the configured human-facing timezone."""
+    name = os.environ.get("CCGRAM_TIMEZONE", "UTC").strip() or "UTC"
+    try:
+        zone = ZoneInfo(name)
+    except ZoneInfoNotFoundError:
+        zone = ZoneInfo("UTC")
+    event_dict["timestamp"] = datetime.now(zone).strftime("%Y-%m-%d %H:%M:%S %Z")
+    return event_dict
 
 
 def _dim_debug_event(
@@ -173,7 +188,7 @@ def setup_logging(log_level: str) -> None:
             structlog.contextvars.merge_contextvars,
             structlog.stdlib.add_log_level,
             structlog.stdlib.PositionalArgumentsFormatter(),
-            structlog.processors.TimeStamper(fmt="%H:%M:%S"),
+            _configured_timestamp,
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             _dim_debug_event,
@@ -205,7 +220,7 @@ def setup_logging(log_level: str) -> None:
             foreign_pre_chain=[
                 structlog.stdlib.add_log_level,
                 structlog.stdlib.add_logger_name,
-                structlog.processors.TimeStamper(fmt="%H:%M:%S"),
+                _configured_timestamp,
             ],
         )
     )

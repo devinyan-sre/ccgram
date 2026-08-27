@@ -3,6 +3,7 @@ from pathlib import Path
 from ccgram.config import config
 from ccgram.delivery_outbox import delivery_outbox
 from ccgram.handlers.messaging_pipeline.message_task import ContentTask
+from ccgram.metrics import render
 
 
 async def test_outbox_persists_until_ack(tmp_path: Path) -> None:
@@ -46,6 +47,19 @@ async def test_outbox_survives_reload(tmp_path: Path) -> None:
         await delivery_outbox.add(task, 8)
         delivery_outbox.reset_for_testing()
         assert delivery_outbox.pending_tasks() == [(8, task)]
+    finally:
+        config.outbox_file = old
+        delivery_outbox.reset_for_testing()
+
+
+def test_empty_outbox_load_reconciles_pending_gauge(tmp_path: Path) -> None:
+    old = config.outbox_file
+    config.outbox_file = tmp_path / "missing.json"
+    delivery_outbox.reset_for_testing()
+    try:
+        assert delivery_outbox.snapshot() == (0, 0)
+        assert 'ccgram_outbox_items{state="pending"} 0' in render()
+        assert 'ccgram_outbox_items{state="retrying"} 0' in render()
     finally:
         config.outbox_file = old
         delivery_outbox.reset_for_testing()

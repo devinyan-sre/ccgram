@@ -134,6 +134,16 @@ async def admit_request(
         message_id=message_id,
         preserve_existing=admission.continuation,
     )
+    logger.info(
+        "Task request admitted",
+        task_id=admission.task_id,
+        member_id=user_id,
+        topic_id=thread_id,
+        window_id=window_id,
+        chat_id=chat_id,
+        continuation=admission.continuation,
+        queued=admission.queued,
+    )
     if admission.continuation:
         await safe_reply(message, t("➕ Added to your current task."))
     return admission

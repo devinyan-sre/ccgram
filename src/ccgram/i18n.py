@@ -62,6 +62,7 @@ _ZH: dict[str, str] = {
     "You are not authorized to use this bot.": "你没有权限使用此机器人。",
     "Please include a question after the mention.": "请在 @机器人 后写上问题内容。",
     "{emoji} Uploaded `{path}`": "{emoji} 已上传 `{path}`",
+    "📚 Uploaded album: {count} files": "📚 已合并上传相册：{count} 个文件",
     "❌ File saved but failed to notify the agent: {error}": (
         "❌ 文件已保存，但通知 CLI 失败：{error}"
     ),
@@ -97,6 +98,7 @@ _ZH: dict[str, str] = {
     "Diagnose topic and delivery state": "诊断话题与消息投递状态",
     "Replay recent assistant replies": "重新发送最近的助手回复",
     "Show delivery and queue health": "查看投递与队列健康状态",
+    "Run safe CCGram wiring checks": "运行安全的 CCGram 链路自检",
     "Show active and queued topic tasks": "查看运行中和排队任务",
     "Supplement your current task": "补充当前任务",
     "End current task and start a boundary": "结束当前任务并创建新边界",
@@ -134,6 +136,11 @@ _ZH: dict[str, str] = {
     ),
     "⚪ No active or queued tasks": "⚪ 当前没有运行或排队任务",
     "🟢 processing": "🟢 处理中",
+    "🔵 analyzing": "🔵 分析中",
+    "🛠 using tools": "🛠 工具执行中",
+    "🟣 waiting": "🟣 等待确认",
+    "🟢 generating reply": "🟢 生成回复中",
+    "📨 delivering": "📨 投递中",
     "🟡 queued #{position}": "🟡 排队第 {position} 位",
     "🟠 cancelling": "🟠 取消中",
     " · ETA ≤{seconds}s": " · 预计 ≤{seconds} 秒",
@@ -151,6 +158,37 @@ _ZH: dict[str, str] = {
     "{minutes}m": "{minutes}分",
     "{hours}h{minutes}m": "{hours}时{minutes}分",
     "Dashboard unavailable": "总览暂不可用",
+    "🧪 CCGram self-test (no CLI request sent)": "🧪 CCGram 自检（不会向 CLI 发送请求）",
+    "{mark} Topic routing: {detail}": "{mark} 话题路由：{detail}",
+    "not bound": "未绑定",
+    "{mark} Request correlation: chat/member/topic/window": (
+        "{mark} 请求关联：群组/成员/话题/窗口"
+    ),
+    "{mark} Scheduler: active {active} · queued {queued}": (
+        "{mark} 调度器：运行 {active} · 排队 {queued}"
+    ),
+    "{mark} Delivery: pending {pending} · retrying {retrying}": (
+        "{mark} 投递：待发送 {pending} · 重试 {retrying}"
+    ),
+    "{mark} Topic queues: {topics} · waiting {queued} · unfinished {unfinished}": (
+        "{mark} 话题队列：{topics} · 等待 {queued} · 未完成 {unfinished}"
+    ),
+    "{mark} Topic + General dashboard wiring": "{mark} 话题与 General 总览链路",
+    "Result: {result}": "结果：{result}",
+    "healthy": "健康",
+    "check warnings": "请检查警告项",
+    "✅ No dashboard errors.": "✅ 总览当前没有异常。",
+    "⚠️ Dashboard errors: {count}": "⚠️ 总览异常：{count} 项",
+    "isolated": "已隔离",
+    "retrying": "重试中",
+    "⏳ Queue: {queued} · running: {active}": "⏳ 排队：{queued} · 运行：{active}",
+    "🔄 Refresh all": "🔄 全部刷新",
+    "⚠️ Errors": "⚠️ 异常",
+    "⏳ Queue": "⏳ 排队",
+    "Open topic {thread_id}": "打开话题 {thread_id}",
+    "Dashboard sync {age}s ago · isolated topics {count}": (
+        "总览同步 {age} 秒前 · 已隔离话题 {count} 个"
+    ),
     "❌ This task has too many supplements. Use /task_new to start a new task.": (
         "❌ 当前任务的补充消息过多，请使用 /task_new 开始新任务。"
     ),

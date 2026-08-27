@@ -213,6 +213,32 @@ async def test_missing_topic_backs_off_instead_of_retrying_every_tick(
     assert dashboard._target_retry_at[target.key] > 0
 
 
+async def test_missing_topic_is_persistently_quarantined_after_threshold(
+    tmp_path, monkeypatch
+) -> None:
+    _configure(monkeypatch, scope="topic")
+    monkeypatch.setattr(config, "dashboard_missing_topic_failures", 2)
+    client = FakeTelegramClient()
+    client.set_side_effect(
+        "send_message",
+        [
+            BadRequest("Message thread not found"),
+            BadRequest("Message thread not found"),
+        ],
+    )
+    state_path = tmp_path / "state.json"
+    dashboard = OperationsDashboard(client, state_path)
+    target = DashboardTarget(-1001, 4268, False)
+
+    with patch("ccgram.operations_dashboard.task_scheduler.views", return_value=[]):
+        await dashboard._upsert(target, force=True)
+        await dashboard._upsert(target, force=True)
+
+    assert dashboard._target_health[target.key].quarantined is True
+    restored = OperationsDashboard(FakeTelegramClient(), state_path)
+    assert restored._target_health[target.key].quarantined is True
+
+
 def test_render_hides_prompts_and_supports_operator_privacy(
     tmp_path, monkeypatch
 ) -> None:

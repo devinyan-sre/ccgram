@@ -97,6 +97,7 @@ _BOT_COMMANDS: list[tuple[str, str]] = [
     ("diag", "Diagnose topic and delivery state"),
     ("replay", "Replay recent assistant replies"),
     ("ops", "Show delivery and queue health"),
+    ("selftest", "Run safe CCGram wiring checks"),
     ("tasks", "Show active and queued topic tasks"),
     ("task_add", "Supplement your current task"),
     ("task_new", "End current task and start a boundary"),

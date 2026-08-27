@@ -171,6 +171,7 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_MAX_PARALLEL_GLOBAL`                         | `4`                            | Active operator tasks across this ccgram instance                                                      |
 | `CCGRAM_TASK_LEASE_SECONDS`                          | `7200`                         | Safety lease that releases a task slot if no provider completion event arrives                        |
 | `CCGRAM_MESSAGE_COALESCE_MS`                         | `0`                            | Merge rapid non-reply messages from one operator before dispatch                                      |
+| `CCGRAM_MEDIA_GROUP_COALESCE_MS`                     | `750`                          | Coalesce one member's Telegram album into a single provider task                                      |
 | `CCGRAM_MAX_TASK_SUPPLEMENTS`                        | `20`                           | Maximum supplements accepted by one active operator task                                              |
 | `CCGRAM_TASK_QUEUE_ALERT_SECONDS`                    | `300`                          | Alert the primary operator after a task waits this many seconds; 0 disables                           |
 | `CCGRAM_TASK_CANCEL_CONFIRM_SECONDS`                 | `8`                            | Seconds to observe a CLI stop after Ctrl+C; timeout retains the cancelling task and its slot          |
@@ -182,7 +183,10 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_DASHBOARD_COMPLETED_TTL_SECONDS`             | `180`                          | Seconds to retain ended tasks in the overview; 0 removes immediately                                 |
 | `CCGRAM_DASHBOARD_MAX_ITEMS`                         | `20`                           | Maximum task rows per overview (1–50)                                                                 |
 | `CCGRAM_DASHBOARD_PIN`                               | `true`                         | Attempt to pin; missing permission degrades to a normal editable message                             |
+| `CCGRAM_DASHBOARD_MISSING_TOPIC_FAILURES`            | `2`                            | Definitive missing-topic failures before isolating only that dashboard target                        |
 | `CCGRAM_DASHBOARD_PRIVACY`                           | `normal`                       | `normal` shows observed names; `strict` uses stable anonymous member labels                          |
+| `CCGRAM_DELIVERY_LAG_WARN_SECONDS`                   | `120`                          | Sustained cursor-lag duration before warning                                                         |
+| `CCGRAM_DELIVERY_LAG_MIN_BYTES`                      | `4096`                         | Minimum pending transcript bytes required for a sustained-lag warning                                |
 | `CCGRAM_MEMBER_LANE_WORKTREES`                       | `true`                         | Create an isolated clean Git worktree/branch for every derived member lane                            |
 | `CCGRAM_ALLOW_SHARED_MEMBER_CWD`                     | `false`                        | Explicitly permit non-Git lanes to share a cwd; safe only for trusted read-only work                  |
 | `CCGRAM_MEMBER_LANE_CLEANUP_DAYS`                    | `0`                            | Remove only parked, clean and merged member worktrees after N days; 0 disables                        |
@@ -442,6 +446,17 @@ commentary while a task is still running; only an explicit final answer closes
 that task. Providers without phase metadata retain their complete-reply completion
 behaviour for compatibility.
 
+Active rows expose provider-neutral phases (analysis, tool execution, waiting
+for confirmation, reply generation, and delivery). General includes buttons for
+errors, queues, refresh-all, and direct links to active topics. Definitive
+missing-topic errors isolate only that dashboard target after the configured
+threshold; they never unbind, stop, or delete the underlying CLI lane.
+
+`/selftest` performs a read-only routing/scheduler/outbox/dashboard wiring check
+without sending a prompt to any provider. Telegram media albums are coalesced by
+chat, topic, member, and `media_group_id`, so one album becomes one task while
+different members remain independent.
+
 The mode-`0600` `~/.ccgram/dashboard.json` stores message IDs and safe operator
 labels. Restarts keep editing the original message; deleted messages are
 recreated. Missing pin permission degrades to an unpinned editable message and
@@ -632,7 +647,7 @@ Legacy and manually edited names are not overwritten. Run `/autoname` inside an 
 
 `/replay [count]` safely resends the latest 1–10 assistant text replies without moving the monitor cursor. It defaults to three replies and sends oversized output as a `.txt` document.
 
-`/ops` summarizes topic queues, unfinished tasks, durable outbox entries, retries, and transcript delivery lag. Assistant text is atomically journaled to `~/.ccgram/outbox.json` before entering memory and removed only after Telegram acknowledges it; unconfirmed entries are restored on restart. Queues are isolated by user and topic, so one Telegram timeout cannot block another topic. A lag persisting for 30 seconds sends one operator alert and records a recovery metric when it clears.
+`/ops` summarizes topic queues, unfinished tasks, durable outbox entries, retries, and transcript delivery lag. Assistant text is atomically journaled to `~/.ccgram/outbox.json` before entering memory and removed only after Telegram acknowledges it; unconfirmed entries are restored on restart and Outbox gauges are reconciled with disk on load. Queues are isolated by user and topic, so one Telegram timeout cannot block another topic. An operator alert requires both `CCGRAM_DELIVERY_LAG_WARN_SECONDS` (120 seconds by default) and `CCGRAM_DELIVERY_LAG_MIN_BYTES` (4096 bytes by default); recovery is recorded separately.
 
 Incomplete assistant snapshots use Telegram-native drafts for a live preview. The final reply still goes through the durable Outbox and completes only after Telegram acknowledges it. Stalled drafts expire after 25 seconds; unavailable draft APIs degrade without affecting final delivery.
 
@@ -1041,8 +1056,12 @@ The manual flow above has a gap: a successful `uv tool install` does not mean
 the **service actually came back up**. A bad commit leaves a dead bot behind a
 "deployed OK" message.
 
-`scripts/deploy.sh` wraps the step: deploy → wait for health → roll back to the
-previous commit automatically if it never becomes healthy.
+`scripts/deploy.sh` first builds a wheel in a staging directory and snapshots
+the routing, task, dashboard, and outbox state under
+`~/.ccgram/deploy-backups/`. It then stops the old process before replacing the
+tool environment, starts the staged release, waits for health, and automatically
+rolls back to the previous commit if needed. Stopping before the environment
+switch prevents the old process from pruning bindings during installation.
 
 ```bash
 cd /path/to/ccgram && git pull

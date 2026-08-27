@@ -128,7 +128,7 @@ async def _handle_assistant_stream(
     return True
 
 
-async def handle_new_message(  # noqa: C901, PLR0912 - explicit routing stages
+async def handle_new_message(  # noqa: C901, PLR0912, PLR0915 - explicit routing stages
     msg: NewMessage, client: TelegramClient
 ) -> None:
     """Handle a new assistant message — enqueue for sequential processing.
@@ -155,8 +155,21 @@ async def handle_new_message(  # noqa: C901, PLR0912 - explicit routing stages
         cid = new_cid()
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(
-            window_id=window_id, session_id=msg.session_id, cid=cid
+            window_id=window_id,
+            session_id=msg.session_id,
+            topic_id=thread_id,
+            member_id=user_id,
+            cid=cid,
         )
+
+        if msg.tool_name in INTERACTIVE_TOOL_NAMES and msg.content_type == "tool_use":
+            await task_scheduler.set_phase(window_id, "waiting")
+        elif msg.content_type in ("tool_use", "tool_result"):
+            await task_scheduler.set_phase(window_id, "tool")
+        elif msg.content_type == "thinking":
+            await task_scheduler.set_phase(window_id, "analysis")
+        elif not msg.is_complete:
+            await task_scheduler.set_phase(window_id, "generating")
 
         if msg.content_type == "thinking":
             stripped = (msg.text or "").strip()
@@ -198,6 +211,7 @@ async def handle_new_message(  # noqa: C901, PLR0912 - explicit routing stages
         )
 
         if msg.is_complete:
+            await task_scheduler.set_phase(window_id, "delivery")
             await enqueue_content_message(
                 client=client,
                 user_id=user_id,

@@ -12,6 +12,8 @@ Key handlers:
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+import asyncio
+from dataclasses import dataclass
 import structlog
 import re
 import unicodedata
@@ -35,6 +37,7 @@ from .group_activation import evaluate_group_activation
 from .messaging_pipeline.message_sender import ack_reaction, safe_reply
 from .task_intake import admit_request, message_ids
 from .text.member_lanes import ensure_member_lane
+from ..utils import task_done_callback
 
 if TYPE_CHECKING:
     from telegram.ext import ContextTypes
@@ -54,6 +57,20 @@ _FILENAME_PUNCT = frozenset("._-")
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 _MAX_CAPTION_LEN = 500
+
+
+@dataclass(slots=True)
+class _AlbumItem:
+    message: Message
+    window_id: str
+    user_id: int
+    thread_id: int
+    rel_path: str
+    caption: str
+
+
+_album_buffers: dict[tuple[int, int, int, str], list[_AlbumItem]] = {}
+_album_flush_tasks: dict[tuple[int, int, int, str], asyncio.Task[None]] = {}
 
 
 def _keep_filename_char(char: str) -> bool:
@@ -270,6 +287,103 @@ async def _upload_and_notify(
         )
 
 
+async def _buffer_album_item(
+    message: Message,
+    user_id: int,
+    thread_id: int,
+    filename: str,
+    file_id: str,
+    file_size: int | None,
+    size_label: str,
+    caption: str,
+) -> None:
+    """Save one Telegram album member and coalesce it into one CLI request."""
+    window_id, upload_path, error = _resolve_upload_dir(user_id, thread_id)
+    if error or not window_id or not upload_path:
+        await safe_reply(message, f"❌ {error}")
+        return
+    saved_name = await _download_and_save(
+        message, upload_path, filename, file_id, file_size, size_label
+    )
+    if not saved_name:
+        return
+    media_group_id = str(getattr(message, "media_group_id", "") or "")
+    key = (message.chat.id, thread_id, user_id, media_group_id)
+    _album_buffers.setdefault(key, []).append(
+        _AlbumItem(
+            message=message,
+            window_id=window_id,
+            user_id=user_id,
+            thread_id=thread_id,
+            rel_path=f"{_UPLOAD_DIR}/{saved_name}",
+            caption=_sanitize_caption(caption),
+        )
+    )
+    previous = _album_flush_tasks.pop(key, None)
+    if previous is not None:
+        previous.cancel()
+    task = asyncio.create_task(_flush_album(key), name=f"media-album:{media_group_id}")
+    task.add_done_callback(task_done_callback)
+    _album_flush_tasks[key] = task
+
+
+async def _flush_album(key: tuple[int, int, int, str]) -> None:
+    try:
+        await asyncio.sleep(config.media_group_coalesce_ms / 1000)
+    except asyncio.CancelledError:
+        return
+    items = _album_buffers.pop(key, [])
+    _album_flush_tasks.pop(key, None)
+    if not items:
+        return
+    first = items[0]
+    agent_msg = _build_album_prompt(items)
+    admission = await admit_request(
+        window_id=first.window_id,
+        user_id=first.user_id,
+        thread_id=first.thread_id,
+        message=first.message,
+        dispatch_text=agent_msg,
+    )
+    if admission is None:
+        return
+    success, error = await send_to_window(first.window_id, agent_msg)
+    for item in items:
+        chat_id, message_id = message_ids(item.message)
+        inbound_store.set_state(
+            inbound_store.make_key(chat_id, item.thread_id, message_id),
+            "forwarded" if success else "failed",
+        )
+    if not success:
+        clear_request_window(first.window_id)
+        if not admission.continuation:
+            await task_scheduler.release_window(first.window_id)
+        await safe_reply(
+            first.message,
+            t("❌ File saved but failed to notify the agent: {error}").format(
+                error=error
+            ),
+        )
+        return
+    client = PTBTelegramClient(first.message.get_bot())
+    for item in items:
+        await ack_reaction(client, item.message.chat.id, item.message.message_id)
+    await safe_reply(
+        first.message,
+        t("📚 Uploaded album: {count} files").format(count=len(items)),
+    )
+
+
+def _build_album_prompt(items: list[_AlbumItem]) -> str:
+    """Build one provider-neutral prompt for all files in an album."""
+    paths = "\n".join(f"- {item.rel_path}" for item in items)
+    captions = [item.caption for item in items if item.caption]
+    prompt = f"I've uploaded a media album with {len(items)} files:\n{paths}"
+    if captions:
+        prompt += "\n\nUser note: " + " ".join(dict.fromkeys(captions))
+    return prompt
+
+
 async def _prepare_media_request(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -354,6 +468,18 @@ async def handle_photo_message(
         return
 
     photo = message.photo[-1]
+    if getattr(message, "media_group_id", None):
+        await _buffer_album_item(
+            message,
+            user_id,
+            thread_id,
+            _generate_photo_filename(photo.file_unique_id),
+            photo.file_id,
+            photo.file_size,
+            "Photo",
+            caption,
+        )
+        return
     await _upload_and_notify(
         message,
         user_id,
@@ -380,6 +506,18 @@ async def handle_document_message(
         return
 
     doc = message.document
+    if getattr(message, "media_group_id", None):
+        await _buffer_album_item(
+            message,
+            user_id,
+            thread_id,
+            _sanitize_filename(doc.file_name or "document"),
+            doc.file_id,
+            doc.file_size,
+            "File",
+            caption,
+        )
+        return
     await _upload_and_notify(
         message,
         user_id,

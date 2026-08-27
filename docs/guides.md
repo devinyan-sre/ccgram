@@ -193,6 +193,7 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_MAX_PARALLEL_GLOBAL`                         | `4`                            | 本 ccgram 实例同时运行的成员任务总数；跨话题统一限制                                                   |
 | `CCGRAM_TASK_LEASE_SECONDS`                          | `7200`                         | provider 未产生完成事件时的任务槽安全租约；到期自动释放，防止永久堵塞                                 |
 | `CCGRAM_MESSAGE_COALESCE_MS`                         | `0`                            | 同一成员连续非回复消息在发送前的合并窗口（毫秒）                                                       |
+| `CCGRAM_MEDIA_GROUP_COALESCE_MS`                     | `750`                          | 同一成员发送 Telegram 相册时的聚合窗口（毫秒）；整组文件只生成一个 CLI 任务                            |
 | `CCGRAM_MAX_TASK_SUPPLEMENTS`                        | `20`                           | 一个活动任务最多接受的补充消息数                                                                       |
 | `CCGRAM_TASK_QUEUE_ALERT_SECONDS`                    | `300`                          | 排队超过该秒数时通知主运维；0 关闭                                                                     |
 | `CCGRAM_TASK_CANCEL_CONFIRM_SECONDS`                 | `8`                            | 发送 Ctrl+C 后等待 CLI 可观测停止的秒数；超时后保持取消中且不释放并发槽                               |
@@ -204,7 +205,10 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_DASHBOARD_COMPLETED_TTL_SECONDS`             | `180`                          | 已结束任务在总览中保留的秒数；0 表示完成后立即移除                                                     |
 | `CCGRAM_DASHBOARD_MAX_ITEMS`                         | `20`                           | 每条总览最多展示的任务数（1–50）                                                                       |
 | `CCGRAM_DASHBOARD_PIN`                               | `true`                         | 尝试置顶总览；权限不足时自动降级为普通可编辑消息                                                       |
+| `CCGRAM_DASHBOARD_MISSING_TOPIC_FAILURES`            | `2`                            | 连续确认话题不存在多少次后隔离该总览目标；不会停止或删除 CLI 会话                                      |
 | `CCGRAM_DASHBOARD_PRIVACY`                           | `normal`                       | `normal` 显示已知用户名/昵称，`strict` 只显示稳定匿名成员代号                                         |
+| `CCGRAM_DELIVERY_LAG_WARN_SECONDS`                   | `120`                          | 投递游标持续停滞达到该时长才告警；短暂且自动恢复的积压不产生 warning                                   |
+| `CCGRAM_DELIVERY_LAG_MIN_BYTES`                      | `4096`                         | 触发持续投递告警所需的最小积压字节数                                                                 |
 | `CCGRAM_MEMBER_LANE_WORKTREES`                       | `true`                         | 为派生成员通道自动创建独立 Git worktree/分支                                                         |
 | `CCGRAM_ALLOW_SHARED_MEMBER_CWD`                     | `false`                        | 允许非 Git 多人通道共享目录；仅适合可信只读任务，并发写入可能冲突                                    |
 | `CCGRAM_DIR` / `--config-dir`                        | `~/.ccgram`                    | 配置与状态目录                                                                                       |
@@ -578,6 +582,14 @@ Shell，以及 tmux/herdr 都使用同一实现。它不会读取或展示问题
 昵称；`strict` 使用不可反推 Telegram ID 的稳定匿名代号。
 
 总览时间按 `CCGRAM_TIMEZONE` 显示；例如设置 `Asia/Shanghai` 后显示“北京时间”。
+运行中的任务会显示“分析中、工具执行中、等待确认、生成回复中、投递中”等 Provider
+无关阶段。General 总览提供“异常、排队、全部刷新”和活动话题跳转按钮，并展示最近同步、
+置顶和失效话题隔离状态。连续收到明确的 `Message thread not found` 后只隔离该话题的
+总览刷新，不解绑、不停止 CLI；诊断信息仍可在 General 的“异常”按钮查看。
+
+`/selftest` 是只读链路自检：检查话题路由、请求关联、调度器、Outbox、消息队列及
+话题/General 总览接线，不会向 Codex、Claude、Gemini、Pi 或 Shell 发送测试问题。
+Telegram 相册按“群组 + 话题 + 成员 + media_group_id”聚合，不同成员互不合并。
 Codex 等会在任务中途发送过程说明的 CLI，只有明确的最终答复才会结束总览任务，
 过程说明不会再导致“任务仍在执行、置顶却提前显示已结束”。没有阶段元数据的 CLI
 继续沿用完整助手回复作为完成信号，因此兼容现有 Claude、Gemini、Pi 和 Shell 流程。
@@ -777,7 +789,7 @@ ccgram-codex-2
 
 `/replay [数量]` 从 transcript 重新发送最近 1–10 条助手文本，不会回退监控游标，因此不会影响正常增量投递。默认重放 3 条，长内容自动作为 `.txt` 文件发送。
 
-`/ops` 汇总所有话题的队列数量、未完成任务、持久化 outbox、重试数和 transcript 投递积压。助手文本在进入内存队列前会写入 `~/.ccgram/outbox.json`，Telegram 明确确认后才删除；服务重启会自动恢复未确认项。队列按 `用户 + 话题` 隔离，一个话题遭遇 Telegram 超时不会阻塞同一用户的其他话题。积压超过 30 秒还会向运营者发送一次告警，恢复后记录恢复指标。
+`/ops` 汇总所有话题的队列数量、未完成任务、持久化 outbox、重试数和 transcript 投递积压。助手文本在进入内存队列前会写入 `~/.ccgram/outbox.json`，Telegram 明确确认后才删除；服务重启会自动恢复未确认项，并在加载时把 Outbox Gauge 与磁盘状态重新对齐。队列按 `用户 + 话题` 隔离，一个话题遭遇 Telegram 超时不会阻塞同一用户的其他话题。积压同时超过 `CCGRAM_DELIVERY_LAG_WARN_SECONDS`（默认 120 秒）和 `CCGRAM_DELIVERY_LAG_MIN_BYTES`（默认 4096 字节）才向运营者告警，恢复后记录恢复指标。
 
 助手产生未完成的流式文本时，ccgram 会先使用 Telegram 原生草稿显示实时预览；最终回复仍进入持久化 Outbox，只有 Telegram 确认后才完成投递。草稿停滞 25 秒会自动清理，且草稿 API 不可用时自动降级，不影响最终回复。
 
@@ -1200,7 +1212,11 @@ systemctl --user show ccgram -p NRestarts   # 仍为 0 说明没有崩溃循环
 
 上面的手工流程有个问题:`uv tool install` 成功不代表**服务真的起来了**。一个坏 commit 会留下一个已停止的 bot,而命令行显示"部署成功"。
 
-`scripts/deploy.sh` 把这一步包起来:部署 → 等待健康 → 不健康则自动回滚到上一个 commit。
+`scripts/deploy.sh` 把这一步包起来：先在临时目录构建 wheel，并把 `state.json`、
+`session_map.json`、`tasks.json`、`dashboard.json`、`outbox.json` 快照到
+`~/.ccgram/deploy-backups/`；随后停止旧进程、切换安装、启动并等待健康。不健康时
+自动回滚到上一个 commit。停止旧进程后才替换环境，避免旧进程在安装窗口内误判
+CLI 窗口消失并清理绑定。
 
 ```bash
 cd /path/to/ccgram && git pull

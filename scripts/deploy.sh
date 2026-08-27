@@ -22,6 +22,18 @@ SERVICE="${CCGRAM_SERVICE:-ccgram}"
 TIMEOUT=60
 AUTO_ROLLBACK=1
 DEPLOY_REF_FILE="${CCGRAM_DEPLOY_REF_FILE:-${HOME}/.ccgram/deployed-ref}"
+STATE_DIR="${CCGRAM_DIR:-${HOME}/.ccgram}"
+STAGE_DIR="$(mktemp -d)"
+ROLLBACK_TREE=""
+
+cleanup() {
+	if [[ -n "${ROLLBACK_TREE}" && -d "${ROLLBACK_TREE}" ]]; then
+		git -C "${SRC_DIR}" worktree remove --force "${ROLLBACK_TREE}" 2>/dev/null || true
+	fi
+	[[ -d "${STAGE_DIR}" ]] && rm -rf "${STAGE_DIR}"
+	[[ -z "${ROLLBACK_TREE}" || ! -d "${ROLLBACK_TREE}" ]] || rm -rf "${ROLLBACK_TREE}"
+}
+trap cleanup EXIT
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -91,6 +103,20 @@ install_from() {
 	uv tool install --force --reinstall "$1" >/dev/null
 }
 
+snapshot_runtime_state() {
+	local stamp backup_dir name
+	stamp="$(TZ=Asia/Shanghai date '+%Y%m%d-%H%M%S')"
+	backup_dir="${STATE_DIR}/deploy-backups/${stamp}-${NEW_REF}"
+	mkdir -p "${backup_dir}"
+	chmod 700 "${backup_dir}"
+	for name in state.json session_map.json tasks.json dashboard.json outbox.json; do
+		if [[ -f "${STATE_DIR}/${name}" ]]; then
+			cp -p "${STATE_DIR}/${name}" "${backup_dir}/${name}"
+		fi
+	done
+	log "runtime state snapshot: ${backup_dir}"
+}
+
 record_deployed_ref() {
 	mkdir -p "$(dirname "${DEPLOY_REF_FILE}")"
 	local tmp_ref="${DEPLOY_REF_FILE}.tmp.$$"
@@ -127,8 +153,16 @@ fi
 BASELINE_RESTARTS="$(restart_count)"
 
 log "deploying ${NEW_REF} (rollback target: ${PREV_REF:0:8})"
-install_from "${SRC_DIR}"
-systemctl --user restart "${SERVICE}"
+log "building release artifact while current service stays available"
+uv build --wheel --out-dir "${STAGE_DIR}" "${SRC_DIR}" >/dev/null
+mapfile -t RELEASE_WHEELS < <(find "${STAGE_DIR}" -maxdepth 1 -type f -name '*.whl' -print)
+[[ "${#RELEASE_WHEELS[@]}" == "1" ]] || fail "expected exactly one staged wheel"
+snapshot_runtime_state
+# Stop the old process before replacing its environment. This prevents it from
+# observing a partially installed package and pruning live window mappings.
+systemctl --user stop "${SERVICE}"
+install_from "${RELEASE_WHEELS[0]}"
+systemctl --user start "${SERVICE}"
 
 if wait_for_health; then
 	# A unit that is 'active' only because systemd already restarted it after a
@@ -151,11 +185,6 @@ fi
 # --- rollback -------------------------------------------------------------
 
 ROLLBACK_TREE="$(mktemp -d)"
-cleanup() {
-	git -C "${SRC_DIR}" worktree remove --force "${ROLLBACK_TREE}" 2>/dev/null || true
-	rm -rf "${ROLLBACK_TREE}" 2>/dev/null || true
-}
-trap cleanup EXIT
 
 log "rolling back to ${PREV_REF:0:8}"
 # --detach: a rollback build must never claim a branch name.
@@ -163,8 +192,9 @@ rm -rf "${ROLLBACK_TREE}"
 git -C "${SRC_DIR}" worktree add --detach "${ROLLBACK_TREE}" "${PREV_REF}" >/dev/null 2>&1 ||
 	fail "could not create rollback worktree at ${PREV_REF}"
 
+systemctl --user stop "${SERVICE}"
 install_from "${ROLLBACK_TREE}"
-systemctl --user restart "${SERVICE}"
+systemctl --user start "${SERVICE}"
 
 if wait_for_health; then
 	record_deployed_ref "${PREV_REF}"

@@ -211,6 +211,9 @@ class Config:
         self.dashboard_pin: bool = os.getenv(
             "CCGRAM_DASHBOARD_PIN", "true"
         ).lower() in ("1", "true", "yes")
+        self.dashboard_missing_topic_failures: int = max(
+            1, _parse_int_env("CCGRAM_DASHBOARD_MISSING_TOPIC_FAILURES", 2)
+        )
         raw_dashboard_privacy = (
             os.getenv("CCGRAM_DASHBOARD_PRIVACY", "normal").strip().lower()
         )
@@ -221,6 +224,15 @@ class Config:
         )
         self.inbound_dedupe_hours: int = max(
             1, _parse_int_env("CCGRAM_INBOUND_DEDUPE_HOURS", 72)
+        )
+        self.delivery_lag_warn_seconds: int = max(
+            30, _parse_int_env("CCGRAM_DELIVERY_LAG_WARN_SECONDS", 120)
+        )
+        self.delivery_lag_min_bytes: int = max(
+            1, _parse_int_env("CCGRAM_DELIVERY_LAG_MIN_BYTES", 4096)
+        )
+        self.media_group_coalesce_ms: int = max(
+            100, _parse_int_env("CCGRAM_MEDIA_GROUP_COALESCE_MS", 750)
         )
         self.member_lane_worktrees: bool = os.getenv(
             "CCGRAM_MEMBER_LANE_WORKTREES", "true"
