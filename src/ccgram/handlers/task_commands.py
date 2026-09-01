@@ -8,6 +8,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from ..access_control import has_role, role_for
+from ..dispatch_confirmation import dispatch_confirmation
 from ..task_cancellation import CancellationResult, force_cancel, graceful_cancel
 from ..task_scheduler import task_scheduler
 from .callback_helpers import get_thread_id
@@ -61,6 +62,11 @@ async def tasks_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> 
             lines.append(
                 f"• `{view.task_id}` {owner}：取消确认中 {age}s，"
                 f"窗口 `{view.window_id}`"
+            )
+        elif view.state == "stuck":
+            lines.append(
+                f"• `{view.task_id}` {owner}：CLI 未确认启动，通道已暂停，"
+                f"使用 `/task_retry {view.task_id}` 或取消"
             )
         else:
             lines.append(
@@ -150,6 +156,41 @@ async def task_add_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await handle_text_message(update, context, text_override=parts[1].strip())
 
 
+async def task_retry_command(
+    update: Update, _context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """``/task_retry [Txxxx]`` — retry only the submit key, never the prompt."""
+    if update.message is None or (scope := _scope(update)) is None:
+        return
+    chat_id, thread_id, user_id = scope
+    task_id = _argument(update)
+    if task_id is None:
+        record = next(
+            (
+                row
+                for row in dispatch_confirmation.records()
+                if row.chat_id == chat_id
+                and row.thread_id == thread_id
+                and row.user_id == user_id
+                and row.status in ("submitting", "stuck")
+            ),
+            None,
+        )
+        task_id = record.task_id if record is not None else None
+    if task_id is None:
+        await safe_reply(update.message, "ℹ️ 没有需要重新提交的任务。")
+        return
+    result = await dispatch_confirmation.retry(task_id, requester_user_id=user_id)
+    texts = {
+        "retrying": f"⌨️ 已重新提交任务 `{task_id}`，正在等待 CLI 确认。",
+        "not_found": f"ℹ️ 未找到任务 `{task_id}`。",
+        "forbidden": "❌ 只能重新提交自己的任务。",
+        "not_stuck": f"ℹ️ 任务 `{task_id}` 当前不需要重新提交。",
+        "failed": f"❌ 任务 `{task_id}` 的提交键发送失败，通道仍保持暂停。",
+    }
+    await safe_reply(update.message, texts.get(result, f"ℹ️ 状态：{result}"))
+
+
 async def task_force_cancel_command(
     update: Update, _context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -214,5 +255,6 @@ __all__ = [
     "task_cancel_command",
     "task_force_cancel_command",
     "task_new_command",
+    "task_retry_command",
     "tasks_command",
 ]

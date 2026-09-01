@@ -7,6 +7,8 @@ import asyncio
 import structlog
 
 from .inbound_store import InboundItem, inbound_store
+from .dispatch_confirmation import dispatch_confirmation
+from . import window_query
 from .multiplexer import multiplexer
 from .multiplexer.window_ops import send_to_window
 from .request_context import record_request
@@ -35,11 +37,21 @@ async def _recover_one(item: InboundItem) -> None:
             message_id=item.message_id,
             preserve_existing=admission.continuation,
         )
+        dispatch_confirmation.begin(
+            task_id=admission.task_id,
+            chat_id=item.chat_id,
+            thread_id=item.thread_id,
+            user_id=item.user_id,
+            window_id=item.window_id,
+            provider=window_query.get_window_provider(item.window_id) or "unknown",
+        )
         inbound_store.set_state(item.key, "dispatching")
+        await dispatch_confirmation.mark_written(item.window_id)
         success, error = await send_to_window(item.window_id, item.text)
         if success:
             inbound_store.set_state(item.key, "forwarded")
             return
+        dispatch_confirmation.complete(item.window_id)
         inbound_store.set_state(item.key, "failed")
         if not admission.continuation:
             await task_scheduler.release_window(

@@ -58,15 +58,18 @@ def _reset_destructive_guard():
 @pytest.fixture(autouse=True)
 def _reset_task_scheduler():
     """Prevent active/queued task admissions from leaking between tests."""
+    from ccgram.dispatch_confirmation import dispatch_confirmation
     from ccgram.inbound_store import inbound_store
     from ccgram.message_coalescer import message_coalescer
     from ccgram.task_scheduler import task_scheduler
 
     task_scheduler.reset_for_testing()
+    dispatch_confirmation.reset_for_testing()
     inbound_store.clear_for_testing()
     message_coalescer.reset_for_testing()
     yield
     task_scheduler.reset_for_testing()
+    dispatch_confirmation.reset_for_testing()
     inbound_store.clear_for_testing()
     message_coalescer.reset_for_testing()
 

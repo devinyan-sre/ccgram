@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Durable provider dispatch confirmation for every prompt and supplement.
+  Claude, Codex, Gemini and Pi acknowledge through real transcript user turns;
+  Shell acknowledges at its controlled execution pipeline. Missed TUI submits
+  retry only Enter, never prompt text, then fail closed with Chinese receipt
+  controls, `/task_retry`, dashboard state and Prometheus metrics. Task-lease
+  expiry and ambiguous restarts now retain the lane instead of allowing two
+  questions to merge or overlap.
+
 - Provider-neutral two-phase task cancellation with durable short task IDs,
   precise owner/admin controls, `/task_force_cancel`, queue ETA, `/ops` timing
   and 24-hour cancel summaries, and a private rotating cancellation audit.

@@ -184,6 +184,16 @@ class Config:
         self.task_estimate_default_seconds: int = max(
             1, _parse_int_env("CCGRAM_TASK_ESTIMATE_DEFAULT_SECONDS", 300)
         )
+        self.dispatch_ack_seconds: int = max(
+            3, _parse_int_env("CCGRAM_DISPATCH_ACK_SECONDS", 15)
+        )
+        self.dispatch_retry_count: int = min(
+            3, max(0, _parse_int_env("CCGRAM_DISPATCH_RETRY_COUNT", 1))
+        )
+        self.task_progress_warn_seconds: int = max(
+            self.dispatch_ack_seconds,
+            _parse_int_env("CCGRAM_TASK_PROGRESS_WARN_SECONDS", 300),
+        )
         # Telegram operations dashboard.  Disabled by default so existing
         # installations never receive new/pinned messages after an upgrade.
         # ``general`` renders one group-wide view, ``topic`` renders one view
@@ -257,6 +267,7 @@ class Config:
         self.monitor_state_file = self.config_dir / "monitor_state.json"
         self.outbox_file = self.config_dir / "outbox.json"
         self.inbound_file = self.config_dir / "inbound.json"
+        self.dispatch_state_file = self.config_dir / "dispatch.json"
         self.task_state_file = self.config_dir / "tasks.json"
         self.dashboard_state_file = self.config_dir / "dashboard.json"
         self.task_audit_file = self.config_dir / "task-audit.jsonl"

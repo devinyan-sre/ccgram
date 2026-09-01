@@ -537,8 +537,13 @@ async def _forward_message(
     chat_id, message_id = message_ids(message)
     inbound_key = inbound_store.make_key(chat_id, thread_id, message_id)
     inbound_store.set_state(inbound_key, "dispatching")
+    # Lazy: dispatch confirmation reaches task receipts and this pipeline.
+    from ...dispatch_confirmation import dispatch_confirmation
+
+    await dispatch_confirmation.mark_written(window_id)
     success, err_message = await send_to_window(window_id, send_text or text)
     if not success:
+        dispatch_confirmation.complete(window_id)
         if admission.continuation:
             inbound_store.set_state(inbound_key, "failed")
         else:
@@ -573,9 +578,7 @@ async def _forward_message(
         await handle_interactive_ui(client, user_id, window_id, thread_id)
 
 
-async def text_handler(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Top-level ``MessageHandler(filters.TEXT & ~filters.COMMAND)`` callback.
 
     Performs auth, refreshes the user's scoped command menu for the
@@ -599,6 +602,7 @@ async def text_handler(
     # Keep the dashboard label human-friendly without making Telegram profile
     # lookups or provider-specific assumptions. Only authorized users reach
     # this point, and strict dashboard privacy ignores the stored label.
+    # Lazy: optional dashboard imports Telegram persistence and handlers.
     from ...operations_dashboard import observe_dashboard_user
 
     observe_dashboard_user(user)
@@ -749,6 +753,11 @@ async def handle_text_message(  # noqa: C901, PLR0911, PLR0912 - explicit routin
         chat_id, message_id = message_ids(message)
         inbound_key = inbound_store.make_key(chat_id, thread_id, message_id)
         inbound_store.set_state(inbound_key, "dispatching")
+        # Lazy: dispatch confirmation reaches task receipts and this pipeline.
+        from ...dispatch_confirmation import dispatch_confirmation
+
+        await dispatch_confirmation.mark_written(window_id)
+        await dispatch_confirmation.acknowledge(window_id, evidence="shell_pipeline")
         try:
             await handle_shell_message(
                 PTBTelegramClient(context.bot),
@@ -760,6 +769,7 @@ async def handle_text_message(  # noqa: C901, PLR0911, PLR0912 - explicit routin
             )
             inbound_store.set_state(inbound_key, "forwarded")
         except BaseException:
+            dispatch_confirmation.complete(window_id)
             if admission.continuation:
                 inbound_store.set_state(inbound_key, "failed")
             else:

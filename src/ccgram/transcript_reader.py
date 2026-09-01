@@ -597,6 +597,15 @@ class TranscriptReader:
 
         if new_entries:
             self._idle_tracker.record_activity(session_id)
+            if window_id:
+                # Lazy: confirmation imports task and receipt state.
+                from .dispatch_confirmation import dispatch_confirmation
+
+                dispatch_confirmation.observe_transcript_entries(
+                    window_id=window_id,
+                    provider=provider,
+                    entries=new_entries,
+                )
 
         if provider.capabilities.supports_task_tracking and window_id:
             provider.apply_task_entries(window_id, session_id, new_entries)

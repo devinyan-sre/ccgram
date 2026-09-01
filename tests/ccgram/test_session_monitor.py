@@ -107,6 +107,33 @@ class TestPendingToolsCleanup:
         assert old_sid not in monitor._pending_tools
 
 
+class TestDeliveryLagThreshold:
+    def test_small_gap_does_not_age_a_later_real_stall(
+        self, monitor: SessionMonitor, monkeypatch
+    ) -> None:
+        from ccgram.config import config
+
+        monkeypatch.setattr(config, "delivery_lag_min_bytes", 100)
+        monkeypatch.setattr(config, "delivery_lag_warn_seconds", 10)
+        tracked = TrackedSession(session_id="s1", file_path="/tmp/s1")
+        tracked.last_byte_offset = 50
+        tracked.delivered_byte_offset = 0
+        monitor.state.update_session(tracked)
+
+        with patch("ccgram.session_monitor.time.monotonic", return_value=1.0):
+            monitor._observe_delivery_lag()
+        assert "s1" not in monitor._delivery_lag_since
+
+        tracked.last_byte_offset = 200
+        with (
+            patch("ccgram.session_monitor.time.monotonic", return_value=1000.0),
+            patch("ccgram.session_monitor.logger.warning") as warning,
+        ):
+            monitor._observe_delivery_lag()
+        warning.assert_not_called()
+        assert monitor._delivery_lag_since["s1"] == 1000.0
+
+
 class TestNewWindowDetection:
     async def test_callback_fires_for_new_window(self, monitor: SessionMonitor) -> None:
         cb = AsyncMock(spec=lambda event: None)

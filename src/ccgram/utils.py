@@ -428,6 +428,7 @@ async def handle_general_topic_message(
     # When the operations dashboard is enabled for General it owns the single
     # persistent pin. Keep the legacy guard silent and avoid replacing that
     # dashboard with the old "use a named topic" hint.
+    # Lazy: dashboard imports Telegram utilities from this module.
     from .operations_dashboard import dashboard_owns_general_pin
 
     if dashboard_owns_general_pin():

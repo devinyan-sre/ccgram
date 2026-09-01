@@ -230,9 +230,7 @@ class OperationsDashboard:
             if config.dashboard_scope in ("topic", "both") and thread_id > 1:
                 self._dirty_target_keys.add(f"topic:{chat_id}:{thread_id}")
             if config.dashboard_scope in ("general", "both"):
-                self._dirty_target_keys.add(
-                    f"general:{chat_id}:{_GENERAL_THREAD_ID}"
-                )
+                self._dirty_target_keys.add(f"general:{chat_id}:{_GENERAL_THREAD_ID}")
         self._refresh_event.set()
 
     def _refresh_targets(self) -> list[DashboardTarget]:
@@ -257,11 +255,8 @@ class OperationsDashboard:
             add(key)
 
         hot_views = task_scheduler.views()
-        hot_rows = [
-            (view.chat_id, view.thread_id) for view in hot_views
-        ] + [
-            (row.view.chat_id, row.view.thread_id)
-            for row in self._completed.values()
+        hot_rows = [(view.chat_id, view.thread_id) for view in hot_views] + [
+            (row.view.chat_id, row.view.thread_id) for row in self._completed.values()
         ]
         for chat_id, thread_id in hot_rows:
             add(f"topic:{chat_id}:{thread_id}")
@@ -269,8 +264,7 @@ class OperationsDashboard:
 
         now = time.monotonic()
         idle_due = (
-            now - self._last_idle_refresh_at
-            >= config.dashboard_idle_refresh_seconds
+            now - self._last_idle_refresh_at >= config.dashboard_idle_refresh_seconds
         )
         if self._full_refresh_requested or idle_due:
             for target in targets:
@@ -447,27 +441,40 @@ class OperationsDashboard:
     def _markup(self, target: DashboardTarget) -> InlineKeyboardMarkup:
         rows = [
             [
-                InlineKeyboardButton(t("🔄 Refresh"), callback_data=CB_DASHBOARD_REFRESH),
-                InlineKeyboardButton(t("🔄 Refresh all"), callback_data=CB_DASHBOARD_REFRESH_ALL),
+                InlineKeyboardButton(
+                    t("🔄 Refresh"), callback_data=CB_DASHBOARD_REFRESH
+                ),
+                InlineKeyboardButton(
+                    t("🔄 Refresh all"), callback_data=CB_DASHBOARD_REFRESH_ALL
+                ),
             ]
         ]
         if target.global_view:
             rows.append(
                 [
-                    InlineKeyboardButton(t("⚠️ Errors"), callback_data=CB_DASHBOARD_ERRORS),
-                    InlineKeyboardButton(t("⏳ Queue"), callback_data=CB_DASHBOARD_QUEUE),
+                    InlineKeyboardButton(
+                        t("⚠️ Errors"), callback_data=CB_DASHBOARD_ERRORS
+                    ),
+                    InlineKeyboardButton(
+                        t("⏳ Queue"), callback_data=CB_DASHBOARD_QUEUE
+                    ),
                 ]
             )
             active_topics = sorted(
-                {view.thread_id for view in task_scheduler.views(chat_id=target.chat_id)}
+                {
+                    view.thread_id
+                    for view in task_scheduler.views(chat_id=target.chat_id)
+                }
             )[:3]
             chat_ref = str(target.chat_id).removeprefix("-100")
             for thread_id in active_topics:
                 rows.append(
-                    [InlineKeyboardButton(
-                        t("Open topic {thread_id}").format(thread_id=thread_id),
-                        url=f"https://t.me/c/{chat_ref}/{thread_id}",
-                    )]
+                    [
+                        InlineKeyboardButton(
+                            t("Open topic {thread_id}").format(thread_id=thread_id),
+                            url=f"https://t.me/c/{chat_ref}/{thread_id}",
+                        )
+                    ]
                 )
         return InlineKeyboardMarkup(rows)
 
@@ -655,7 +662,8 @@ class OperationsDashboard:
             and (target.global_view or row.view.thread_id == target.thread_id)
         ]
 
-        active = sum(view.state == "active" for view in views)
+        active = sum(view.state in ("active", "stuck") for view in views)
+        stuck = sum(view.state == "stuck" for view in views)
         cancelling = sum(view.state == "cancelling" for view in views)
         queued = sum(view.state == "queued" for view in views)
         if target.global_view:
@@ -676,6 +684,8 @@ class OperationsDashboard:
             ),
             "",
         ]
+        if stuck:
+            lines.insert(2, f"🔴 未确认启动 {stuck} · 已阻止后续消息串题")
         if target.global_view:
             isolated = sum(
                 health.quarantined for health in self._target_health.values()
@@ -696,7 +706,9 @@ class OperationsDashboard:
         ordered = sorted(
             views,
             key=lambda view: (
-                {"active": 0, "cancelling": 1, "queued": 2}.get(view.state, 3),
+                {"stuck": 0, "active": 1, "cancelling": 2, "queued": 3}.get(
+                    view.state, 4
+                ),
                 view.queue_position,
                 view.task_id,
             ),
@@ -752,13 +764,18 @@ class OperationsDashboard:
         elif view.state == "cancelling":
             state = t("🟠 cancelling")
             suffix = ""
+        elif view.state == "stuck":
+            state = "🔴 CLI 未确认启动"
+            suffix = " · 请重试提交或取消"
         else:
             phase_labels = {
+                "submitting": "⌨️ 正在提交",
                 "analysis": t("🔵 analyzing"),
                 "tool": t("🛠 using tools"),
                 "waiting": t("🟣 waiting"),
                 "generating": t("🟢 generating reply"),
                 "delivery": t("📨 delivering"),
+                "slow": "⚠️ 长时间无新进展",
             }
             state = phase_labels.get(view.phase, t("🟢 processing"))
             suffix = ""

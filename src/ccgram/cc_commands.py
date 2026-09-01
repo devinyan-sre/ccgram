@@ -102,6 +102,7 @@ _BOT_COMMANDS: list[tuple[str, str]] = [
     ("task_add", "Supplement your current task"),
     ("task_new", "End current task and start a boundary"),
     ("task_cancel", "Cancel your active or queued task"),
+    ("task_retry", "Retry a stuck task submission"),
     ("task_cancel_all", "Admin: cancel all topic tasks"),
     ("task_force_cancel", "Admin: force-stop a stuck task"),
     ("lane", "Inspect or manage your isolated workspace"),

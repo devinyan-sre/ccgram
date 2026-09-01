@@ -63,6 +63,8 @@ def silent_kwargs() -> dict[str, bool]:
     """
     # Lazy: config requires bot env vars; resolve only when the bot sends.
     from .config import config
+
+    # Lazy: timezone formatting shares the same runtime config singleton.
     from .user_time import now_display
 
     spec = getattr(config, "quiet_hours", "")

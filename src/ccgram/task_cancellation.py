@@ -71,6 +71,16 @@ async def graceful_cancel(
     allow_any: bool = False,
 ) -> CancellationResult:
     """Request Ctrl+C and release only after an observable stop signal."""
+    previous = next(
+        (
+            view
+            for view in task_scheduler.views(chat_id=chat_id, thread_id=thread_id)
+            if (task_id and view.task_id.upper() == task_id.upper())
+            or (not task_id and view.user_id == requester_user_id)
+        ),
+        None,
+    )
+    was_stuck = previous is not None and previous.state == "stuck"
     request = await task_scheduler.request_cancel(
         chat_id=chat_id,
         thread_id=thread_id,
@@ -123,6 +133,29 @@ async def graceful_cancel(
             request.task_id,
             request.window_id,
             request.user_id,
+        )
+
+    # A stuck submit has no running provider turn to emit a stop event. Ctrl+C
+    # clears the unresolved TUI input; release immediately after the key was
+    # accepted by the multiplexer.
+    if was_stuck:
+        await task_scheduler.confirm_cancel(request.task_id)
+        inbound_store.mark_window_done(request.window_id, failed=True)
+        clear_window(request.window_id)
+        # Lazy: confirmation imports cancellation controls for inline buttons.
+        from .dispatch_confirmation import dispatch_confirmation
+
+        dispatch_confirmation.complete(request.window_id)
+        _audit(
+            "cancel_confirmed",
+            request,
+            requester_user_id=requester_user_id,
+            chat_id=chat_id,
+            thread_id=thread_id,
+            detail="cleared_unsubmitted_input",
+        )
+        return CancellationResult(
+            "cancel_confirmed", request.task_id, request.window_id, request.user_id
         )
 
     deadline = asyncio.get_running_loop().time() + config.task_cancel_confirm_seconds

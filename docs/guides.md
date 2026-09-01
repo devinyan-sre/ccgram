@@ -191,7 +191,10 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_MAX_MEMBER_LANES_PER_TOPIC`                  | `8`                            | 单个物理话题可持久存在的成员通道上限                                                                  |
 | `CCGRAM_MAX_PARALLEL_PER_TOPIC`                      | `2`                            | 一个话题同时运行的不同成员任务数；同一成员的补充消息不另占槽位                                        |
 | `CCGRAM_MAX_PARALLEL_GLOBAL`                         | `4`                            | 本 ccgram 实例同时运行的成员任务总数；跨话题统一限制                                                   |
-| `CCGRAM_TASK_LEASE_SECONDS`                          | `7200`                         | provider 未产生完成事件时的任务槽安全租约；到期自动释放，防止永久堵塞                                 |
+| `CCGRAM_TASK_LEASE_SECONDS`                          | `7200`                         | provider 未产生完成事件时的安全租约；到期标记异常并保留槽位，不会静默启动重叠任务                      |
+| `CCGRAM_DISPATCH_ACK_SECONDS`                        | `15`                           | 写入 tmux/herdr 后等待 CLI 会话出现真实用户轮次的秒数                                                  |
+| `CCGRAM_DISPATCH_RETRY_COUNT`                        | `1`                            | 未确认时自动补交回车的次数（0–3）；永不重复问题正文                                                    |
+| `CCGRAM_TASK_PROGRESS_WARN_SECONDS`                  | `300`                          | 已确认启动后无新会话进展多久显示告警；不自动取消任务                                                    |
 | `CCGRAM_MESSAGE_COALESCE_MS`                         | `0`                            | 同一成员连续非回复消息在发送前的合并窗口（毫秒）                                                       |
 | `CCGRAM_MEDIA_GROUP_COALESCE_MS`                     | `750`                          | 同一成员发送 Telegram 相册时的聚合窗口（毫秒）；整组文件只生成一个 CLI 任务                            |
 | `CCGRAM_MAX_TASK_SUPPLEMENTS`                        | `20`                           | 一个活动任务最多接受的补充消息数                                                                       |
@@ -494,6 +497,9 @@ CCGRAM_MAX_MEMBER_LANES_PER_TOPIC=8
 CCGRAM_MAX_PARALLEL_PER_TOPIC=2
 CCGRAM_MAX_PARALLEL_GLOBAL=4
 CCGRAM_TASK_LEASE_SECONDS=7200
+CCGRAM_DISPATCH_ACK_SECONDS=15
+CCGRAM_DISPATCH_RETRY_COUNT=1
+CCGRAM_TASK_PROGRESS_WARN_SECONDS=300
 CCGRAM_MESSAGE_COALESCE_MS=1500
 CCGRAM_MAX_TASK_SUPPLEMENTS=20
 CCGRAM_TASK_QUEUE_ALERT_SECONDS=300
@@ -542,8 +548,16 @@ CCGRAM_MEMBER_LANE_CLEANUP_DAYS=30
 - `inbound.json` 持久化消息幂等键和待调度内容，`tasks.json` 持久化活动配额。
   重启时只重放明确处于排队状态的消息；可能已经送入 CLI 的消息绝不自动重放，
   会回复原消息要求人工确认，从而避免重复执行。
+- `dispatch.json` 持久化每次正文提交边界。ccgram 只有在 Claude、Codex、Gemini、
+  Pi 的会话记录出现真实用户轮次（Shell 则进入受控执行管线）后才显示“已开始”。
+  若 CLI 吞掉回车，会自动补交一次回车但绝不重复正文；仍未确认时标记“未启动”、
+  保留槽位并拒绝该成员的下一条消息，避免两个问题在输入框中串联。服务重启遇到
+  状态不明确的提交同样保持关闭失败（fail-closed）。
 - `/tasks` 查看短编号（如 `T0007`）、状态、等待时间和排队 ETA；`/task_add 内容`
   明确补充当前任务，`/task_new` 在当前任务确认停止后划分新任务。
+- `/task_retry [T编号]` 只重新发送提交键，不重新发送问题正文；也可使用异常回执
+  上的“重试提交”或“取消任务”按钮。已开始但长时间没有会话增量时，回执和总览
+  会显示“长时间无新进展”，恢复输出后自动恢复正常状态。
 - `/task_cancel [T编号]` 优雅取消自己的任务。排队任务立即移除；运行任务先进入
   “取消确认中”，发送 Ctrl+C，但继续占用并发槽，只有 CLI 完成事件、原生状态或
   Shell 提示符确认停止后才释放。确认超时不会假装成功，也不会启动重叠任务。

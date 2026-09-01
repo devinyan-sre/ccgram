@@ -161,13 +161,20 @@ class SessionMonitor:
         for session_id, tracked in self.state.tracked_sessions.items():
             lag = max(0, tracked.last_byte_offset - tracked.delivered_byte_offset)
             total += lag
-            if not lag:
+            # A tiny gap is normal while one batch is being parsed/delivered.
+            # Do not carry its start time into a later real stall, otherwise a
+            # fresh incident can be reported as hours old.
+            if lag < config.delivery_lag_min_bytes:
+                if session_id in self._delivery_lag_alerted:
+                    logger.info("Delivery cursor recovered", session_id=session_id)
+                    DELIVERY_STALLS.inc(outcome="recovered")
+                self._delivery_lag_since.pop(session_id, None)
+                self._delivery_lag_alerted.discard(session_id)
                 continue
             active.add(session_id)
             started = self._delivery_lag_since.setdefault(session_id, now)
             if (
-                lag >= config.delivery_lag_min_bytes
-                and now - started >= config.delivery_lag_warn_seconds
+                now - started >= config.delivery_lag_warn_seconds
                 and session_id not in self._delivery_lag_alerted
             ):
                 logger.warning(

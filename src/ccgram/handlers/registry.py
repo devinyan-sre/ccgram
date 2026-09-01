@@ -64,6 +64,7 @@ from .task_commands import (
     task_cancel_command,
     task_force_cancel_command,
     task_new_command,
+    task_retry_command,
     tasks_command,
 )
 from .text.text_handler import text_handler
@@ -133,6 +134,7 @@ def register_all(
         CommandSpec("task_add", task_add_command),
         CommandSpec("task_new", task_new_command),
         CommandSpec("task_cancel", task_cancel_command),
+        CommandSpec("task_retry", task_retry_command),
         CommandSpec("task_cancel_all", task_cancel_all_command, "admin"),
         CommandSpec("task_force_cancel", task_force_cancel_command, "admin"),
         CommandSpec("lane", lane_command, "viewer"),
@@ -252,6 +254,7 @@ COMMAND_NAMES: tuple[str, ...] = (
     "task_add",
     "task_new",
     "task_cancel",
+    "task_retry",
     "task_cancel_all",
     "task_force_cancel",
     "lane",

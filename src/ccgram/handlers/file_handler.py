@@ -262,6 +262,10 @@ async def _upload_and_notify(
     chat_id, message_id = message_ids(message)
     inbound_key = inbound_store.make_key(chat_id, thread_id, message_id)
     inbound_store.set_state(inbound_key, "dispatching")
+    # Lazy: dispatch confirmation depends on the receipt messaging pipeline.
+    from ..dispatch_confirmation import dispatch_confirmation
+
+    await dispatch_confirmation.mark_written(window_id)
     success, err = await send_to_window(window_id, agent_msg)
     if success:
         inbound_store.set_state(inbound_key, "forwarded")
@@ -270,11 +274,10 @@ async def _upload_and_notify(
         )
         await safe_reply(
             message,
-            t("{emoji} Uploaded `{path}`").format(
-                emoji=success_emoji, path=rel_path
-            ),
+            t("{emoji} Uploaded `{path}`").format(emoji=success_emoji, path=rel_path),
         )
     else:
+        dispatch_confirmation.complete(window_id)
         if admission.continuation:
             inbound_store.set_state(inbound_key, "failed")
         else:
@@ -350,6 +353,10 @@ async def _flush_album(key: tuple[int, int, int, str]) -> None:
     )
     if admission is None:
         return
+    # Lazy: dispatch confirmation depends on the receipt messaging pipeline.
+    from ..dispatch_confirmation import dispatch_confirmation
+
+    await dispatch_confirmation.mark_written(first.window_id)
     success, error = await send_to_window(first.window_id, agent_msg)
     if not success and not admission.continuation:
         inbound_store.mark_window_done(first.window_id, failed=True)
@@ -360,6 +367,7 @@ async def _flush_album(key: tuple[int, int, int, str]) -> None:
             "forwarded" if success else "failed",
         )
     if not success:
+        dispatch_confirmation.complete(first.window_id)
         clear_request_window(first.window_id)
         if not admission.continuation:
             await task_scheduler.release_window(first.window_id)
@@ -408,6 +416,7 @@ async def _prepare_media_request(
     if not activation.accepted:
         return None
 
+    # Lazy: optional dashboard imports Telegram persistence and this handler.
     from ..operations_dashboard import observe_dashboard_user
 
     observe_dashboard_user(user)

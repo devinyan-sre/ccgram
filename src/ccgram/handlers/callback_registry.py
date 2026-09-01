@@ -141,6 +141,7 @@ def load_handlers() -> None:
     from . import (  # noqa: F401
         agent_command,
         command_history,
+        dispatch_confirmation,
         hook_events,
         lifecycle_commands,
         operations_dashboard,

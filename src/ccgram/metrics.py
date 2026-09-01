@@ -369,6 +369,24 @@ TASK_LEASE_EXPIRED = registry.counter(
     "ccgram_task_lease_expired",
     "Provider task leases expired before a completion signal",
 )
+DISPATCH_ACK_TIMEOUTS = registry.counter(
+    "ccgram_dispatch_ack_timeouts",
+    "Provider submissions not acknowledged before the dispatch deadline",
+    ("provider",),
+)
+DISPATCH_RETRIES = registry.counter(
+    "ccgram_dispatch_retries",
+    "Safe submit-key retries after a missing provider acknowledgement",
+    ("provider", "outcome"),
+)
+TASKS_STUCK = registry.gauge(
+    "ccgram_tasks_stuck",
+    "Tasks blocked because the provider did not acknowledge or make progress",
+)
+MESSAGE_MERGES_PREVENTED = registry.counter(
+    "ccgram_message_merges_prevented",
+    "Inbound messages blocked from an unresolved provider input buffer",
+)
 TASK_CANCELLATIONS = registry.counter(
     "ccgram_task_cancellations",
     "Task cancellation lifecycle outcomes",

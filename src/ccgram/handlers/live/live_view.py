@@ -166,6 +166,7 @@ async def _tick_one_view(
             return
 
         png_bytes = await text_to_image(text, with_ansi=True, live_mode=True)
+        # Lazy: timezone configuration is only needed while rendering a frame.
         from ...user_time import now_display
 
         ts = now_display().strftime("%H:%M:%S")

@@ -6,7 +6,7 @@ import asyncio
 from datetime import timedelta
 
 import structlog
-from telegram import Message
+from telegram import InlineKeyboardMarkup, Message
 from telegram.error import BadRequest, RetryAfter, TelegramError
 
 from .i18n import t
@@ -43,6 +43,46 @@ async def publish_task_receipt(
     if isinstance(receipt_id, int):
         inbound_store.set_receipt(inbound_key, receipt_id)
     return receipt
+
+
+async def update_task_receipts(
+    window_id: str,
+    text: str,
+    *,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> int:
+    """Update transient receipts without clearing their durable references."""
+    client = _client
+    if client is None:
+        return 0
+    updated = 0
+    for _key, chat_id, _thread_id, message_id in inbound_store.receipt_refs_for_window(
+        window_id
+    ):
+        try:
+            await client.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=text,
+                reply_markup=reply_markup,
+            )
+            updated += 1
+        except BadRequest as exc:
+            if "message is not modified" not in str(exc).lower():
+                logger.warning(
+                    "Task receipt update failed",
+                    window_id=window_id,
+                    message_id=message_id,
+                    error=str(exc),
+                )
+        except TelegramError as exc:
+            logger.warning(
+                "Task receipt update failed",
+                window_id=window_id,
+                message_id=message_id,
+                error=str(exc),
+            )
+    return updated
 
 
 async def _cleanup_receipt(
@@ -106,6 +146,7 @@ async def finish_task_receipts(window_id: str) -> None:
     refs = inbound_store.receipt_refs_for_window(window_id)
     if not refs:
         return
+    # Lazy: dashboard imports scheduler and receipt lifecycle state.
     from .operations_dashboard import request_operations_dashboard_refresh
 
     for key, chat_id, thread_id, message_id in refs:
@@ -119,6 +160,10 @@ async def finish_task_receipts(window_id: str) -> None:
 
 
 def _schedule_cleanup(window_id: str) -> None:
+    # Lazy: dispatch confirmation calls receipt updates through this module.
+    from .dispatch_confirmation import dispatch_confirmation
+
+    dispatch_confirmation.complete(window_id)
     try:
         task = asyncio.create_task(
             finish_task_receipts(window_id),
@@ -155,4 +200,5 @@ __all__ = [
     "publish_task_receipt",
     "reset_for_testing",
     "set_receipt_client",
+    "update_task_receipts",
 ]

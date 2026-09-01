@@ -406,12 +406,19 @@ async def bootstrap_application(application: Application) -> None:
 
     # The observer is optional and provider-neutral.  Starting it after task
     # recovery ensures its first frame reflects recovered operator lanes.
+    # Lazy: dashboard and receipts depend on runtime-wired Telegram state.
     from .operations_dashboard import start_operations_dashboard
+
+    # Lazy: dashboard and receipts depend on runtime-wired Telegram state.
     from .task_receipts import set_receipt_client
 
     telegram_client = PTBTelegramClient(application.bot)
     start_operations_dashboard(telegram_client)
     set_receipt_client(telegram_client)
+    # Lazy: dispatch recovery starts only after Telegram receipt wiring.
+    from .dispatch_confirmation import dispatch_confirmation
+
+    dispatch_confirmation.start(telegram_client)
 
     # Arm error-rate alerting now that the bot can DM the operator.
     if config.error_alerts_enabled:
@@ -541,6 +548,7 @@ async def shutdown_runtime() -> None:
 
     set_audit_client(None)
 
+    # Lazy: optional dashboard teardown mirrors its runtime-only startup.
     from .operations_dashboard import stop_operations_dashboard
 
     await stop_operations_dashboard()
@@ -618,7 +626,9 @@ def reset_for_testing() -> None:
     from .operator_alerts import reset_error_alerts_for_testing
     from .operations_dashboard import reset_for_testing as reset_dashboard_for_testing
     from .task_receipts import reset_for_testing as reset_receipts_for_testing
+    from .dispatch_confirmation import dispatch_confirmation
 
     reset_error_alerts_for_testing()
     reset_dashboard_for_testing()
     reset_receipts_for_testing()
+    dispatch_confirmation.reset_for_testing()

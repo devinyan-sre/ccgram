@@ -20,6 +20,7 @@ from .metrics import (
     TASK_DURATION,
     TASK_LEASE_EXPIRED,
     TASK_QUEUE_WAIT,
+    TASKS_STUCK,
     TASKS_ACTIVE,
     TASKS_QUEUED,
 )
@@ -46,6 +47,10 @@ class TaskSupplementLimitError(RuntimeError):
 
 class TaskCancellingError(RuntimeError):
     """The operator's task is waiting for cancellation confirmation."""
+
+
+class TaskStuckError(RuntimeError):
+    """The operator's previous task has an unresolved CLI input buffer."""
 
 
 class TaskQueueCancelledError(RuntimeError):
@@ -98,7 +103,7 @@ class _ActiveTask:
     started_wall: float
     touched_wall: float
     supplements: int = 0
-    state: Literal["active", "cancelling"] = "active"
+    state: Literal["active", "cancelling", "stuck"] = "active"
     cancel_requested_wall: float = 0.0
     cancel_requester_id: int = 0
     phase: str = "analysis"
@@ -153,11 +158,14 @@ class TaskScheduler:
                 key = (int(row["chat_id"]), int(row["thread_id"]), int(row["user_id"]))
                 touched_wall = float(row.get("touched_at", now_wall))
                 remaining_age = max(0.0, now_wall - touched_wall)
-                state: Literal["active", "cancelling"] = (
-                    "cancelling" if row.get("state") == "cancelling" else "active"
-                )
+                raw_state = str(row.get("state", "active"))
+                state: Literal["active", "cancelling", "stuck"] = (
+                    raw_state
+                    if raw_state in ("active", "cancelling", "stuck")
+                    else "active"
+                )  # type: ignore[assignment]
                 if state == "active" and remaining_age >= config.task_lease_seconds:
-                    continue
+                    state = "stuck"
                 task = _ActiveTask(
                     window_id=str(row["window_id"]),
                     task_id=str(row.get("task_id") or self._new_task_id()),
@@ -222,6 +230,7 @@ class TaskScheduler:
     def _update_metrics(self) -> None:
         TASKS_ACTIVE.set(len(self._active))
         TASKS_QUEUED.set(len(self._waiters))
+        TASKS_STUCK.set(sum(task.state == "stuck" for task in self._active.values()))
 
     def _new_task_id(self) -> str:
         task_id = f"T{self._next_task_seq:04d}"
@@ -259,8 +268,9 @@ class TaskScheduler:
             and now - task.touched_at >= config.task_lease_seconds
         ]
         for key in stale:
-            task = self._active.pop(key)
-            self._window_to_key.pop(task.window_id, None)
+            task = self._active[key]
+            task.state = "stuck"
+            task.phase = "stuck"
             lease = self._lease_tasks.pop(key, None)
             if lease is not None and lease is not asyncio.current_task():
                 lease.cancel()
@@ -272,7 +282,10 @@ class TaskScheduler:
                 window_id=task.window_id,
             )
             TASK_LEASE_EXPIRED.inc()
-            self._observe_duration(task, outcome="lease_expired")
+            # Lazy: confirmation imports the scheduler singleton.
+            from .dispatch_confirmation import schedule_lease_expired
+
+            schedule_lease_expired(task.window_id)
         if stale:
             self._save_state()
             self._update_metrics()
@@ -306,10 +319,10 @@ class TaskScheduler:
                 # A generic inactivity lease is not proof that an interrupted
                 # provider stopped.  Keep cancellation fail-closed until a
                 # completion signal or an explicit admin force-stop arrives.
-                if active.state == "cancelling":
+                if active.state in ("cancelling", "stuck"):
                     return
-                self._active.pop(key, None)
-                self._window_to_key.pop(window_id, None)
+                active.state = "stuck"
+                active.phase = "stuck"
                 self._lease_tasks.pop(key, None)
                 logger.warning(
                     "Task lease timer expired",
@@ -319,10 +332,12 @@ class TaskScheduler:
                     window_id=window_id,
                 )
                 TASK_LEASE_EXPIRED.inc()
-                self._observe_duration(active, outcome="lease_expired")
                 self._save_state()
                 self._update_metrics()
-                self._wake_waiters(time.monotonic())
+            # Lazy: confirmation imports the scheduler singleton.
+            from .dispatch_confirmation import dispatch_confirmation
+
+            await dispatch_confirmation.lease_expired(window_id)
         except asyncio.CancelledError:
             return
 
@@ -337,6 +352,9 @@ class TaskScheduler:
                 task = self._active[waiter.key]
                 if task.state == "cancelling":
                     waiter.future.set_exception(TaskCancellingError(task.task_id))
+                    continue
+                if task.state == "stuck":
+                    waiter.future.set_exception(TaskStuckError(task.task_id))
                     continue
                 if task.supplements >= config.max_task_supplements:
                     waiter.future.set_exception(
@@ -378,6 +396,8 @@ class TaskScheduler:
             if active := self._active.get(key):
                 if active.state == "cancelling":
                     raise TaskCancellingError(active.task_id)
+                if active.state == "stuck":
+                    raise TaskStuckError(active.task_id)
                 if active.supplements >= config.max_task_supplements:
                     raise TaskSupplementLimitError(
                         f"task supplement limit reached ({config.max_task_supplements})"
@@ -425,7 +445,16 @@ class TaskScheduler:
 
     async def set_phase(self, window_id: str, phase: str) -> bool:
         """Set a provider-neutral progress phase for the active task."""
-        allowed = {"analysis", "tool", "waiting", "generating", "delivery"}
+        allowed = {
+            "submitting",
+            "analysis",
+            "tool",
+            "waiting",
+            "generating",
+            "delivery",
+            "slow",
+            "stuck",
+        }
         if phase not in allowed:
             raise ValueError(f"unsupported task phase: {phase}")
         async with self._lock:
@@ -437,6 +466,41 @@ class TaskScheduler:
             task.touched_at = time.monotonic()
             task.touched_wall = time.time()
             self._save_state()
+            return True
+
+    async def mark_stuck(self, window_id: str) -> bool:
+        """Fail closed without releasing capacity or accepting supplements."""
+        async with self._lock:
+            key = self._window_to_key.get(window_id)
+            task = self._active.get(key) if key is not None else None
+            if key is None or task is None:
+                return False
+            task.state = "stuck"
+            task.phase = "stuck"
+            task.touched_at = time.monotonic()
+            task.touched_wall = time.time()
+            lease = self._lease_tasks.pop(key, None)
+            if lease is not None and lease is not asyncio.current_task():
+                lease.cancel()
+            self._save_state()
+            self._update_metrics()
+            return True
+
+    async def retry_stuck(self, window_id: str) -> bool:
+        """Re-arm a fail-closed lane after an explicit retry or a late ack."""
+        async with self._lock:
+            key = self._window_to_key.get(window_id)
+            task = self._active.get(key) if key is not None else None
+            if key is None or task is None or task.state == "cancelling":
+                return False
+            if task.state == "stuck":
+                task.state = "active"
+            task.phase = "submitting"
+            task.touched_at = time.monotonic()
+            task.touched_wall = time.time()
+            self._arm_lease(key, window_id)
+            self._save_state()
+            self._update_metrics()
             return True
 
     async def release_window(self, window_id: str, *, outcome: str = "done") -> bool:
@@ -673,7 +737,7 @@ class TaskScheduler:
         views = self.views()
         queued = [view for view in views if view.state == "queued"]
         return TaskStats(
-            active=sum(view.state == "active" for view in views),
+            active=sum(view.state in ("active", "stuck") for view in views),
             queued=len(queued),
             cancelling=sum(view.state == "cancelling" for view in views),
             average_duration_seconds=max(1, int(self._average_duration_seconds)),
@@ -685,7 +749,8 @@ class TaskScheduler:
     def start_recovered_leases(self) -> None:
         """Arm lease timers for active rows restored before the event loop."""
         for key, task in tuple(self._active.items()):
-            self._arm_lease(key, task.window_id)
+            if task.state == "active":
+                self._arm_lease(key, task.window_id)
 
     def reset_for_testing(self) -> None:
         for waiter in self._waiters:
@@ -710,6 +775,7 @@ __all__ = [
     "TaskQueueCancelledError",
     "TaskScheduler",
     "TaskStats",
+    "TaskStuckError",
     "TaskSupplementLimitError",
     "TaskView",
     "task_scheduler",

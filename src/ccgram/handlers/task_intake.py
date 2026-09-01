@@ -7,6 +7,7 @@ import asyncio
 import structlog
 from telegram import Message
 
+from ..dispatch_confirmation import dispatch_confirmation
 from ..i18n import t
 from ..inbound_store import inbound_store
 from ..operations_dashboard import request_operations_dashboard_refresh
@@ -15,6 +16,7 @@ from ..task_scheduler import (
     TaskAdmission,
     TaskCancellingError,
     TaskQueueCancelledError,
+    TaskStuckError,
     TaskSupplementLimitError,
     task_scheduler,
 )
@@ -48,6 +50,19 @@ async def admit_request(
 ) -> TaskAdmission | None:
     """Admit one task through the shared scheduler before provider dispatch."""
     chat_id, message_id = message_ids(message)
+    unresolved = dispatch_confirmation.unresolved_for_operator(
+        chat_id=chat_id,
+        thread_id=thread_id,
+        user_id=user_id,
+        window_id=window_id,
+    )
+    if unresolved is not None:
+        await safe_reply(
+            message,
+            f"❌ 上一任务 `{unresolved.task_id}` 尚未被 CLI 确认。为避免两次问题串联，"
+            f"本条未发送。请使用 `/task_retry {unresolved.task_id}` 或取消任务。",
+        )
+        return None
     if not inbound_store.stage(
         chat_id=chat_id,
         thread_id=thread_id,
@@ -104,9 +119,7 @@ async def admit_request(
     try:
         admission = await admission_task
     except TaskSupplementLimitError:
-        inbound_store.set_state(
-            inbound_key, "failed"
-        )
+        inbound_store.set_state(inbound_key, "failed")
         await safe_reply(
             message,
             t(
@@ -115,9 +128,7 @@ async def admit_request(
         )
         return None
     except TaskCancellingError as exc:
-        inbound_store.set_state(
-            inbound_key, "failed"
-        )
+        inbound_store.set_state(inbound_key, "failed")
         await safe_reply(
             message,
             t(
@@ -125,10 +136,16 @@ async def admit_request(
             ).format(task_id=str(exc)),
         )
         return None
-    except TaskQueueCancelledError:
-        inbound_store.set_state(
-            inbound_key, "failed"
+    except TaskStuckError as exc:
+        inbound_store.set_state(inbound_key, "failed")
+        await safe_reply(
+            message,
+            f"❌ 任务 `{exc}` 的提交状态异常。为避免串题，本条未发送。"
+            f"请使用 `/task_retry {exc}` 或取消任务。",
         )
+        return None
+    except TaskQueueCancelledError:
+        inbound_store.set_state(inbound_key, "failed")
         return None
 
     record_request(
@@ -150,6 +167,20 @@ async def admit_request(
         queued=admission.queued,
     )
     request_operations_dashboard_refresh(chat_id, thread_id)
+    # Lazy: window_query reaches the runtime window-store adapter.
+    from .. import window_query
+
+    # Every terminal write, including a supplement to an active task, gets a
+    # fresh submit-confirmation boundary. This prevents two missed supplements
+    # from accumulating in the same TUI input buffer.
+    dispatch_confirmation.begin(
+        task_id=admission.task_id,
+        chat_id=chat_id,
+        thread_id=thread_id,
+        user_id=user_id,
+        window_id=window_id,
+        provider=window_query.get_window_provider(window_id) or "unknown",
+    )
     if admission.continuation:
         if queue_message is not None:
             await safe_edit(queue_message, t("➕ Added to your current task."))

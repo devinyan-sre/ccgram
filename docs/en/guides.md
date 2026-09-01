@@ -169,7 +169,10 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_MAX_MEMBER_LANES_PER_TOPIC`                  | `8`                            | Maximum persistent operator lanes in one physical topic                                               |
 | `CCGRAM_MAX_PARALLEL_PER_TOPIC`                      | `2`                            | Active tasks from different operators per topic; supplements from one operator reuse its task        |
 | `CCGRAM_MAX_PARALLEL_GLOBAL`                         | `4`                            | Active operator tasks across this ccgram instance                                                      |
-| `CCGRAM_TASK_LEASE_SECONDS`                          | `7200`                         | Safety lease that releases a task slot if no provider completion event arrives                        |
+| `CCGRAM_TASK_LEASE_SECONDS`                          | `7200`                         | Safety lease; expiry marks the lane stuck and retains its slot instead of overlapping work            |
+| `CCGRAM_DISPATCH_ACK_SECONDS`                        | `15`                           | Seconds to observe a real provider user turn after writing through tmux/herdr                         |
+| `CCGRAM_DISPATCH_RETRY_COUNT`                        | `1`                            | Submit-key-only automatic retries (0–3); the prompt body is never repeated                            |
+| `CCGRAM_TASK_PROGRESS_WARN_SECONDS`                  | `300`                          | Warn after an accepted task has no transcript progress; does not cancel it                            |
 | `CCGRAM_MESSAGE_COALESCE_MS`                         | `0`                            | Merge rapid non-reply messages from one operator before dispatch                                      |
 | `CCGRAM_MEDIA_GROUP_COALESCE_MS`                     | `750`                          | Coalesce one member's Telegram album into a single provider task                                      |
 | `CCGRAM_MAX_TASK_SUPPLEMENTS`                        | `20`                           | Maximum supplements accepted by one active operator task                                              |
@@ -487,6 +490,13 @@ restart from re-editing every unchanged dashboard.
   not release the slot or overlap a replacement task.
 - `/task_add text` explicitly supplements the caller's current task;
   `/task_new` creates a boundary only after cancellation has been confirmed.
+- Every root prompt and supplement has a durable submit boundary in
+  `dispatch.json`. Claude, Codex, Gemini, and Pi are accepted only after a real
+  transcript user turn; Shell is accepted on entry to its controlled pipeline.
+  A missed submit retries only Enter, never the prompt body. If it remains
+  unconfirmed, that operator lane stays blocked so the next message cannot be
+  merged into the same TUI input buffer. Use `/task_retry [T-id]` or the receipt
+  controls to retry/cancel. Ambiguous state after restart also fails closed.
 - Admins can use `/task_cancel T-id`, `/task_cancel_all`, or
   `/task_force_cancel T-id`. Force-cancel kills the lane's CLI window while
   retaining its topic binding, history, and workspace for normal recovery.
