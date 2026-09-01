@@ -146,9 +146,7 @@ async def test_unchanged_existing_dashboard_still_reasserts_pin(
 ) -> None:
     _configure(monkeypatch, scope="topic")
     client = FakeTelegramClient()
-    client.set_side_effect(
-        "edit_message_text", [BadRequest("Message is not modified")]
-    )
+    client.set_side_effect("edit_message_text", [BadRequest("Message is not modified")])
     dashboard = OperationsDashboard(client, tmp_path / "state.json")
     target = DashboardTarget(-1001, 17, False)
     dashboard._message_ids[target.key] = 55

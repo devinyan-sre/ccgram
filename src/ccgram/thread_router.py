@@ -60,6 +60,10 @@ class ThreadRouter:
         # Kept separate from bindings so lifecycle code can distinguish the
         # canonical topic workspace from disposable parallel lanes.
         self.member_lane_windows: dict[str, int] = {}
+        # Explicit same-member parallel lanes. Unlike thread_bindings these do
+        # not replace the member's default lane. Metadata is durable so output
+        # routing survives a service restart.
+        self.task_lane_windows: dict[str, dict[str, int | str]] = {}
         # Reverse index: (user_id, window_id) -> thread_id for O(1) lookups
         self._window_to_thread: dict[tuple[int, str], int] = {}
         self._schedule_save: Callable[[], None] = schedule_save
@@ -71,6 +75,7 @@ class ThreadRouter:
         self.group_chat_ids.clear()
         self.window_display_names.clear()
         self.member_lane_windows.clear()
+        self.task_lane_windows.clear()
         self._window_to_thread.clear()
 
     # ------------------------------------------------------------------
@@ -118,6 +123,7 @@ class ThreadRouter:
             "group_chat_ids": self.group_chat_ids,
             "window_display_names": self.window_display_names,
             "member_lane_windows": self.member_lane_windows,
+            "task_lane_windows": self.task_lane_windows,
         }
 
     def from_dict(self, data: dict[str, Any]) -> None:
@@ -135,6 +141,19 @@ class ThreadRouter:
         self.member_lane_windows = {
             str(window_id): int(user_id)
             for window_id, user_id in data.get("member_lane_windows", {}).items()
+        }
+        self.task_lane_windows = {
+            str(window_id): {
+                "user_id": int(meta["user_id"]),
+                "chat_id": int(meta["chat_id"]),
+                "thread_id": int(meta["thread_id"]),
+                "task_id": str(meta["task_id"]),
+            }
+            for window_id, meta in data.get("task_lane_windows", {}).items()
+            if isinstance(meta, dict)
+            and all(
+                key in meta for key in ("user_id", "chat_id", "thread_id", "task_id")
+            )
         }
         self._dedup_thread_bindings()
         self._rebuild_reverse_index()
@@ -255,14 +274,28 @@ class ThreadRouter:
         return self.get_window_for_thread(user_id, thread_id)
 
     def has_window(self, window_id: str) -> bool:
-        """Check if any user has a binding to this window_id."""
-        return any(wid == window_id for (_, wid) in self._window_to_thread)
+        """Check if a canonical, member, or explicit task lane owns a window."""
+        return window_id in self.task_lane_windows or any(
+            wid == window_id for (_, wid) in self._window_to_thread
+        )
 
     def iter_thread_bindings(self) -> Iterator[tuple[int, int, str]]:
         """Iterate all thread bindings as (user_id, thread_id, window_id)."""
         for user_id, bindings in self.thread_bindings.items():
             for thread_id, window_id in bindings.items():
                 yield user_id, thread_id, window_id
+
+    def iter_execution_bindings(self) -> Iterator[tuple[int, int, str]]:
+        """Iterate default/member lanes plus explicit task lanes.
+
+        Lifecycle operations intentionally keep using iter_thread_bindings;
+        monitors and output routing use this wider execution view.
+        """
+        yield from self.iter_thread_bindings()
+        bound = {window_id for _, _, window_id in self.iter_thread_bindings()}
+        for window_id, meta in self.task_lane_windows.items():
+            if window_id not in bound:
+                yield int(meta["user_id"]), int(meta["thread_id"]), window_id
 
     # ------------------------------------------------------------------
     # Group chat ID management
@@ -348,6 +381,60 @@ class ThreadRouter:
     def clear_member_lane(self, window_id: str) -> None:
         if self.member_lane_windows.pop(window_id, None) is not None:
             self._schedule_save()
+
+    def register_task_lane(
+        self,
+        window_id: str,
+        *,
+        user_id: int,
+        chat_id: int,
+        thread_id: int,
+        task_id: str,
+    ) -> None:
+        """Persist ownership and Telegram scope for a parallel task lane."""
+        self.task_lane_windows[window_id] = {
+            "user_id": user_id,
+            "chat_id": chat_id,
+            "thread_id": thread_id,
+            "task_id": task_id.upper(),
+        }
+        self._schedule_save()
+
+    def clear_task_lane(self, window_id: str) -> None:
+        if self.task_lane_windows.pop(window_id, None) is not None:
+            self._schedule_save()
+
+    def task_lane_for_id(
+        self, *, chat_id: int, thread_id: int, user_id: int, task_id: str
+    ) -> str | None:
+        normalized = task_id.upper()
+        for window_id, meta in self.task_lane_windows.items():
+            if (
+                int(meta["chat_id"]) == chat_id
+                and int(meta["thread_id"]) == thread_id
+                and int(meta["user_id"]) == user_id
+                and str(meta["task_id"]).upper() == normalized
+            ):
+                return window_id
+        return None
+
+    def task_id_for_window(self, window_id: str) -> str | None:
+        meta = self.task_lane_windows.get(window_id)
+        return str(meta["task_id"]) if meta is not None else None
+
+    def task_lanes_for_operator(
+        self, *, chat_id: int, thread_id: int, user_id: int
+    ) -> list[tuple[str, str]]:
+        return sorted(
+            (
+                (str(meta["task_id"]), window_id)
+                for window_id, meta in self.task_lane_windows.items()
+                if int(meta["chat_id"]) == chat_id
+                and int(meta["thread_id"]) == thread_id
+                and int(meta["user_id"]) == user_id
+            ),
+            key=lambda row: row[0],
+        )
 
     # ------------------------------------------------------------------
     # Display name management

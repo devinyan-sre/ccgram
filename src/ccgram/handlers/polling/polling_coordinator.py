@@ -2,7 +2,6 @@
 
 Orchestrates the background polling cycle: iterates thread bindings,
 delegates per-window work to window_tick, and runs periodic/lifecycle tasks.
-
 Key components:
   - _tick_bound_windows: Per-iteration helper (injectable runtime for tests)
   - status_poll_loop: Background polling task (entry point for bot.py)
@@ -52,7 +51,10 @@ async def _tick_bound_windows(
     Extracted so tests can drive one iteration with an isolated runtime.
     ``adaptive`` enables the idle-window backoff inside ``tick_window``.
     """
-    for user_id, thread_id, wid in list(thread_router.iter_thread_bindings()):
+    bindings = list(thread_router.iter_execution_bindings()) or list(
+        thread_router.iter_thread_bindings()
+    )
+    for user_id, thread_id, wid in bindings:
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(window_id=wid)
         try:

@@ -19,9 +19,7 @@ if TYPE_CHECKING:
     from telegram.ext import ContextTypes
 
 
-async def selftest_command(
-    update: Update, _context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def selftest_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """``/selftest`` — validate routing, scheduling and delivery state."""
     message = update.message
     user = update.effective_user
@@ -43,10 +41,7 @@ async def selftest_command(
         "both",
     )
     correlation_ready = bool(
-        thread_id is not None
-        and isinstance(chat_id, int)
-        and chat_id < 0
-        and window_id
+        thread_id is not None and isinstance(chat_id, int) and chat_id < 0 and window_id
     )
     health = not retrying
     lines = [
@@ -63,9 +58,9 @@ async def selftest_command(
         t("{mark} Delivery: pending {pending} · retrying {retrying}").format(
             mark="✅" if health else "⚠️", pending=pending, retrying=retrying
         ),
-        t("{mark} Topic queues: {topics} · waiting {queued} · unfinished {unfinished}").format(
-            mark="✅", topics=topic_queues, queued=queued, unfinished=unfinished
-        ),
+        t(
+            "{mark} Topic queues: {topics} · waiting {queued} · unfinished {unfinished}"
+        ).format(mark="✅", topics=topic_queues, queued=queued, unfinished=unfinished),
         t("{mark} Topic + General dashboard wiring").format(
             mark="✅" if dashboard_ready else "⚠️"
         ),

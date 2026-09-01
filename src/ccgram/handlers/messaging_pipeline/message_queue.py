@@ -16,6 +16,7 @@ from telegram.error import RetryAfter, TelegramError
 
 from ...config import config
 from ...delivery_outbox import delivery_outbox
+from ...inbound_store import inbound_store
 from ...correlation import bind_cid, current_cid
 from ...telegram_client import TelegramClient
 from ...thread_router import thread_router
@@ -578,6 +579,7 @@ async def _process_content_task(  # noqa: PLR0912 - explicit delivery fallbacks
                 )
             if converted_msg_id is not None:
                 last_msg_id = converted_msg_id
+                inbound_store.associate_output(task.window_id, converted_msg_id)
                 if task.delivery_id:
                     await delivery_outbox.advance(task.delivery_id, part_index + 1)
                 continue
@@ -594,6 +596,9 @@ async def _process_content_task(  # noqa: PLR0912 - explicit delivery fallbacks
 
         if sent:
             last_msg_id = sent.message_id
+            # Replies to any answer segment can now recover the exact task
+            # lane, including after a service restart.
+            inbound_store.associate_output(task.window_id, sent.message_id)
             if task.delivery_id:
                 await delivery_outbox.advance(task.delivery_id, part_index + 1)
 

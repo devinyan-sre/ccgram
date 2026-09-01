@@ -209,7 +209,7 @@ class SessionResolver:
     ) -> list[tuple[int, str, int]]:
         """Find all users whose thread-bound window maps to the given session_id."""
         result: list[tuple[int, str, int]] = []
-        for user_id, thread_id, window_id in thread_router.iter_thread_bindings():
+        for user_id, thread_id, window_id in thread_router.iter_execution_bindings():
             if identity_state.get_session_id(window_id) == session_id:
                 result.append((user_id, window_id, thread_id))
         return result

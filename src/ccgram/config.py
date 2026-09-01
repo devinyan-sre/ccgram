@@ -166,6 +166,21 @@ class Config:
         self.max_parallel_global: int = max(
             1, _parse_int_env("CCGRAM_MAX_PARALLEL_GLOBAL", 4)
         )
+        # Explicit same-member task lanes. Normal messages remain serialized;
+        # only /task_parallel creates another provider process/worktree.
+        self.max_parallel_per_operator: int = max(
+            1, _parse_int_env("CCGRAM_MAX_PARALLEL_PER_OPERATOR", 2)
+        )
+        self.max_task_lanes_per_operator: int = max(
+            self.max_parallel_per_operator,
+            _parse_int_env("CCGRAM_MAX_TASK_LANES_PER_OPERATOR", 4),
+        )
+        self.task_selection_ttl_seconds: int = max(
+            30, _parse_int_env("CCGRAM_TASK_SELECTION_TTL_SECONDS", 300)
+        )
+        self.parallel_task_worktrees: bool = os.getenv(
+            "CCGRAM_PARALLEL_TASK_WORKTREES", "true"
+        ).lower() in ("1", "true", "yes")
         self.task_lease_seconds: int = max(
             60, _parse_int_env("CCGRAM_TASK_LEASE_SECONDS", 7200)
         )

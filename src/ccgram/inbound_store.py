@@ -44,9 +44,12 @@ class InboundItem:
     created_at: float
     updated_at: float
     receipt_message_id: int = 0
+    task_id: str = ""
+    output_message_ids: list[int] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> "InboundItem":
+        raw_output_ids = data.get("output_message_ids", [])
         return cls(
             key=str(data["key"]),
             chat_id=int(str(data["chat_id"])),
@@ -59,6 +62,10 @@ class InboundItem:
             created_at=float(str(data.get("created_at", 0.0))),
             updated_at=float(str(data.get("updated_at", 0.0))),
             receipt_message_id=int(str(data.get("receipt_message_id", 0))),
+            task_id=str(data.get("task_id", "")),
+            output_message_ids=[int(value) for value in raw_output_ids]
+            if isinstance(raw_output_ids, list)
+            else [],
         )
 
 
@@ -162,6 +169,7 @@ class InboundStore:
                 state="queued",
                 created_at=now,
                 updated_at=now,
+                output_message_ids=[],
             )
             self._save_locked()
         return True
@@ -210,7 +218,61 @@ class InboundStore:
             item.receipt_message_id = message_id
             item.updated_at = time.time()
             self._save_locked()
+        return True
+
+    def set_task(self, key: str, task_id: str) -> bool:
+        """Attach the scheduler ID after admission."""
+        with self._lock:
+            item = self._items.get(key)
+            if item is None:
+                return False
+            item.task_id = task_id.upper()
+            item.updated_at = time.time()
+            self._save_locked()
             return True
+
+    def associate_output(self, window_id: str, message_id: int) -> bool:
+        """Associate a bot answer with the active root request for replies."""
+        if message_id <= 0:
+            return False
+        with self._lock:
+            candidates = [
+                item
+                for item in self._items.values()
+                if item.window_id == window_id
+                and item.state in ("dispatching", "forwarded", "done")
+            ]
+            if not candidates:
+                return False
+            item = min(candidates, key=lambda row: row.created_at)
+            ids = item.output_message_ids or []
+            if message_id not in ids:
+                ids.append(message_id)
+                item.output_message_ids = ids[-100:]
+                item.updated_at = time.time()
+                self._save_locked()
+            return True
+
+    def resolve_message(
+        self, *, chat_id: int, thread_id: int, user_id: int, message_id: int
+    ) -> InboundItem | None:
+        """Resolve a root, receipt, supplement, or bot output to its task."""
+        with self._lock:
+            matches = [
+                item
+                for item in self._items.values()
+                if item.chat_id == chat_id
+                and item.thread_id == thread_id
+                and item.user_id == user_id
+                and (
+                    item.message_id == message_id
+                    or item.receipt_message_id == message_id
+                    or message_id in (item.output_message_ids or [])
+                )
+            ]
+            if not matches:
+                return None
+            return InboundItem(**asdict(max(matches, key=lambda item: item.updated_at)))
 
     def receipt_refs_for_window(
         self, window_id: str
@@ -245,9 +307,7 @@ class InboundStore:
             item.updated_at = time.time()
             self._save_locked()
 
-    def set_window_done_callback(
-        self, callback: Callable[[str], None] | None
-    ) -> None:
+    def set_window_done_callback(self, callback: Callable[[str], None] | None) -> None:
         """Register a non-blocking observer invoked after a terminal window write."""
         with self._lock:
             self._window_done_callback = callback

@@ -88,6 +88,30 @@ class TestIterThreadBindings:
     def test_iter_empty(self, router: ThreadRouter) -> None:
         assert list(router.iter_thread_bindings()) == []
 
+    def test_execution_bindings_include_durable_task_lanes(
+        self, router: ThreadRouter
+    ) -> None:
+        router.bind_thread(100, 1, "@1")
+        router.register_task_lane(
+            "@2", user_id=100, chat_id=-999, thread_id=1, task_id="T0042"
+        )
+        assert set(router.iter_execution_bindings()) == {
+            (100, 1, "@1"),
+            (100, 1, "@2"),
+        }
+        payload = router.to_dict()
+        restored = ThreadRouter(
+            schedule_save=lambda: None, has_window_state=lambda _wid: False
+        )
+        restored.from_dict(payload)
+        assert (
+            restored.task_lane_for_id(
+                chat_id=-999, thread_id=1, user_id=100, task_id="t0042"
+            )
+            == "@2"
+        )
+        assert restored.has_window("@2") is True
+
 
 class TestGetAllThreadWindows:
     def test_returns_user_bindings(self, router: ThreadRouter) -> None:

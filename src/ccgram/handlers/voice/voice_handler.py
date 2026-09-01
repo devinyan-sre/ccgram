@@ -17,6 +17,9 @@ from telegram.constants import ChatAction
 from telegram.error import TelegramError
 from ...config import config
 from ...i18n import t
+from ...inbound_store import inbound_store
+from ...task_scheduler import task_scheduler
+from ...task_focus import consume as consume_task_focus
 from ...telegram_client import PTBTelegramClient
 from ...thread_router import thread_router
 from ...whisper import get_transcriber
@@ -99,7 +102,10 @@ async def _transcribe_audio(
 
 
 async def _send_confirm_message(
-    message: Message, text: str, context: ContextTypes.DEFAULT_TYPE
+    message: Message,
+    text: str,
+    context: ContextTypes.DEFAULT_TYPE,
+    window_id: str,
 ) -> None:
     """Send transcription with confirm/discard keyboard in a single message.
 
@@ -117,7 +123,11 @@ async def _send_confirm_message(
 
     if context.user_data is not None:
         key = (confirm_msg.chat.id, message.message_id)
-        context.user_data.setdefault(VOICE_PENDING, {})[key] = text
+        context.user_data.setdefault(VOICE_PENDING, {})[key] = (
+            text,
+            window_id,
+            message.message_id,
+        )
 
 
 async def _deliver_transcription(
@@ -130,7 +140,7 @@ async def _deliver_transcription(
 ) -> None:
     """Show confirmation, or auto-send when explicitly enabled."""
     if config.voice_autosend is not True:
-        await _send_confirm_message(message, text, context)
+        await _send_confirm_message(message, text, context, window_id)
         return
 
     await safe_reply(message, t("🎤 Transcribed:\n\n{text}").format(text=text))
@@ -145,7 +155,7 @@ async def _deliver_transcription(
 
     client = PTBTelegramClient(message.get_bot())
     success, error = await send_transcribed_text(
-        client, user_id, thread_id, window_id, text
+        client, user_id, thread_id, window_id, text, source_message=message
     )
     if success:
         await ack_reaction(client, message.chat.id, message.message_id)
@@ -153,7 +163,7 @@ async def _deliver_transcription(
         await safe_reply(message, f"❌ {error or t('Failed to send')}")
 
 
-async def handle_voice_message(  # noqa: PLR0911 - explicit fail-closed media pipeline
+async def handle_voice_message(  # noqa: C901, PLR0911 - explicit fail-closed media pipeline
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle incoming voice messages: transcribe and present confirm keyboard."""
@@ -168,9 +178,7 @@ async def handle_voice_message(  # noqa: PLR0911 - explicit fail-closed media pi
 
     # Voice has no caption, so in mention-gated groups it must be sent as a
     # reply to one of the bot's messages. Unaddressed group voice is ignored.
-    activation = evaluate_group_activation(
-        message, PTBTelegramClient(context.bot), ""
-    )
+    activation = evaluate_group_activation(message, PTBTelegramClient(context.bot), "")
     if not activation.accepted:
         return
 
@@ -184,6 +192,57 @@ async def handle_voice_message(  # noqa: PLR0911 - explicit fail-closed media pi
                 "directory, then re-record.\n"
                 "\U0001f4ac Voice messages aren't queued."
             ),
+        )
+        return
+    assert thread_id is not None
+    focused_task_id = consume_task_focus(message.chat.id, thread_id, user.id)
+    if focused_task_id:
+        focused = next(
+            (
+                row
+                for row in task_scheduler.views(
+                    chat_id=message.chat.id, thread_id=thread_id
+                )
+                if row.user_id == user.id
+                and row.task_id.upper() == focused_task_id
+                and row.state != "queued"
+            ),
+            None,
+        )
+        if focused is not None:
+            window_id = focused.window_id
+    reply = message.reply_to_message
+    if reply is not None:
+        linked = inbound_store.resolve_message(
+            chat_id=message.chat.id,
+            thread_id=thread_id,
+            user_id=user.id,
+            message_id=reply.message_id,
+        )
+        if linked is not None and linked.task_id:
+            active = next(
+                (
+                    row
+                    for row in task_scheduler.views(
+                        chat_id=message.chat.id, thread_id=thread_id
+                    )
+                    if row.user_id == user.id
+                    and row.task_id.upper() == linked.task_id.upper()
+                    and row.state != "queued"
+                ),
+                None,
+            )
+            if active is not None:
+                window_id = active.window_id
+    owned = [
+        row
+        for row in task_scheduler.views(chat_id=message.chat.id, thread_id=thread_id)
+        if row.user_id == user.id and row.state != "queued"
+    ]
+    if len(owned) > 1 and reply is None and focused_task_id is None:
+        await safe_reply(
+            message,
+            "⚠️ 你有多个活动任务，语音没有明确归属。请回复对应任务消息后重新发送语音。",
         )
         return
 

@@ -17,6 +17,7 @@ from telegram import Update
 from telegram.error import BadRequest, RetryAfter, TelegramError
 from ... import window_query
 from ...config import config
+from ...inbound_store import inbound_store
 from ...destructive_audit import (
     ACTION_TOPIC_RETIRED,
     ACTION_WINDOW_KILLED_TOPIC_GONE,
@@ -30,6 +31,7 @@ from ...session import session_manager
 from ...session_map import session_map_prefix
 from ...telegram_client import PTBTelegramClient, TelegramClient
 from ...thread_router import thread_router
+from ...task_scheduler import task_scheduler
 from ...multiplexer import multiplexer as tmux_manager
 from ...utils import log_throttled
 from ...window_state_ports import lifecycle_state
@@ -194,6 +196,20 @@ async def _close_expired_topic(
             window_dead=True,
         )
         thread_router.unbind_thread(user_id, thread_id)
+        for task_id, task_window_id in thread_router.task_lanes_for_operator(
+            chat_id=chat_id, thread_id=thread_id, user_id=user_id
+        ):
+            await tmux_manager.kill_window(task_window_id)
+            inbound_store.mark_window_done(task_window_id, failed=True)
+            await task_scheduler.release_window(task_window_id, outcome="topic_retired")
+            thread_router.clear_task_lane(task_window_id)
+            logger.info(
+                "Retired topic: parallel task lane stopped",
+                user_id=user_id,
+                thread_id=thread_id,
+                task_id=task_id,
+                window_id=task_window_id,
+            )
 
 
 # ── Unbound window TTL ────────────────────────────────────────────────────
@@ -208,7 +224,10 @@ async def check_unbound_window_ttl(
         return
 
     bound_ids: set[str] = set()
-    for _, _, wid in thread_router.iter_thread_bindings():
+    execution_bindings = list(thread_router.iter_execution_bindings()) or list(
+        thread_router.iter_thread_bindings()
+    )
+    for _, _, wid in execution_bindings:
         bound_ids.add(wid)
 
     if live_windows is None:
@@ -547,6 +566,15 @@ async def topic_closed_handler(
         bindings = [(user.id, window_id)] if window_id else []
 
     if bindings:
+        task_lanes = [
+            (owner_id, task_id, task_window)
+            for owner_id, _window_id in bindings
+            for task_id, task_window in thread_router.task_lanes_for_operator(
+                chat_id=chat.id if chat is not None else owner_id,
+                thread_id=thread_id,
+                user_id=owner_id,
+            )
+        ]
         for owner_id, window_id in bindings:
             display = thread_router.get_display_name(window_id)
             await clear_topic_state(
@@ -571,6 +599,18 @@ async def topic_closed_handler(
                 owner_id,
                 thread_id,
                 member_lane,
+            )
+        for owner_id, task_id, window_id in task_lanes:
+            await tmux_manager.kill_window(window_id)
+            inbound_store.mark_window_done(window_id, failed=True)
+            await task_scheduler.release_window(window_id, outcome="topic_closed")
+            thread_router.clear_task_lane(window_id)
+            logger.info(
+                "Topic closed: parallel task lane stopped",
+                user_id=owner_id,
+                thread_id=thread_id,
+                task_id=task_id,
+                window_id=window_id,
             )
     else:
         logger.debug(

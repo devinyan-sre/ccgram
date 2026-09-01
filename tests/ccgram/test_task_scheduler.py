@@ -34,6 +34,106 @@ async def test_same_operator_message_is_a_continuation() -> None:
     assert scheduler.snapshot() == (1, 0)
 
 
+async def test_explicit_lanes_allow_same_operator_parallel_tasks() -> None:
+    scheduler = TaskScheduler()
+    with (
+        patch(f"{_CFG}.max_parallel_per_topic", 3),
+        patch(f"{_CFG}.max_parallel_global", 4),
+        patch(f"{_CFG}.max_parallel_per_operator", 2),
+    ):
+        first = await scheduler.acquire(
+            chat_id=-100, thread_id=7, user_id=10, window_id="@1"
+        )
+        reserved = await scheduler.reserve_task_id()
+        parallel = await scheduler.acquire(
+            chat_id=-100,
+            thread_id=7,
+            user_id=10,
+            window_id="@2",
+            lane_id=reserved,
+            task_id=reserved,
+        )
+        supplement = await scheduler.acquire(
+            chat_id=-100,
+            thread_id=7,
+            user_id=10,
+            window_id="@2",
+            lane_id=reserved,
+        )
+
+    assert first.task_id == "T0001"
+    assert parallel.task_id == reserved == "T0002"
+    assert supplement.continuation is True
+    assert scheduler.snapshot() == (2, 0)
+
+
+async def test_same_operator_parallel_limit_queues_extra_lane() -> None:
+    scheduler = TaskScheduler()
+    with (
+        patch(f"{_CFG}.max_parallel_per_topic", 4),
+        patch(f"{_CFG}.max_parallel_global", 4),
+        patch(f"{_CFG}.max_parallel_per_operator", 2),
+    ):
+        await scheduler.acquire(chat_id=-100, thread_id=7, user_id=10, window_id="@1")
+        await scheduler.acquire(
+            chat_id=-100,
+            thread_id=7,
+            user_id=10,
+            window_id="@2",
+            lane_id="T0002",
+            task_id="T0002",
+        )
+        waiting = asyncio.create_task(
+            scheduler.acquire(
+                chat_id=-100,
+                thread_id=7,
+                user_id=10,
+                window_id="@3",
+                lane_id="T0003",
+                task_id="T0003",
+            )
+        )
+        await asyncio.sleep(0)
+        assert not waiting.done()
+        await scheduler.release_window("@2")
+        admitted = await asyncio.wait_for(waiting, timeout=1)
+
+    assert admitted.task_id == "T0003"
+
+
+async def test_first_task_for_another_operator_precedes_extra_lane() -> None:
+    scheduler = TaskScheduler()
+    with (
+        patch(f"{_CFG}.max_parallel_per_topic", 2),
+        patch(f"{_CFG}.max_parallel_global", 2),
+        patch(f"{_CFG}.max_parallel_per_operator", 2),
+    ):
+        await scheduler.acquire(chat_id=-100, thread_id=7, user_id=10, window_id="@a1")
+        await scheduler.acquire(
+            chat_id=-100, thread_id=8, user_id=99, window_id="@busy"
+        )
+        extra = asyncio.create_task(
+            scheduler.acquire(
+                chat_id=-100,
+                thread_id=7,
+                user_id=10,
+                window_id="@a2",
+                lane_id="T0100",
+                task_id="T0100",
+            )
+        )
+        first_for_b = asyncio.create_task(
+            scheduler.acquire(chat_id=-100, thread_id=7, user_id=20, window_id="@b1")
+        )
+        await asyncio.sleep(0)
+        await scheduler.release_window("@busy")
+        admitted_b = await asyncio.wait_for(first_for_b, timeout=1)
+        assert admitted_b.task_id
+        assert not extra.done()
+        await scheduler.release_window("@b1")
+        await asyncio.wait_for(extra, timeout=1)
+
+
 async def test_topic_limit_queues_third_operator_until_release() -> None:
     scheduler = TaskScheduler()
     with (

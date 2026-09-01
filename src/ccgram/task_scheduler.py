@@ -28,7 +28,7 @@ from .metrics import (
 logger = structlog.get_logger()
 
 TopicKey = tuple[int, int]
-OperatorKey = tuple[int, int, int]
+OperatorKey = tuple[int, int, int, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,7 +155,14 @@ class TaskScheduler:
             now_mono = time.monotonic()
             now_wall = time.time()
             for row in raw.get("active", []):
-                key = (int(row["chat_id"]), int(row["thread_id"]), int(row["user_id"]))
+                # v1/v2 rows had no lane. They migrate losslessly to the
+                # member's default serial lane.
+                key = (
+                    int(row["chat_id"]),
+                    int(row["thread_id"]),
+                    int(row["user_id"]),
+                    str(row.get("lane_id") or "default"),
+                )
                 touched_wall = float(row.get("touched_at", now_wall))
                 remaining_age = max(0.0, now_wall - touched_wall)
                 raw_state = str(row.get("state", "active"))
@@ -194,6 +201,7 @@ class TaskScheduler:
                 "chat_id": key[0],
                 "thread_id": key[1],
                 "user_id": key[2],
+                "lane_id": key[3],
                 "window_id": task.window_id,
                 "task_id": task.task_id,
                 "started_at": task.started_wall,
@@ -211,7 +219,7 @@ class TaskScheduler:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 json.dump(
                     {
-                        "version": 2,
+                        "version": 3,
                         "next_task_seq": self._next_task_seq,
                         "average_duration_seconds": self._average_duration_seconds,
                         "active": rows,
@@ -237,6 +245,20 @@ class TaskScheduler:
         self._next_task_seq += 1
         return task_id
 
+    def _accept_reserved_task_id(self, task_id: str) -> str:
+        """Normalize an externally reserved ID and keep the sequence monotonic."""
+        normalized = task_id.upper()
+        if normalized.startswith("T") and normalized[1:].isdigit():
+            self._next_task_seq = max(self._next_task_seq, int(normalized[1:]) + 1)
+        return normalized
+
+    async def reserve_task_id(self) -> str:
+        """Reserve and persist an ID before provisioning an isolated lane."""
+        async with self._lock:
+            task_id = self._new_task_id()
+            self._save_state()
+            return task_id
+
     def _observe_duration(self, task: _ActiveTask, *, outcome: str) -> None:
         duration = max(0.0, time.monotonic() - task.started_at)
         TASK_DURATION.observe(duration, outcome=outcome)
@@ -254,10 +276,12 @@ class TaskScheduler:
         return sum(self._topic(key) == topic for key in self._active)
 
     def _has_capacity(self, key: OperatorKey) -> bool:
+        operator_active = sum(active_key[:3] == key[:3] for active_key in self._active)
         return (
             len(self._active) < config.max_parallel_global
             and self._topic_active_count(self._topic(key))
             < config.max_parallel_per_topic
+            and operator_active < config.max_parallel_per_operator
         )
 
     def _expire_stale(self, now: float) -> None:
@@ -306,7 +330,7 @@ class TaskScheduler:
             previous.cancel()
         self._lease_tasks[key] = asyncio.create_task(
             self._expire_lease(key, window_id),
-            name=f"task-lease:{key[0]}:{key[1]}:{key[2]}",
+            name=f"task-lease:{key[0]}:{key[1]}:{key[2]}:{key[3]}",
         )
 
     async def _expire_lease(self, key: OperatorKey, window_id: str) -> None:
@@ -343,6 +367,24 @@ class TaskScheduler:
 
     def _wake_waiters(self, now: float) -> None:
         """Admit the oldest eligible waiters without head-of-line blocking."""
+        # Stable fairness: supplements for an admitted lane stay ordered;
+        # otherwise a member with no active task gets a first slot before a
+        # busy member gets an additional parallel lane.
+        self._waiters = deque(
+            sorted(
+                self._waiters,
+                key=lambda waiter: (
+                    0
+                    if waiter.key in self._active
+                    else (
+                        1
+                        if not any(key[:3] == waiter.key[:3] for key in self._active)
+                        else 2
+                    ),
+                    waiter.queued_at,
+                ),
+            )
+        )
         remaining: deque[_Waiter] = deque()
         while self._waiters:
             waiter = self._waiters.popleft()
@@ -386,9 +428,16 @@ class TaskScheduler:
         self._update_metrics()
 
     async def acquire(
-        self, *, chat_id: int, thread_id: int, user_id: int, window_id: str
+        self,
+        *,
+        chat_id: int,
+        thread_id: int,
+        user_id: int,
+        window_id: str,
+        lane_id: str = "default",
+        task_id: str | None = None,
     ) -> TaskAdmission:
-        key = (chat_id, thread_id, user_id)
+        key = (chat_id, thread_id, user_id, lane_id)
         async with self._lock:
             now = time.monotonic()
             self._expire_stale(now)
@@ -411,17 +460,33 @@ class TaskScheduler:
                     continuation=True, queued=False, task_id=active.task_id
                 )
             if self._has_capacity(key):
-                task_id = self._new_task_id()
-                self._activate(key, window_id, now, task_id)
-                return TaskAdmission(continuation=False, queued=False, task_id=task_id)
+                allocated_task_id = (
+                    self._accept_reserved_task_id(task_id)
+                    if task_id
+                    else self._new_task_id()
+                )
+                self._activate(key, window_id, now, allocated_task_id)
+                return TaskAdmission(
+                    continuation=False, queued=False, task_id=allocated_task_id
+                )
             future: asyncio.Future[TaskAdmission] = (
                 asyncio.get_running_loop().create_future()
             )
             existing = next(
                 (waiter for waiter in self._waiters if waiter.key == key), None
             )
-            task_id = existing.task_id if existing else self._new_task_id()
-            self._waiters.append(_Waiter(key, window_id, future, now, task_id))
+            allocated_task_id = (
+                existing.task_id
+                if existing
+                else (
+                    self._accept_reserved_task_id(task_id)
+                    if task_id
+                    else self._new_task_id()
+                )
+            )
+            self._waiters.append(
+                _Waiter(key, window_id, future, now, allocated_task_id)
+            )
             position = len(self._waiters)
             self._update_metrics()
 
@@ -434,9 +499,14 @@ class TaskScheduler:
         )
 
     async def queue_position(
-        self, *, chat_id: int, thread_id: int, user_id: int
+        self,
+        *,
+        chat_id: int,
+        thread_id: int,
+        user_id: int,
+        lane_id: str = "default",
     ) -> int:
-        key = (chat_id, thread_id, user_id)
+        key = (chat_id, thread_id, user_id, lane_id)
         async with self._lock:
             for position, waiter in enumerate(self._waiters, start=1):
                 if waiter.key == key:
@@ -629,20 +699,33 @@ class TaskScheduler:
         self, *, chat_id: int, thread_id: int, user_id: int
     ) -> str | None:
         """Cancel a queued or active operator task; return its window if active."""
-        key = (chat_id, thread_id, user_id)
         async with self._lock:
-            queued = [waiter for waiter in self._waiters if waiter.key == key]
+            queued = [
+                waiter
+                for waiter in self._waiters
+                if waiter.key[:3] == (chat_id, thread_id, user_id)
+            ]
             if queued:
                 self._waiters = deque(
-                    waiter for waiter in self._waiters if waiter.key != key
+                    waiter
+                    for waiter in self._waiters
+                    if waiter.key[:3] != (chat_id, thread_id, user_id)
                 )
                 for waiter in queued:
                     waiter.future.cancel()
                 self._update_metrics()
                 return ""
-            active = self._active.pop(key, None)
-            if active is None:
+            match = next(
+                (
+                    (key, task)
+                    for key, task in self._active.items()
+                    if key[:3] == (chat_id, thread_id, user_id)
+                ),
+                None,
+            )
+            if match is None:
                 return None
+            key, active = match
             self._window_to_key.pop(active.window_id, None)
             lease = self._lease_tasks.pop(key, None)
             if lease is not None and lease is not asyncio.current_task():
@@ -656,10 +739,9 @@ class TaskScheduler:
     async def cancel_waiter(
         self, *, chat_id: int, thread_id: int, user_id: int
     ) -> bool:
-        key = (chat_id, thread_id, user_id)
         async with self._lock:
             for waiter in tuple(self._waiters):
-                if waiter.key != key:
+                if waiter.key[:3] != (chat_id, thread_id, user_id):
                     continue
                 self._waiters.remove(waiter)
                 waiter.future.cancel()

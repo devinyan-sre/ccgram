@@ -31,7 +31,7 @@ async def test_publish_receipt_persists_telegram_message_id(
             source,  # type: ignore[arg-type]
             inbound_key="-100:7:9",
             task_id="T0042",
-    )
+        )
 
     assert result is sent
     reply.assert_awaited_once()

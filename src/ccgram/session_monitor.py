@@ -476,7 +476,9 @@ class SessionMonitor:
         from .thread_router import thread_router
 
         caps = tmux_manager.capabilities
-        bound_window_ids = {wid for _, _, wid in thread_router.iter_thread_bindings()}
+        bound_window_ids = {
+            wid for _, _, wid in thread_router.iter_execution_bindings()
+        }
         for window in all_windows:
             if window.window_id in known_window_ids:
                 continue
@@ -520,7 +522,9 @@ class SessionMonitor:
         # session_monitor; hoisting forms a startup cycle.
         from .thread_router import thread_router
 
-        bound_window_ids = {wid for _, _, wid in thread_router.iter_thread_bindings()}
+        bound_window_ids = {
+            wid for _, _, wid in thread_router.iter_execution_bindings()
+        }
         for window_id, details in current_map.items():
             if window_id not in live_window_ids:
                 continue  # dead / __*__-filtered — skip

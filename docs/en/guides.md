@@ -169,6 +169,10 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_MAX_MEMBER_LANES_PER_TOPIC`                  | `8`                            | Maximum persistent operator lanes in one physical topic                                               |
 | `CCGRAM_MAX_PARALLEL_PER_TOPIC`                      | `2`                            | Active tasks from different operators per topic; supplements from one operator reuse its task        |
 | `CCGRAM_MAX_PARALLEL_GLOBAL`                         | `4`                            | Active operator tasks across this ccgram instance                                                      |
+| `CCGRAM_MAX_PARALLEL_PER_OPERATOR`                   | `2`                            | Concurrent tasks for one operator in one topic; only `/task_parallel` consumes another slot           |
+| `CCGRAM_MAX_TASK_LANES_PER_OPERATOR`                 | `4`                            | Maximum persistent task CLI/worktree lanes for one operator in one topic                              |
+| `CCGRAM_TASK_SELECTION_TTL_SECONDS`                  | `300`                          | Lifetime of an explicit task-selection interaction; ambiguity is never guessed                        |
+| `CCGRAM_PARALLEL_TASK_WORKTREES`                     | `true`                         | Create an isolated Git worktree for each explicit parallel task; fail closed when unsafe              |
 | `CCGRAM_TASK_LEASE_SECONDS`                          | `7200`                         | Safety lease; expiry marks the lane stuck and retains its slot instead of overlapping work            |
 | `CCGRAM_DISPATCH_ACK_SECONDS`                        | `15`                           | Seconds to observe a real provider user turn after writing through tmux/herdr                         |
 | `CCGRAM_DISPATCH_RETRY_COUNT`                        | `1`                            | Submit-key-only automatic retries (0–3); the prompt body is never repeated                            |
@@ -434,6 +438,20 @@ gets an isolated provider session and, for clean Git repositories, a dedicated
 worktree. Different members can run concurrently within the configurable topic
 and global limits; one member's messages stay ordered and supplement one task.
 Claude, Codex, Gemini, Pi, and Shell all use this provider-neutral scheduler.
+
+#### Explicit parallel tasks for one operator
+
+![Same-member parallel task architecture](../images/same-member-parallel-task-architecture.png)
+
+Ordinary messages remain serial. `/task_parallel new question` explicitly
+creates another task ID, CLI window, provider session, and clean Git worktree.
+Use `/task_add T0032 supplement`, reply to that task's root/receipt/answer, or
+press “Select supplement” on its task card to target it. Text, photos, files,
+albums, and confirmed voice messages share this correlation. If several tasks
+are active and no target is present, CCGram rejects the message instead of
+guessing. The mapping survives restart; every task remains serial internally.
+Use `/task_archive T0032` to stop a completed lane and release its persistent
+lane quota while preserving its transcript, branch, and worktree.
 
 ### Persistent Telegram operations dashboard
 

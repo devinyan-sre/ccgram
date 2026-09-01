@@ -103,6 +103,8 @@ _ZH: dict[str, str] = {
     "Run safe CCGram wiring checks": "运行安全的 CCGram 链路自检",
     "Show active and queued topic tasks": "查看运行中和排队任务",
     "Supplement your current task": "补充当前任务",
+    "Start an isolated parallel task": "创建隔离的并行任务",
+    "Archive a completed task lane": "归档已完成的任务通道",
     "End current task and start a boundary": "结束当前任务并创建新边界",
     "Cancel your active or queued task": "取消运行中或排队任务",
     "Retry a stuck task submission": "重试未确认的任务提交",

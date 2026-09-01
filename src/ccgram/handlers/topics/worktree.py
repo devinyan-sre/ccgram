@@ -193,6 +193,18 @@ def worktree_path_for(repo_path: Path, slug: str) -> Path:
     return repo_path.parent / f"{repo_path.name}.worktrees" / slug
 
 
+def primary_worktree_path(path: Path) -> Path:
+    """Return the repository's primary worktree for stable sibling paths."""
+    try:
+        result = _git(path, "worktree", "list", "--porcelain")
+        for line in result.stdout.splitlines():
+            if line.startswith("worktree "):
+                return Path(line.removeprefix("worktree ")).resolve()
+    except OSError, subprocess.TimeoutExpired:
+        pass
+    return path.resolve()
+
+
 def validate_branch_name(name: str) -> bool:
     """Return True if *name* is a valid git branch name.
 

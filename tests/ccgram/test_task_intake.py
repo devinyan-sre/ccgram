@@ -23,9 +23,7 @@ async def test_new_task_publishes_receipt_and_prioritizes_dashboard(
         patch.object(
             task_intake.task_scheduler,
             "acquire",
-            new=AsyncMock(
-                return_value=TaskAdmission(False, False, task_id="T0042")
-            ),
+            new=AsyncMock(return_value=TaskAdmission(False, False, task_id="T0042")),
         ),
         patch.object(task_intake, "record_request"),
         patch.object(task_intake, "publish_task_receipt", new=AsyncMock()) as receipt,
@@ -60,9 +58,7 @@ async def test_continuation_keeps_single_task_without_new_receipt(
         patch.object(
             task_intake.task_scheduler,
             "acquire",
-            new=AsyncMock(
-                return_value=TaskAdmission(True, False, task_id="T0042")
-            ),
+            new=AsyncMock(return_value=TaskAdmission(True, False, task_id="T0042")),
         ),
         patch.object(task_intake, "record_request"),
         patch.object(task_intake, "publish_task_receipt", new=AsyncMock()) as receipt,
@@ -79,3 +75,39 @@ async def test_continuation_keeps_single_task_without_new_receipt(
     assert admission is not None and admission.continuation is True
     receipt.assert_not_awaited()
     reply.assert_awaited_once()
+
+
+async def test_source_message_override_preserves_original_media_root(
+    tmp_path, monkeypatch
+) -> None:
+    store = InboundStore(tmp_path / "inbound.json")
+    monkeypatch.setattr(task_intake, "inbound_store", store)
+    confirmation = SimpleNamespace(chat=SimpleNamespace(id=-1001), message_id=900)
+    with (
+        patch.object(
+            task_intake.task_scheduler,
+            "acquire",
+            new=AsyncMock(return_value=TaskAdmission(False, False, task_id="T0042")),
+        ),
+        patch.object(task_intake, "record_request") as record,
+        patch.object(task_intake, "publish_task_receipt", new=AsyncMock()),
+    ):
+        admission = await task_intake.admit_request(
+            window_id="@voice",
+            user_id=42,
+            thread_id=17,
+            message=confirmation,  # type: ignore[arg-type]
+            dispatch_text="voice prompt",
+            source_message_id=88,
+        )
+
+    assert admission is not None
+    assert "-1001:17:88" in store._items
+    record.assert_called_once_with(
+        "@voice",
+        user_id=42,
+        chat_id=-1001,
+        thread_id=17,
+        message_id=88,
+        preserve_existing=False,
+    )

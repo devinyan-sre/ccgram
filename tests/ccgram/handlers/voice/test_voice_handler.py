@@ -233,7 +233,11 @@ class TestHandleVoiceMessage:
 
         await voice_handler.handle_voice_message(update, context)
 
-        assert context.user_data[VOICE_PENDING][(999, 1)] == "do the thing"
+        assert context.user_data[VOICE_PENDING][(999, 1)] == (
+            "do the thing",
+            "@0",
+            1,
+        )
         update.message.get_bot.return_value.send_chat_action.assert_awaited_once_with(
             chat_id=999, message_thread_id=42, action=ChatAction.TYPING
         )

@@ -139,7 +139,10 @@ async def _send_outcome_reply(
 ) -> None:
     """Post the classified outcome in every topic bound to this window."""
     text = _format_reply(outcome)
-    for user_id, thread_id, bound_wid in thread_router.iter_thread_bindings():
+    bindings = list(thread_router.iter_execution_bindings()) or list(
+        thread_router.iter_thread_bindings()
+    )
+    for user_id, thread_id, bound_wid in bindings:
         if bound_wid != window_id:
             continue
         chat_id = thread_router.resolve_chat_id(user_id, thread_id)

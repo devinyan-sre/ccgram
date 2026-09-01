@@ -31,9 +31,7 @@ def evaluate_group_activation(
     username = (client.username or "").strip()
     mention = f"@{username}" if username else ""
     reply = message.reply_to_message
-    replies_to_bot = bool(
-        reply and reply.from_user and reply.from_user.id == client.id
-    )
+    replies_to_bot = bool(reply and reply.from_user and reply.from_user.id == client.id)
     contains_mention = bool(mention and mention.lower() in text.lower())
     if not contains_mention and not replies_to_bot:
         return GroupActivation(False, text)

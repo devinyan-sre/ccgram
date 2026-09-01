@@ -73,7 +73,10 @@ def _resolve_users_for_window_key(
     window_id = parts[1]
 
     results: list[tuple[int, int, str]] = []
-    for user_id, thread_id, bound_wid in thread_router.iter_thread_bindings():
+    bindings = list(thread_router.iter_execution_bindings()) or list(
+        thread_router.iter_thread_bindings()
+    )
+    for user_id, thread_id, bound_wid in bindings:
         if bound_wid == window_id:
             results.append((user_id, thread_id, window_id))
     return results

@@ -129,7 +129,10 @@ class EventStreamMonitor:
         from .thread_router import thread_router
 
         bot = unwrap_bot(self._client)
-        for user_id, thread_id, bound_wid in thread_router.iter_thread_bindings():
+        bindings = list(thread_router.iter_execution_bindings()) or list(
+            thread_router.iter_thread_bindings()
+        )
+        for user_id, thread_id, bound_wid in bindings:
             if bound_wid == window_id:
                 await _handle_dead_window_notification(
                     bot, user_id, thread_id, window_id

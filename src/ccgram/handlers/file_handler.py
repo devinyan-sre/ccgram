@@ -27,6 +27,7 @@ from ..i18n import t
 from ..inbound_store import inbound_store
 from ..request_context import clear_window as clear_request_window
 from ..task_scheduler import task_scheduler
+from ..task_focus import consume as consume_task_focus
 from ..telegram_client import PTBTelegramClient
 from ..window_query import view_window
 from ..user_time import now_display
@@ -144,13 +145,15 @@ def _generate_photo_filename(file_unique_id: str) -> str:
 
 
 def _resolve_upload_dir(
-    user_id: int, thread_id: int | None
+    user_id: int, thread_id: int | None, window_override: str | None = None
 ) -> tuple[str | None, Path | None, str | None]:
     """Resolve window_id and upload directory for a thread.
 
     Returns (window_id, upload_path, error_message).
     """
-    window_id = thread_router.resolve_window_for_thread(user_id, thread_id)
+    window_id = window_override or thread_router.resolve_window_for_thread(
+        user_id, thread_id
+    )
     if not window_id:
         return None, None, "No session bound to this topic."
 
@@ -229,12 +232,16 @@ async def _upload_and_notify(
     agent_msg_tpl: str,
     success_emoji: str,
     caption: str,
+    window_id: str | None = None,
 ) -> None:
     """Resolve, save, schedule and dispatch one provider-neutral media task."""
-    window_id, upload_path, error = _resolve_upload_dir(user_id, thread_id)
-    if error or not window_id or not upload_path:
+    resolved_window, upload_path, error = _resolve_upload_dir(
+        user_id, thread_id, window_id
+    )
+    if error or not resolved_window or not upload_path:
         await safe_reply(message, f"\u274c {error}")
         return
+    window_id = resolved_window
 
     await message.chat.send_action(ChatAction.TYPING)
 
@@ -255,6 +262,8 @@ async def _upload_and_notify(
         thread_id=thread_id,
         message=message,
         dispatch_text=agent_msg,
+        lane_id=thread_router.task_id_for_window(window_id) or "default",
+        task_id=thread_router.task_id_for_window(window_id),
     )
     if admission is None:
         return
@@ -302,12 +311,16 @@ async def _buffer_album_item(
     file_size: int | None,
     size_label: str,
     caption: str,
+    window_id: str,
 ) -> None:
     """Save one Telegram album member and coalesce it into one CLI request."""
-    window_id, upload_path, error = _resolve_upload_dir(user_id, thread_id)
-    if error or not window_id or not upload_path:
+    resolved_window, upload_path, error = _resolve_upload_dir(
+        user_id, thread_id, window_id
+    )
+    if error or not resolved_window or not upload_path:
         await safe_reply(message, f"❌ {error}")
         return
+    window_id = resolved_window
     saved_name = await _download_and_save(
         message, upload_path, filename, file_id, file_size, size_label
     )
@@ -350,6 +363,8 @@ async def _flush_album(key: tuple[int, int, int, str]) -> None:
         thread_id=first.thread_id,
         message=first.message,
         dispatch_text=agent_msg,
+        lane_id=thread_router.task_id_for_window(first.window_id) or "default",
+        task_id=thread_router.task_id_for_window(first.window_id),
     )
     if admission is None:
         return
@@ -397,10 +412,10 @@ def _build_album_prompt(items: list[_AlbumItem]) -> str:
     return prompt
 
 
-async def _prepare_media_request(
+async def _prepare_media_request(  # noqa: C901, PLR0911 - fail-closed routing
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
-) -> tuple[Message, int, int, str] | None:
+) -> tuple[Message, int, int, str, str] | None:
     """Authorize, activate, deduplicate and resolve an isolated media lane."""
     user = update.effective_user
     message = update.message
@@ -444,12 +459,71 @@ async def _prepare_media_request(
             )
             return None
 
-    if thread_router.resolve_window_for_thread(user.id, thread_id) is None:
+    default_window = thread_router.resolve_window_for_thread(user.id, thread_id)
+    if default_window is None:
         await safe_reply(
             message,
             t(
                 "⚠ Topic not bound — send a text message first to select a workspace, then resend the media."
             ),
+        )
+        return None
+
+    window_id = default_window
+    focused_task_id = consume_task_focus(message.chat.id, thread_id, user.id)
+    if focused_task_id:
+        focused = next(
+            (
+                row
+                for row in task_scheduler.views(
+                    chat_id=message.chat.id, thread_id=thread_id
+                )
+                if row.user_id == user.id
+                and row.task_id.upper() == focused_task_id
+                and row.state != "queued"
+            ),
+            None,
+        )
+        if focused is not None:
+            window_id = focused.window_id
+    reply = message.reply_to_message
+    if reply is not None:
+        linked = inbound_store.resolve_message(
+            chat_id=message.chat.id,
+            thread_id=thread_id,
+            user_id=user.id,
+            message_id=reply.message_id,
+        )
+        if linked is not None and linked.task_id:
+            active = next(
+                (
+                    row
+                    for row in task_scheduler.views(
+                        chat_id=message.chat.id, thread_id=thread_id
+                    )
+                    if row.user_id == user.id
+                    and row.task_id.upper() == linked.task_id.upper()
+                    and row.state != "queued"
+                ),
+                None,
+            )
+            if active is not None:
+                window_id = active.window_id
+    owned_active = [
+        row
+        for row in task_scheduler.views(chat_id=message.chat.id, thread_id=thread_id)
+        if row.user_id == user.id and row.state != "queued"
+    ]
+    if (
+        len(owned_active) > 1
+        and window_id == default_window
+        and reply is None
+        and focused_task_id is None
+    ):
+        await safe_reply(
+            message,
+            "⚠️ 你有多个活动任务，这个媒体消息没有明确归属，因此未处理。"
+            "请把图片/文件回复到对应任务的原问题、回执或机器人回答。",
         )
         return None
 
@@ -467,7 +541,7 @@ async def _prepare_media_request(
             message_id=message_id,
         )
         return None
-    return message, user.id, thread_id, activation.text
+    return message, user.id, thread_id, activation.text, window_id
 
 
 async def handle_photo_message(
@@ -477,7 +551,7 @@ async def handle_photo_message(
     prepared = await _prepare_media_request(update, context)
     if prepared is None:
         return
-    message, user_id, thread_id, caption = prepared
+    message, user_id, thread_id, caption, window_id = prepared
     if not message.photo:
         return
 
@@ -492,6 +566,7 @@ async def handle_photo_message(
             photo.file_size,
             "Photo",
             caption,
+            window_id,
         )
         return
     await _upload_and_notify(
@@ -505,6 +580,7 @@ async def handle_photo_message(
         "I've uploaded an image to {path} — please take a look.",
         "\U0001f4f7",
         caption,
+        window_id,
     )
 
 
@@ -515,7 +591,7 @@ async def handle_document_message(
     prepared = await _prepare_media_request(update, context)
     if prepared is None:
         return
-    message, user_id, thread_id, caption = prepared
+    message, user_id, thread_id, caption, window_id = prepared
     if not message.document:
         return
 
@@ -530,6 +606,7 @@ async def handle_document_message(
             doc.file_size,
             "File",
             caption,
+            window_id,
         )
         return
     await _upload_and_notify(
@@ -543,4 +620,5 @@ async def handle_document_message(
         "I've uploaded {name} to {path}",
         "\U0001f4ce",
         caption,
+        window_id,
     )

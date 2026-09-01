@@ -31,9 +31,7 @@ async def handle_dashboard_refresh(
     if query is None or query.message is None:
         return
     thread_id = get_thread_id(update) or 1
-    refreshed = await refresh_operations_dashboard(
-        query.message.chat.id, thread_id
-    )
+    refreshed = await refresh_operations_dashboard(query.message.chat.id, thread_id)
     await query.answer(t("Refreshed") if refreshed else t("Dashboard unavailable"))
 
 

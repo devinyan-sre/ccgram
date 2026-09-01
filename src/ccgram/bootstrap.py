@@ -347,7 +347,9 @@ def start_event_stream(application: Application) -> object | None:
     from .thread_router import thread_router
 
     def _bound_window_ids() -> set[str]:
-        return {wid for _u, _t, wid in thread_router.iter_thread_bindings()}
+        return {wid for _u, _t, wid in thread_router.iter_execution_bindings()} or {
+            wid for _u, _t, wid in thread_router.iter_thread_bindings()
+        }
 
     monitor = EventStreamMonitor(PTBTelegramClient(application.bot), _bound_window_ids)
     monitor.start()

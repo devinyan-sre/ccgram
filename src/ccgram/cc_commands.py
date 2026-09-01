@@ -100,6 +100,8 @@ _BOT_COMMANDS: list[tuple[str, str]] = [
     ("selftest", "Run safe CCGram wiring checks"),
     ("tasks", "Show active and queued topic tasks"),
     ("task_add", "Supplement your current task"),
+    ("task_archive", "Archive a completed task lane"),
+    ("task_parallel", "Start an isolated parallel task"),
     ("task_new", "End current task and start a boundary"),
     ("task_cancel", "Cancel your active or queued task"),
     ("task_retry", "Retry a stuck task submission"),

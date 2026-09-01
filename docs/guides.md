@@ -191,6 +191,10 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_MAX_MEMBER_LANES_PER_TOPIC`                  | `8`                            | 单个物理话题可持久存在的成员通道上限                                                                  |
 | `CCGRAM_MAX_PARALLEL_PER_TOPIC`                      | `2`                            | 一个话题同时运行的不同成员任务数；同一成员的补充消息不另占槽位                                        |
 | `CCGRAM_MAX_PARALLEL_GLOBAL`                         | `4`                            | 本 ccgram 实例同时运行的成员任务总数；跨话题统一限制                                                   |
+| `CCGRAM_MAX_PARALLEL_PER_OPERATOR`                   | `2`                            | 同一成员在同一话题可同时运行的任务数；只有 `/task_parallel` 会占用额外槽位                             |
+| `CCGRAM_MAX_TASK_LANES_PER_OPERATOR`                 | `4`                            | 同一成员在一个话题可持久存在的独立任务 CLI/工作树通道上限                                              |
+| `CCGRAM_TASK_SELECTION_TTL_SECONDS`                  | `300`                          | 任务选择交互的有效秒数；过期后必须重新明确任务，系统不会猜测                                           |
+| `CCGRAM_PARALLEL_TASK_WORKTREES`                     | `true`                         | 为显式并行任务创建独立 Git worktree；不满足安全条件时拒绝并行                                          |
 | `CCGRAM_TASK_LEASE_SECONDS`                          | `7200`                         | provider 未产生完成事件时的安全租约；到期标记异常并保留槽位，不会静默启动重叠任务                      |
 | `CCGRAM_DISPATCH_ACK_SECONDS`                        | `15`                           | 写入 tmux/herdr 后等待 CLI 会话出现真实用户轮次的秒数                                                  |
 | `CCGRAM_DISPATCH_RETRY_COUNT`                        | `1`                            | 未确认时自动补交回车的次数（0–3）；永不重复问题正文                                                    |
@@ -482,6 +486,40 @@ Sub-Agent API。
 
 ![多人同话题并行架构](images/multi-operator-topic-architecture.png)
 
+### 同一成员显式并行任务
+
+![同一成员多任务隔离架构](images/same-member-parallel-task-architecture.png)
+
+默认行为仍是安全的“同一成员串行”：第一条普通消息创建默认任务，随后普通消息
+作为该任务补充。只有明确发送 `/task_parallel 新问题`，ccgram 才预留一个新的
+`T编号`，并为它创建独立 CLI 窗口、Provider 会话和 Git worktree。该能力在
+Claude、Codex、Gemini、Pi、Shell 以及 tmux/herdr 上采用同一实现，不依赖 CLI
+自己的 Sub-Agent/Multi-Agent 功能。
+
+当同一成员有多个活动任务时，可用四种不会串题的方式继续：
+
+1. 回复对应任务的根问题、任务回执、任意补充消息或机器人回答；
+2. 发送 `/task_add T0032 补充内容`；
+3. 点击任务卡片“选择补充”，在配置的有效期内发送下一条文字、图片、文件或语音；
+4. 新问题继续使用 `/task_parallel 新问题`。
+
+没有回复关系、任务编号或有效选择时，ccgram 会列出活动任务并拒绝发送，不会猜测。
+`/task_add 补充内容` 只适合当前仅有一个活动任务的情况。任务卡片提供“选择补充、
+任务详情、取消”；`/tasks` 展示本人及话题内其他成员经过隐私处理的任务状态。
+
+任务关联会持久化“任务编号 → 根问题/补充/回执/机器人输出/CLI 窗口/Provider
+会话/worktree”。因此服务重启后，回复旧的任务消息仍会进入正确通道；对方成员的
+消息不会成为你的任务目标。每个任务内部仍严格串行，保证连续补充保持上下文顺序；
+不同任务通道之间可以并行。
+
+并行任务只有在工作区可安全隔离时才创建。默认要求干净、非 detached、没有 merge/
+rebase 的 Git worktree，并创建 `ccg/task-<话题>-<用户>-<任务>` 分支。脏仓库、非 Git
+目录或 worktree 创建失败都会关闭失败；不会退化成两个可写 CLI 共享同一目录，也不会
+自动继承 YOLO/bypass。并行通道完成后保留窗口、会话、分支和 worktree，便于查看结果；
+活动槽位会释放。清理仍遵守 `/lane cleanup` 的“干净且已合并”安全检查。
+当持久任务通道达到上限时，使用 `/task_archive T0032` 停止一个已完成通道；它只释放
+CLI/路由资源，保留会话记录、Git 分支与 worktree，不会删除成果。
+
 推荐生产配置：
 
 ```ini
@@ -496,6 +534,10 @@ CCGRAM_MAX_CONCURRENT_UPDATES=8
 CCGRAM_MAX_MEMBER_LANES_PER_TOPIC=8
 CCGRAM_MAX_PARALLEL_PER_TOPIC=2
 CCGRAM_MAX_PARALLEL_GLOBAL=4
+CCGRAM_MAX_PARALLEL_PER_OPERATOR=2
+CCGRAM_MAX_TASK_LANES_PER_OPERATOR=4
+CCGRAM_TASK_SELECTION_TTL_SECONDS=300
+CCGRAM_PARALLEL_TASK_WORKTREES=true
 CCGRAM_TASK_LEASE_SECONDS=7200
 CCGRAM_DISPATCH_ACK_SECONDS=15
 CCGRAM_DISPATCH_RETRY_COUNT=1
@@ -538,9 +580,8 @@ CCGRAM_MEMBER_LANE_CLEANUP_DAYS=30
   `CCGRAM_ALLOW_SHARED_MEMBER_CWD=true`。
 - 每个回答都会回复对应成员的原始 Telegram 消息；话题内其他成员的结果不会
   被投递到你的 CLI 会话。
-- 同一成员的第一条消息占用一个任务槽；任务结束前继续发送或回复任何消息，
-  都会作为当前任务的补充进入同一个 CLI 会话，不会创建第二个并行任务，也不会
-  覆盖最终回答所回复的根问题。
+- 同一成员的第一条普通消息占用默认任务槽；普通补充仍串行。只有
+  `/task_parallel` 会创建额外隔离通道并占用成员/话题/全局槽位。
 - 不同成员超过每话题或全局并行上限后会进入 FIFO 等待队列，并立即收到排队位置；
   前一个任务产生最终回答后自动释放槽位。
 - 关闭话题时，所有成员绑定一起解除；派生 CLI 进程停止，但 worktree 和分支
@@ -554,7 +595,8 @@ CCGRAM_MEMBER_LANE_CLEANUP_DAYS=30
   保留槽位并拒绝该成员的下一条消息，避免两个问题在输入框中串联。服务重启遇到
   状态不明确的提交同样保持关闭失败（fail-closed）。
 - `/tasks` 查看短编号（如 `T0007`）、状态、等待时间和排队 ETA；`/task_add 内容`
-  明确补充当前任务，`/task_new` 在当前任务确认停止后划分新任务。
+  补充唯一活动任务，`/task_add T编号 内容` 精确补充并行任务；`/task_parallel 内容`
+  创建独立任务，`/task_new` 在当前任务确认停止后划分新任务。
 - `/task_retry [T编号]` 只重新发送提交键，不重新发送问题正文；也可使用异常回执
   上的“重试提交”或“取消任务”按钮。已开始但长时间没有会话增量时，回执和总览
   会显示“长时间无新进展”，恢复输出后自动恢复正常状态。
@@ -572,9 +614,8 @@ CCGRAM_MEMBER_LANE_CLEANUP_DAYS=30
   `/lane restore` 恢复；`/lane cleanup` 只删除干净且已合并的成员 worktree。
 - 完成任务后会检查其他成员是否修改相同文件；检测到重叠只告警，不自动合并。
 
-> 当前并发粒度是“每个成员一个交互式 CLI 通道”。同一成员在自己的 CLI 尚忙时
-> 连续发送消息，仍遵循该 CLI 的 steering/follow-up 语义；若同一个人也需要两个
-> 完全独立的并行任务，请建立两个话题。
+> 并行是显式能力，不是普通消息的默认行为。每个 `T编号` 对应一个独立 CLI 与
+> 工作树；同一 `T编号` 内的所有补充仍严格串行。
 
 <a id="telegram-operations-dashboard"></a>
 

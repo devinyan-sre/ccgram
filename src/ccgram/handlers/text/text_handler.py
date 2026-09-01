@@ -69,6 +69,7 @@ from ... import provider_readiness, window_query
 from ...provider_handoff import handoff_provider
 from ...request_context import clear_window as clear_request_window
 from ...task_scheduler import task_scheduler
+from ...task_focus import consume as consume_task_focus
 from ...thread_router import thread_router
 from ...providers import get_provider_for_window
 from ...multiplexer import multiplexer as tmux_manager
@@ -304,7 +305,9 @@ async def _handle_unbound_topic(
             return True
 
     all_windows = await tmux_manager.list_windows()
-    bound_ids = {bound_wid for _, _, bound_wid in thread_router.iter_thread_bindings()}
+    bound_ids = {
+        bound_wid for _, _, bound_wid in thread_router.iter_execution_bindings()
+    } or {bound_wid for _, _, bound_wid in thread_router.iter_thread_bindings()}
     unbound = [
         (w.window_id, w.window_name, w.cwd)
         for w in all_windows
@@ -507,6 +510,8 @@ async def _forward_message(
     message: Message,
     *,
     send_text: str | None = None,
+    lane_id: str = "default",
+    task_id: str | None = None,
 ) -> None:
     """Forward a text message to the bound tmux window.
 
@@ -530,6 +535,8 @@ async def _forward_message(
         thread_id=thread_id,
         message=message,
         dispatch_text=send_text or text,
+        lane_id=lane_id,
+        task_id=task_id,
     )
     if admission is None:
         return
@@ -667,11 +674,13 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await handle_text_message(update, context, text_override=text)
 
 
-async def handle_text_message(  # noqa: C901, PLR0911, PLR0912 - explicit routing chain
+async def handle_text_message(  # noqa: C901, PLR0911, PLR0912, PLR0915 - explicit routing chain
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     *,
     text_override: str | None = None,
+    target_window_id: str | None = None,
+    target_task_id: str | None = None,
 ) -> None:
     """Orchestrate text message handling via bool early-return chain.
 
@@ -728,6 +737,79 @@ async def handle_text_message(  # noqa: C901, PLR0911, PLR0912 - explicit routin
     window_id = thread_router.get_window_for_thread(user.id, thread_id)
     assert window_id is not None  # _handle_unbound_topic returned False
 
+    chat_id, _message_id = message_ids(message)
+    lane_id = "default"
+    reserved_task_id = target_task_id.upper() if target_task_id else None
+    if target_window_id is not None:
+        window_id = target_window_id
+        lane_id = reserved_task_id or "default"
+    else:
+        focused_task_id = consume_task_focus(chat_id, thread_id, user.id)
+        if focused_task_id:
+            focused = next(
+                (
+                    view
+                    for view in task_scheduler.views(
+                        chat_id=chat_id, thread_id=thread_id
+                    )
+                    if view.user_id == user.id
+                    and view.task_id.upper() == focused_task_id
+                    and view.state != "queued"
+                ),
+                None,
+            )
+            if focused is not None:
+                window_id = focused.window_id
+                reserved_task_id = focused.task_id
+                lane_id = (
+                    focused.task_id
+                    if thread_router.task_id_for_window(focused.window_id)
+                    else "default"
+                )
+        reply = message.reply_to_message
+        if reply is not None:
+            linked = inbound_store.resolve_message(
+                chat_id=chat_id,
+                thread_id=thread_id,
+                user_id=user.id,
+                message_id=reply.message_id,
+            )
+            if linked is not None and linked.task_id:
+                active = next(
+                    (
+                        view
+                        for view in task_scheduler.views(
+                            chat_id=chat_id, thread_id=thread_id
+                        )
+                        if view.user_id == user.id
+                        and view.task_id.upper() == linked.task_id.upper()
+                    ),
+                    None,
+                )
+                if active is not None:
+                    window_id = active.window_id
+                    reserved_task_id = active.task_id
+                    lane_id = (
+                        active.task_id
+                        if thread_router.task_id_for_window(active.window_id)
+                        else "default"
+                    )
+        owned_active = [
+            view
+            for view in task_scheduler.views(chat_id=chat_id, thread_id=thread_id)
+            if view.user_id == user.id and view.state != "queued"
+        ]
+        if len(owned_active) > 1 and reserved_task_id is None:
+            task_list = "、".join(f"`{view.task_id}`" for view in owned_active)
+            await safe_reply(
+                message,
+                "⚠️ 你在此话题有多个活动任务，本条未发送，系统不会猜测归属。\n"
+                f"当前：{task_list}\n"
+                "请回复对应任务的原问题/回执/机器人回答，或使用 "
+                "`/task_add T编号 补充内容`；新问题使用 `/task_parallel 问题`。",
+            )
+            return
+
     if await _handle_dead_window(
         window_id, user.id, thread_id, text, context.user_data, message
     ):
@@ -747,6 +829,8 @@ async def handle_text_message(  # noqa: C901, PLR0911, PLR0912 - explicit routin
             thread_id=thread_id,
             message=message,
             dispatch_text=text,
+            lane_id=lane_id,
+            task_id=reserved_task_id,
         )
         if admission is None:
             return
@@ -814,4 +898,6 @@ async def handle_text_message(  # noqa: C901, PLR0911, PLR0912 - explicit routin
         PTBTelegramClient(context.bot),
         message,
         send_text=_reply_quote_send_text(message, thread_id, text),
+        lane_id=lane_id,
+        task_id=reserved_task_id,
     )

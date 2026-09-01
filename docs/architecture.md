@@ -16,6 +16,29 @@ CLI exposing native sub-agents.
 
 ![Multi-operator topic architecture](images/multi-operator-topic-architecture.png)
 
+### Same-member explicit parallel tasks
+
+![Same-member parallel task architecture](images/same-member-parallel-task-architecture.png)
+
+The default lane remains serial. `/task_parallel` reserves a task ID before it
+provisions a separate multiplexer window, provider session, and clean Git
+worktree. Scheduler identity is `(chat_id, thread_id, user_id, lane_id)`; legacy
+persisted rows migrate to `lane_id=default`. Each explicit lane uses its task ID
+as `lane_id`, so supplements are ordered inside one task while sibling tasks can
+run concurrently. Per-operator, per-topic, and global caps are all enforced.
+
+`ThreadRouter.task_lane_windows` persists each derived window's owner, physical
+topic, and task ID without replacing the member's default topic binding.
+Monitoring and session/output resolution use `iter_execution_bindings()`;
+topic lifecycle code intentionally continues using `iter_thread_bindings()` so
+an ephemeral task lane cannot become a canonical workspace accidentally.
+
+`inbound.json` durably associates root prompts, supplements, receipts, and every
+assistant output segment with the task ID and window. A Telegram reply can
+therefore recover the exact task after restart. Explicit `/task_add T-id ...`
+and one-shot task-card selection are alternate addressing forms. When several
+tasks are active and no association exists, admission fails closed.
+
 ### Persistent Telegram operations dashboard
 
 ![Provider-neutral dual-scope operations dashboard](images/telegram-operations-dashboard.png)
@@ -56,8 +79,9 @@ The routing identities are deliberately separate:
 | Concern | Stable key | Meaning |
 | --- | --- | --- |
 | Physical workspace | `(chat_id, thread_id)` | Hard boundary; a topic never discovers or reuses another topic's workspace |
-| Operator lane | `(chat_id, thread_id, user_id)` | One provider process, transcript, context, queue, and optional worktree per member |
-| Request correlation | `(window_id, user_id, message_id)` | Final assistant text replies to the exact Telegram question that started it |
+| Operator default lane | `(chat_id, thread_id, user_id, default)` | Serial provider conversation used by ordinary messages |
+| Explicit task lane | `(chat_id, thread_id, user_id, task_id)` | Separate provider process/session/worktree created only by `/task_parallel` |
+| Request correlation | `(chat_id, thread_id, user_id, message_id) → task_id/window_id` | Root, receipt, supplement and output replies resolve to one task |
 | Access control | `ALLOWED_USERS` | Authentication only; it never selects a different topic workspace |
 
 ### Inbound execution
@@ -147,10 +171,10 @@ lane, but are optional acceleration, never a correctness dependency.
   stopped so they cannot be adopted by another topic; their Git worktrees and
   branches remain on disk for recovery. The canonical workspace window keeps
   the historic unbound/rebind behavior.
-- One member lane is one interactive CLI conversation. If the same member sends
-  another prompt while that CLI is busy, it supplements that active task using
-  the provider's steer/follow-up semantics and never starts a parallel session.
-  Independent concurrent jobs from the same person should use separate topics.
+- Ordinary messages from one member remain serial and supplement the default
+  task. `/task_parallel` is the only operation that creates a sibling CLI and
+  worktree. Unqualified input with multiple active tasks is rejected rather
+  than routed heuristically.
 
 ```mermaid
 graph TB

@@ -60,10 +60,12 @@ from .split_command import split_command
 from .sync_command import sync_command
 from .task_commands import (
     task_add_command,
+    task_archive_command,
     task_cancel_all_command,
     task_cancel_command,
     task_force_cancel_command,
     task_new_command,
+    task_parallel_command,
     task_retry_command,
     tasks_command,
 )
@@ -132,6 +134,8 @@ def register_all(
         CommandSpec("selftest", selftest_command, "viewer"),
         CommandSpec("tasks", tasks_command, "viewer"),
         CommandSpec("task_add", task_add_command),
+        CommandSpec("task_archive", task_archive_command),
+        CommandSpec("task_parallel", task_parallel_command),
         CommandSpec("task_new", task_new_command),
         CommandSpec("task_cancel", task_cancel_command),
         CommandSpec("task_retry", task_retry_command),
@@ -252,6 +256,8 @@ COMMAND_NAMES: tuple[str, ...] = (
     "selftest",
     "tasks",
     "task_add",
+    "task_archive",
+    "task_parallel",
     "task_new",
     "task_cancel",
     "task_retry",

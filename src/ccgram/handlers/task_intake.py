@@ -47,9 +47,13 @@ async def admit_request(
     thread_id: int,
     message: Message,
     dispatch_text: str,
+    lane_id: str = "default",
+    task_id: str | None = None,
+    source_message_id: int | None = None,
 ) -> TaskAdmission | None:
     """Admit one task through the shared scheduler before provider dispatch."""
-    chat_id, message_id = message_ids(message)
+    chat_id, detected_message_id = message_ids(message)
+    message_id = source_message_id or detected_message_id
     unresolved = dispatch_confirmation.unresolved_for_operator(
         chat_id=chat_id,
         thread_id=thread_id,
@@ -86,6 +90,8 @@ async def admit_request(
             thread_id=thread_id,
             user_id=user_id,
             window_id=window_id,
+            lane_id=lane_id,
+            task_id=task_id,
         )
     )
     inbound_key = inbound_store.make_key(chat_id, thread_id, message_id)
@@ -96,6 +102,7 @@ async def admit_request(
             chat_id=chat_id,
             thread_id=thread_id,
             user_id=user_id,
+            lane_id=lane_id,
         )
         queued_view = next(
             (
@@ -156,6 +163,7 @@ async def admit_request(
         message_id=message_id,
         preserve_existing=admission.continuation,
     )
+    inbound_store.set_task(inbound_key, admission.task_id)
     logger.info(
         "Task request admitted",
         task_id=admission.task_id,

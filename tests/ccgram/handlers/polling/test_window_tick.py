@@ -571,9 +571,7 @@ class TestDeadWindowTopicDeleted:
         from telegram.error import BadRequest
 
         bot = AsyncMock(spec=["send_chat_action"])
-        bot.send_chat_action = AsyncMock(
-            side_effect=BadRequest(error_msg)
-        )
+        bot.send_chat_action = AsyncMock(side_effect=BadRequest(error_msg))
 
         with (
             patch("ccgram.handlers.polling.window_tick.apply.thread_router") as mock_tr,

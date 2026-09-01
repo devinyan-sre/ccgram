@@ -83,7 +83,11 @@ Backend-neutral terminal-multiplexer seam (mirrors the `providers/` seam). Calle
 - `state_persistence.py` — atomic/debounced JSON persistence for `state.json`.
 - `status_cmd.py` — `ccgram status`.
 - `telegram_request.py` — resilient long-polling helpers (custom HTTPX transport).
-- `thread_router.py` — thread bindings, display names, reverse index, chat ID resolution. Constructed by `SessionManager`; module-level `thread_router` is a proxy.
+- `thread_router.py` — canonical thread bindings plus durable explicit task-lane windows, display names, reverse index, and chat ID resolution. Lifecycle uses `iter_thread_bindings`; monitoring/output routing uses `iter_execution_bindings`. Constructed by `SessionManager`; module-level `thread_router` is a proxy.
+- `task_scheduler.py` — durable provider-neutral admission keyed by `(chat, thread, user, lane)`. Ordinary input uses `lane=default`; `/task_parallel` uses its reserved `T` ID as the lane and obeys operator/topic/global caps.
+- `task_focus.py` — short-lived one-shot task-card selection for the next unqualified member message. It is routing convenience, never the durable source of task identity.
+- `task_lanes.py` — narrow core facade for task-lane lookup/removal; keeps top-level Telegram command handlers from reaching the lower-level `ThreadRouter` singleton directly.
+- `inbound_store.py` — durable inbound/idempotency journal. Associates task IDs and windows with root, receipt, supplement, and bot-output message IDs so Telegram replies recover the exact task after restart.
 - `toolbar_config.py` — per-provider button grids from TOML.
 - `topic_state_registry.py` — registry for per-topic/per-window cleanup functions with self-registration decorator and `register_bound()` for instance methods.
 - `user_preferences.py` — directory favorites + per-user read offsets. Constructed by `SessionManager`; module-level `user_preferences` is a proxy.

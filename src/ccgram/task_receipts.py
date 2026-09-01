@@ -6,7 +6,7 @@ import asyncio
 from datetime import timedelta
 
 import structlog
-from telegram import InlineKeyboardMarkup, Message
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from telegram.error import BadRequest, RetryAfter, TelegramError
 
 from .i18n import t
@@ -26,6 +26,22 @@ def _receipt_text(task_id: str) -> str:
     return t("✅ Received · task {task_id} · analyzing").format(task_id=task_id)
 
 
+def _receipt_keyboard(task_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "➕ 选择补充", callback_data=f"tsk:focus:{task_id}"
+                ),
+                InlineKeyboardButton(
+                    "📋 任务详情", callback_data=f"tsk:detail:{task_id}"
+                ),
+                InlineKeyboardButton("🛑 取消", callback_data=f"tsk:cancel:{task_id}"),
+            ]
+        ]
+    )
+
+
 async def publish_task_receipt(
     message: Message,
     *,
@@ -36,9 +52,13 @@ async def publish_task_receipt(
     """Send or promote a queue notice into the task's transient receipt."""
     receipt = existing
     if receipt is None:
-        receipt = await safe_reply(message, _receipt_text(task_id))
+        receipt = await safe_reply(
+            message, _receipt_text(task_id), reply_markup=_receipt_keyboard(task_id)
+        )
     else:
-        await safe_edit(receipt, _receipt_text(task_id))
+        await safe_edit(
+            receipt, _receipt_text(task_id), reply_markup=_receipt_keyboard(task_id)
+        )
     receipt_id = getattr(receipt, "message_id", None)
     if isinstance(receipt_id, int):
         inbound_store.set_receipt(inbound_key, receipt_id)

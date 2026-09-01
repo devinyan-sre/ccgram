@@ -519,9 +519,7 @@ class TestHerdrKillPaths:
     async def test_herdr_deleted_topic_kills_window_via_proxy(self):
         """probe_topic_existence kills the herdr window via proxy on topic deletion."""
         bot = AsyncMock(spec=Bot)
-        bot.send_chat_action = AsyncMock(
-            side_effect=BadRequest("Topic_id_invalid")
-        )
+        bot.send_chat_action = AsyncMock(side_effect=BadRequest("Topic_id_invalid"))
         bot.send_message = AsyncMock(side_effect=BadRequest("Thread not found"))
         herdr_id = "w1:t1"
         with (
@@ -572,9 +570,7 @@ class TestProbeTopicExistence:
         from ccgram.handlers.topics import topic_lifecycle as tl
 
         bot = AsyncMock(spec=Bot)
-        bot.send_chat_action = AsyncMock(
-            side_effect=[RetryAfter(3), None]
-        )
+        bot.send_chat_action = AsyncMock(side_effect=[RetryAfter(3), None])
         with (
             patch.object(tl, "thread_router") as mock_router,
             patch.object(tl, "lifecycle_strategy") as mock_strategy,
@@ -624,9 +620,7 @@ class TestProbeTopicExistence:
             for _ in range(3):
                 bot.send_chat_action.reset_mock()
                 await probe_topic_existence(bot)
-                assert (
-                    bot.send_chat_action.call_count == PROBE_MAX_PER_CYCLE
-                )
+                assert bot.send_chat_action.call_count == PROBE_MAX_PER_CYCLE
                 probed.extend(
                     call.kwargs["message_thread_id"]
                     for call in bot.send_chat_action.call_args_list
@@ -636,9 +630,7 @@ class TestProbeTopicExistence:
 
     async def test_deleted_topic_unbinds(self):
         bot = AsyncMock(spec=Bot)
-        bot.send_chat_action = AsyncMock(
-            side_effect=BadRequest("Topic_id_invalid")
-        )
+        bot.send_chat_action = AsyncMock(side_effect=BadRequest("Topic_id_invalid"))
         # The authoritative send-probe must agree before anything is torn down.
         bot.send_message = AsyncMock(side_effect=BadRequest("Thread not found"))
         with (
@@ -666,9 +658,7 @@ class TestProbeTopicExistence:
     async def test_unconfirmed_probe_never_kills(self):
         """The liveness sweep is a ping, not a verdict — never destroy on one error."""
         bot = AsyncMock(spec=Bot)
-        bot.send_chat_action = AsyncMock(
-            side_effect=BadRequest("Topic_id_invalid")
-        )
+        bot.send_chat_action = AsyncMock(side_effect=BadRequest("Topic_id_invalid"))
         # Authoritative probe succeeds → the topic is alive after all.
         bot.send_message = AsyncMock(return_value=MagicMock(message_id=7))
         with (
@@ -695,9 +685,7 @@ class TestProbeTopicExistence:
     async def test_inconclusive_network_error_never_kills(self):
         """A transient failure on the confirmation probe is not a verdict."""
         bot = AsyncMock(spec=Bot)
-        bot.send_chat_action = AsyncMock(
-            side_effect=BadRequest("Topic_id_invalid")
-        )
+        bot.send_chat_action = AsyncMock(side_effect=BadRequest("Topic_id_invalid"))
         bot.send_message = AsyncMock(side_effect=TelegramError("network down"))
         with (
             patch(
@@ -715,9 +703,7 @@ class TestProbeTopicExistence:
 
     async def test_confirmed_deletion_kills_and_audits(self):
         bot = AsyncMock(spec=Bot)
-        bot.send_chat_action = AsyncMock(
-            side_effect=BadRequest("Topic_id_invalid")
-        )
+        bot.send_chat_action = AsyncMock(side_effect=BadRequest("Topic_id_invalid"))
         bot.send_message = AsyncMock(side_effect=BadRequest("Thread not found"))
         with (
             patch(

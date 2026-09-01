@@ -85,13 +85,41 @@ def test_receipt_metadata_persists_and_is_cleared_conditionally(tmp_path) -> Non
     assert store.set_receipt("-100:7:9", 88) is True
 
     restored = InboundStore(path)
-    assert restored.receipt_refs_for_window("@1") == [
-        ("-100:7:9", -100, 7, 88)
-    ]
+    assert restored.receipt_refs_for_window("@1") == [("-100:7:9", -100, 7, 88)]
     restored.clear_receipt("-100:7:9", 77)
     assert restored.receipt_refs_for_window("@1")
     restored.clear_receipt("-100:7:9", 88)
     assert restored.receipt_refs_for_window("@1") == []
+
+
+def test_task_message_correlation_survives_restart(tmp_path) -> None:
+    path = tmp_path / "inbound.json"
+    store = InboundStore(path)
+    assert store.stage(
+        chat_id=-100,
+        thread_id=7,
+        user_id=10,
+        message_id=9,
+        window_id="@task",
+        text="parallel question",
+    )
+    assert store.set_task("-100:7:9", "T0042")
+    assert store.set_receipt("-100:7:9", 88)
+    store.set_state("-100:7:9", "forwarded")
+    assert store.associate_output("@task", 99)
+
+    restored = InboundStore(path)
+    for message_id in (9, 88, 99):
+        item = restored.resolve_message(
+            chat_id=-100, thread_id=7, user_id=10, message_id=message_id
+        )
+        assert item is not None
+        assert item.task_id == "T0042"
+        assert item.window_id == "@task"
+    assert (
+        restored.resolve_message(chat_id=-100, thread_id=7, user_id=11, message_id=99)
+        is None
+    )
 
 
 def test_window_done_callback_runs_after_durable_transition(tmp_path) -> None:
