@@ -106,11 +106,12 @@ def main() -> None:
 
     box(
         draw,
-        (430, 400, 1170, 545),
+        (430, 400, 1170, 580),
         "OPERATIONS DASHBOARD COORDINATOR",
         [
             "Target discovery · render · content dedupe · serialized edits",
             "Restart recovery · deleted-message recreation · 429 backoff",
+            "Runtime vs progress clocks · terminal-event replay",
         ],
         accent=AMBER,
         fill=PANEL_ALT,
@@ -120,36 +121,40 @@ def main() -> None:
 
     sources = [
         (
-            (70, 625, 425, 805),
+            (70, 650, 425, 815),
             "TaskScheduler",
-            ["(chat, topic, user)", "active · FIFO queue", "cancelling · ETA"],
+            [
+                "(chat, topic, user, lane)",
+                "runtime ≠ last progress",
+                "active · queue · stalled",
+            ],
             BLUE,
         ),
         (
-            (462, 625, 817, 805),
+            (462, 650, 817, 815),
             "ThreadRouter",
             ["No hardcoded IDs", "workspace display name", "group/topic discovery"],
             CYAN,
         ),
         (
-            (854, 625, 1209, 805),
+            (854, 650, 1209, 815),
             "Privacy + Identity",
             ["Authorized updates only", "normal / strict", "never stores prompts"],
             GREEN,
         ),
         (
-            (1246, 625, 1530, 805),
-            "dashboard.json",
-            ["mode 0600", "message IDs", "safe labels"],
+            (1246, 650, 1530, 815),
+            "Durable State",
+            ["mode 0600", "dashboard + task IDs", "dispatch byte offsets"],
             AMBER,
         ),
     ]
     for xy, title, details, accent in sources:
         box(draw, xy, title, details, accent=accent)
-        arrow(draw, ((xy[0] + xy[2]) // 2, xy[1]), (800, 545), color=accent)
+        arrow(draw, ((xy[0] + xy[2]) // 2, xy[1]), (800, 580), color=accent)
 
     draw.text(
-        (70, 848),
+        (70, 852),
         "Failure isolation: no pin permission → editable message remains · dashboard failure never blocks CLI execution or reply delivery",
         font=font(20, bold=True),
         fill=AMBER,

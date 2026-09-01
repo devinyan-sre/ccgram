@@ -57,6 +57,23 @@ available and exposes error/queue/refresh controls, direct topic links, last
 sync state, and provider-neutral task phases. Prometheus metrics cover sync
 timestamps, errors, pin confirmation, and quarantine state.
 
+Task runtime and provider-idle duration are independent scheduler clocks.
+Transcript-derived phases refresh both progress and the execution lease;
+watchdog transitions (`slow`/`stuck`) never masquerade as progress. Dashboard
+rows therefore show both `running` and `last progress`. The visible state model
+is: normal execution, possibly stalled (accepted but silent), confirmed failure
+(missing/unconfirmed CLI), and completed (provider terminal event observed).
+Slow receipts expose check/wait/cancel controls; “wait” extends only the lease.
+
+`dispatch.json` persists the incremental transcript byte offset at which each
+accepted user turn was observed. When a restart discovers an active session
+whose monitor cursor is missing, `TranscriptReader` starts at that offset rather
+than EOF. Records written by older versions use a bounded timestamp scan. The
+normal delivery-ID/Outbox path makes replay idempotent, and a recovered terminal
+assistant event invokes the same inbound completion, receipt cleanup, dashboard
+capture, and scheduler-slot release as a live event. This closes the one-second
+race where a provider finished immediately before hookless session discovery.
+
 ### Cancellation state machine
 
 ![Provider-neutral cancellation state machine](images/task-cancellation-state-machine.png)

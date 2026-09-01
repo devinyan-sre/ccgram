@@ -14,6 +14,7 @@ Key class: TranscriptReader.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 import hashlib
 import json
 from collections.abc import Callable
@@ -56,6 +57,7 @@ class _GenerationCheck(NamedTuple):
 
 
 _MARKER_BYTES = 128
+_RECOVERY_SCAN_BYTES = 16 * 1024 * 1024
 
 
 def _prefix_digest(file_path: Path, size: int) -> bytes:
@@ -80,6 +82,44 @@ def _tail_marker(file_path: Path, offset: int) -> bytes:
     with file_path.open("rb") as transcript:
         transcript.seek(start)
         return transcript.read(offset - start)
+
+
+def _timestamp_recovery_offset(file_path: Path, *, since: float, file_size: int) -> int:
+    """Find a safe recent JSONL boundary for an active task after restart.
+
+    Future tasks persist their exact user-turn offset. This bounded timestamp
+    scan is the migration/recovery path for records created by an older ccgram
+    process or interrupted before the user turn offset was persisted.
+    """
+    start = max(0, file_size - _RECOVERY_SCAN_BYTES)
+    try:
+        with file_path.open("rb") as transcript:
+            transcript.seek(start)
+            if start:
+                transcript.readline()  # discard a partial JSONL record
+            while True:
+                offset = transcript.tell()
+                raw = transcript.readline()
+                if not raw:
+                    break
+                try:
+                    entry = json.loads(raw)
+                except json.JSONDecodeError, UnicodeDecodeError:
+                    continue
+                timestamp = entry.get("timestamp") if isinstance(entry, dict) else None
+                if not isinstance(timestamp, str):
+                    continue
+                try:
+                    observed = datetime.fromisoformat(
+                        timestamp.replace("Z", "+00:00")
+                    ).timestamp()
+                except ValueError:
+                    continue
+                if observed >= since - 2.0:
+                    return offset
+    except OSError:
+        return file_size
+    return file_size
 
 
 def _resolve_provider_for_file(window_id: str, file_path: Path) -> Any:
@@ -524,6 +564,29 @@ class TranscriptReader:
 
             if provider.capabilities.supports_incremental_read:
                 initial_offset = file_size
+                if window_id:
+                    # Lazy: confirmation state imports receipt/dashboard code
+                    # and must not become a transcript-reader module dependency.
+                    from .dispatch_confirmation import dispatch_confirmation
+
+                    dispatch = dispatch_confirmation.record_for_window(window_id)
+                    if dispatch is not None:
+                        if 0 < dispatch.transcript_offset < file_size:
+                            initial_offset = dispatch.transcript_offset
+                        elif dispatch.transcript_offset == 0:
+                            initial_offset = await asyncio.to_thread(
+                                _timestamp_recovery_offset,
+                                file_path,
+                                since=dispatch.created_at,
+                                file_size=file_size,
+                            )
+                        if initial_offset < file_size:
+                            logger.info(
+                                "Recovering active task transcript after restart",
+                                window_id=window_id,
+                                task_id=dispatch.task_id,
+                                replay_bytes=file_size - initial_offset,
+                            )
             else:
                 _, initial_offset = await asyncio.to_thread(
                     provider.read_transcript_file, str(file_path), 0
@@ -605,6 +668,7 @@ class TranscriptReader:
                     window_id=window_id,
                     provider=provider,
                     entries=new_entries,
+                    start_offset=batch_start,
                 )
 
         if provider.capabilities.supports_task_tracking and window_id:

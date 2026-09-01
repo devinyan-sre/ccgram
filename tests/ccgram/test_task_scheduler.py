@@ -408,6 +408,32 @@ async def test_provider_neutral_phase_survives_restart(tmp_path) -> None:
         await scheduler.set_phase("@1", "provider-specific")
 
 
+async def test_slow_and_continue_wait_do_not_fake_provider_progress() -> None:
+    scheduler = TaskScheduler()
+    await scheduler.acquire(chat_id=-100, thread_id=7, user_id=10, window_id="@1")
+    await asyncio.sleep(0.01)
+    before = scheduler.views()[0].idle_seconds
+
+    assert await scheduler.set_phase("@1", "slow") is True
+    after_slow = scheduler.views()[0].idle_seconds
+    assert await scheduler.extend_lease("@1") is True
+    after_wait = scheduler.views()[0].idle_seconds
+
+    assert after_slow >= before
+    assert after_wait >= after_slow
+
+
+async def test_real_progress_refreshes_idle_clock_even_in_same_phase() -> None:
+    scheduler = TaskScheduler()
+    await scheduler.acquire(chat_id=-100, thread_id=7, user_id=10, window_id="@1")
+    await asyncio.sleep(0.01)
+    before = scheduler.views()[0].idle_seconds
+
+    assert await scheduler.set_phase("@1", "analysis") is True
+
+    assert scheduler.views()[0].idle_seconds < before
+
+
 async def test_cancelling_state_survives_restart_past_normal_lease(tmp_path) -> None:
     path = tmp_path / "tasks.json"
     scheduler = TaskScheduler(path)

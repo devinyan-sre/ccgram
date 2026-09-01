@@ -9,7 +9,9 @@ from telegram import Update
 from ..access_control import has_role
 from ..dispatch_confirmation import (
     CB_DISPATCH_CANCEL_PREFIX,
+    CB_DISPATCH_CHECK_PREFIX,
     CB_DISPATCH_RETRY_PREFIX,
+    CB_DISPATCH_WAIT_PREFIX,
     dispatch_confirmation,
 )
 from ..task_cancellation import graceful_cancel
@@ -72,4 +74,46 @@ async def handle_dispatch_cancel(
     )
 
 
-__all__ = ["handle_dispatch_cancel", "handle_dispatch_retry"]
+@register(CB_DISPATCH_CHECK_PREFIX)
+async def handle_dispatch_check(
+    update: Update, _context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    query = update.callback_query
+    user = update.effective_user
+    if query is None or user is None or not query.data:
+        return
+    task_id = query.data.removeprefix(CB_DISPATCH_CHECK_PREFIX).upper()
+    _status, text = await dispatch_confirmation.check_status(
+        task_id, requester_user_id=user.id
+    )
+    await query.answer(text, show_alert=True)
+
+
+@register(CB_DISPATCH_WAIT_PREFIX)
+async def handle_dispatch_wait(
+    update: Update, _context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    query = update.callback_query
+    user = update.effective_user
+    if query is None or user is None or not query.data:
+        return
+    task_id = query.data.removeprefix(CB_DISPATCH_WAIT_PREFIX).upper()
+    result = await dispatch_confirmation.continue_waiting(
+        task_id, requester_user_id=user.id
+    )
+    texts = {
+        "waiting": "已继续等待；系统会持续核验真实进展和完成状态。",
+        "not_found": "任务已经完成或不存在。",
+        "forbidden": "只能操作自己的任务。",
+        "stuck": "任务已确认异常，请重试提交或取消。",
+        "not_waiting": "任务尚未确认启动，不能进入继续等待状态。",
+    }
+    await query.answer(texts.get(result, result), show_alert=result != "waiting")
+
+
+__all__ = [
+    "handle_dispatch_cancel",
+    "handle_dispatch_check",
+    "handle_dispatch_retry",
+    "handle_dispatch_wait",
+]

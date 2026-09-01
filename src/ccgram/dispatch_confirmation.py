@@ -39,6 +39,8 @@ logger = structlog.get_logger()
 DispatchStatus = Literal["received", "submitting", "accepted", "slow", "stuck"]
 CB_DISPATCH_RETRY_PREFIX = "dc:r:"
 CB_DISPATCH_CANCEL_PREFIX = "dc:c:"
+CB_DISPATCH_CHECK_PREFIX = "dc:s:"
+CB_DISPATCH_WAIT_PREFIX = "dc:w:"
 
 
 @dataclass(slots=True)
@@ -55,6 +57,8 @@ class DispatchRecord:
     written_at: float = 0.0
     accepted_at: float = 0.0
     last_progress_at: float = 0.0
+    transcript_offset: int = 0
+    warning_snoozed_until: float = 0.0
     retry_count: int = 0
 
     @classmethod
@@ -75,6 +79,8 @@ class DispatchRecord:
             written_at=float(row.get("written_at", 0.0)),
             accepted_at=float(row.get("accepted_at", 0.0)),
             last_progress_at=float(row.get("last_progress_at", 0.0)),
+            transcript_offset=max(0, int(row.get("transcript_offset", 0))),
+            warning_snoozed_until=float(row.get("warning_snoozed_until", 0.0)),
             retry_count=max(0, int(row.get("retry_count", 0))),
         )
 
@@ -109,7 +115,7 @@ class DispatchConfirmation:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 json.dump(
                     {
-                        "version": 1,
+                        "version": 2,
                         "records": [asdict(row) for row in self._records.values()],
                     },
                     handle,
@@ -241,6 +247,7 @@ class DispatchConfirmation:
         window_id: str,
         provider: Any,
         entries: list[dict[str, Any]],
+        start_offset: int = 0,
     ) -> None:
         """Accept a task on a real provider user-turn; otherwise record progress."""
         if not window_id or not entries:
@@ -250,6 +257,13 @@ class DispatchConfirmation:
             if record is None:
                 return
         user_turn = any(provider.is_user_transcript_entry(entry) for entry in entries)
+        if user_turn and start_offset >= 0:
+            with self._lock:
+                current = self._records.get(window_id)
+                if current is not None:
+                    current.transcript_offset = start_offset
+                    current.updated_at = time.time()
+                    self._save_locked()
         if user_turn and record.status in ("submitting", "stuck"):
             self._spawn(self.acknowledge(window_id, evidence="transcript_user_turn"))
         elif record.status in ("accepted", "slow"):
@@ -264,6 +278,7 @@ class DispatchConfirmation:
             record.status = "accepted"
             record.accepted_at = record.accepted_at or now
             record.last_progress_at = now
+            record.warning_snoozed_until = 0.0
             record.updated_at = now
             self._save_locked()
         self._cancel_watchdog(window_id)
@@ -294,6 +309,7 @@ class DispatchConfirmation:
             record.status = "accepted"
             record.last_progress_at = time.time()
             record.updated_at = record.last_progress_at
+            record.warning_snoozed_until = 0.0
             self._save_locked()
         if was_slow:
             self._spawn(
@@ -309,6 +325,73 @@ class DispatchConfirmation:
         with self._lock:
             if self._records.pop(window_id, None) is not None:
                 self._save_locked()
+
+    async def continue_waiting(self, task_id: str, *, requester_user_id: int) -> str:
+        """Snooze the no-progress warning without fabricating provider activity."""
+        with self._lock:
+            record = next(
+                (
+                    row
+                    for row in self._records.values()
+                    if row.task_id.upper() == task_id.upper()
+                ),
+                None,
+            )
+            if record is None:
+                return "not_found"
+            if record.user_id != requester_user_id:
+                return "forbidden"
+            if record.status == "stuck":
+                return "stuck"
+            if record.status not in ("accepted", "slow"):
+                return "not_waiting"
+            record.warning_snoozed_until = (
+                time.time() + config.task_progress_warn_seconds
+            )
+            record.updated_at = time.time()
+            self._save_locked()
+        await task_scheduler.extend_lease(record.window_id)
+        await self._update_receipt(
+            record,
+            f"⏳ 继续等待 · 任务 {record.task_id}\n"
+            "任务已确认启动；继续观察，不会把等待操作计作 CLI 新进展。",
+            controls="slow",
+        )
+        self._arm_progress_watchdog(record.window_id)
+        return "waiting"
+
+    def inspect(
+        self, task_id: str, *, requester_user_id: int
+    ) -> tuple[str, DispatchRecord | None]:
+        """Return an authorized snapshot for the task status callback."""
+        record = self.record_for_task(task_id)
+        if record is None:
+            return "not_found", None
+        if record.user_id != requester_user_id:
+            return "forbidden", None
+        return record.status, record
+
+    async def check_status(
+        self, task_id: str, *, requester_user_id: int
+    ) -> tuple[str, str]:
+        """Inspect durable dispatch state and the provider window on demand."""
+        status, record = self.inspect(task_id, requester_user_id=requester_user_id)
+        if status == "not_found":
+            return status, "任务已经完成、归档或不存在。"
+        if status == "forbidden" or record is None:
+            return "forbidden", "只能检查自己的任务。"
+        window = await multiplexer.find_window_by_id(record.window_id)
+        if window is None:
+            await self._mark_stuck(record, reason="window_missing")
+            return "missing", "已确认异常：CLI 窗口不存在，任务通道已暂停。"
+        idle = max(0, int(time.time() - record.last_progress_at))
+        if record.status == "stuck":
+            return "stuck", "已确认异常：CLI 未确认接收，请重试提交或取消任务。"
+        return (
+            "running",
+            f"CLI 进程仍存在；最近 {max(0, idle // 60)} 分钟未检测到新输出。"
+            "任务可能仍在计算，完成状态正在持续核验。",
+        )
 
     async def retry(self, task_id: str, *, requester_user_id: int) -> str:
         with self._lock:
@@ -406,7 +489,11 @@ class DispatchConfirmation:
             await asyncio.sleep(config.task_progress_warn_seconds)
             with self._lock:
                 record = self._records.get(window_id)
-                if record is None or record.status != "accepted":
+                if record is None or record.status not in ("accepted", "slow"):
+                    return
+                now = time.time()
+                if record.warning_snoozed_until > now:
+                    self._arm_progress_watchdog(window_id)
                     return
                 age = time.time() - record.last_progress_at
                 if age < config.task_progress_warn_seconds:
@@ -418,7 +505,10 @@ class DispatchConfirmation:
             await task_scheduler.set_phase(window_id, "slow")
             await self._update_receipt(
                 record,
-                f"⚠️ 长时间无新进展 · 任务 {record.task_id} · 已开始但仍在等待",
+                f"🟠 可能停滞 · 任务 {record.task_id}\n"
+                f"已确认启动，但 {max(1, int(age // 60))} 分钟未检测到新输出；"
+                "这不代表已经结束，也不等于确认卡死。",
+                controls="slow",
             )
             request_operations_dashboard_refresh(record.chat_id, record.thread_id)
             logger.warning(
@@ -454,24 +544,25 @@ class DispatchConfirmation:
         )
 
     async def _show_stuck(self, record: DispatchRecord, *, reason: str) -> None:
-        reason_text = (
-            "服务重启后状态不明确" if reason == "restart" else "CLI 未确认接收"
-        )
+        reason_text = {
+            "restart": "服务重启后状态不明确",
+            "window_missing": "CLI 窗口不存在",
+        }.get(reason, "CLI 未确认接收")
         await self._update_receipt(
             record,
             f"❌ 未启动 · 任务 {record.task_id} · {reason_text}\n"
             "为避免与下一问题串联，当前成员通道已暂停。",
-            controls=True,
+            controls="stuck",
         )
 
     async def _update_receipt(
-        self, record: DispatchRecord, text: str, *, controls: bool = False
+        self, record: DispatchRecord, text: str, *, controls: str | None = None
     ) -> None:
         # Lazy: task receipts import the completion callback back into here.
         from .task_receipts import update_task_receipts
 
         markup = None
-        if controls:
+        if controls == "stuck":
             markup = InlineKeyboardMarkup(
                 [
                     [
@@ -484,6 +575,27 @@ class DispatchConfirmation:
                             callback_data=f"{CB_DISPATCH_CANCEL_PREFIX}{record.task_id}",
                         ),
                     ]
+                ]
+            )
+        elif controls == "slow":
+            markup = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🔎 检查状态",
+                            callback_data=f"{CB_DISPATCH_CHECK_PREFIX}{record.task_id}",
+                        ),
+                        InlineKeyboardButton(
+                            "⏳ 继续等待",
+                            callback_data=f"{CB_DISPATCH_WAIT_PREFIX}{record.task_id}",
+                        ),
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "🛑 取消任务",
+                            callback_data=f"{CB_DISPATCH_CANCEL_PREFIX}{record.task_id}",
+                        )
+                    ],
                 ]
             )
         await update_task_receipts(record.window_id, text, reply_markup=markup)
@@ -517,7 +629,9 @@ def schedule_lease_expired(window_id: str) -> None:
 
 __all__ = [
     "CB_DISPATCH_CANCEL_PREFIX",
+    "CB_DISPATCH_CHECK_PREFIX",
     "CB_DISPATCH_RETRY_PREFIX",
+    "CB_DISPATCH_WAIT_PREFIX",
     "DispatchConfirmation",
     "DispatchRecord",
     "dispatch_confirmation",

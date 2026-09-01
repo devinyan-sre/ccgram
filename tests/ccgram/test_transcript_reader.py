@@ -1,13 +1,16 @@
 """Tests for transcript reader offset handling."""
 
 import os
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from ccgram.idle_tracker import IdleTracker
 from ccgram.monitor_state import MonitorState, TrackedSession
 from ccgram.providers.base import AgentMessage, MessageRole
-from ccgram.transcript_reader import TranscriptReader
+from ccgram.providers.codex import CodexProvider
+from ccgram.transcript_reader import TranscriptReader, _timestamp_recovery_offset
 
 
 def _agent_message(
@@ -114,6 +117,68 @@ async def test_same_transcript_reuses_offset_after_session_map_refresh(
     tracked = state.get_session("sess-after-rename")
     assert tracked is not None
     assert tracked.last_byte_offset == session_file.stat().st_size
+
+
+async def test_new_tracker_replays_active_task_from_persisted_dispatch_offset(
+    tmp_path,
+) -> None:
+    old = '{"timestamp":"2026-09-01T12:00:00Z","type":"event_msg","payload":{"type":"task_complete","last_agent_message":"old"}}\n'
+    user = '{"timestamp":"2026-09-01T12:10:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"question"}]}}\n'
+    final = '{"timestamp":"2026-09-01T12:11:00Z","type":"event_msg","payload":{"type":"task_complete","last_agent_message":"finished"}}\n'
+    session_file = tmp_path / "rollout-active.jsonl"
+    session_file.write_text(old + user + final)
+    state = MonitorState(state_file=tmp_path / "monitor_state.json")
+    reader = TranscriptReader(state, IdleTracker())
+    dispatch = SimpleNamespace(
+        transcript_offset=len(old.encode()),
+        created_at=0.0,
+        task_id="T0044",
+    )
+    observer = MagicMock()
+
+    with (
+        patch(
+            "ccgram.transcript_reader._resolve_provider_for_file",
+            return_value=CodexProvider(),
+        ),
+        patch(
+            "ccgram.dispatch_confirmation.dispatch_confirmation.record_for_window",
+            return_value=dispatch,
+        ),
+        patch(
+            "ccgram.dispatch_confirmation.dispatch_confirmation.observe_transcript_entries",
+            observer,
+        ),
+    ):
+        first: list = []
+        await reader._process_session_file(
+            "active", session_file, first, window_id="@1"
+        )
+        recovered: list = []
+        await reader._process_session_file(
+            "active", session_file, recovered, window_id="@1"
+        )
+
+    assert first == []
+    assert [message.text for message in recovered] == ["question", "finished"]
+    assert recovered[-1].is_complete is True
+    assert recovered[-1].phase == "final_answer"
+    observer.assert_called_once()
+
+
+def test_legacy_dispatch_finds_timestamp_recovery_boundary(tmp_path) -> None:
+    old = '{"timestamp":"2026-09-01T12:00:00Z","type":"event_msg"}\n'
+    current = '{"timestamp":"2026-09-01T12:10:00Z","type":"response_item"}\n'
+    session_file = tmp_path / "rollout-legacy.jsonl"
+    session_file.write_text(old + current)
+
+    offset = _timestamp_recovery_offset(
+        session_file,
+        since=1788264600.0,  # 2026-09-01T12:10:00Z
+        file_size=session_file.stat().st_size,
+    )
+
+    assert offset == len(old.encode())
 
 
 async def test_atomic_replacement_is_read_from_zero(tmp_path) -> None:

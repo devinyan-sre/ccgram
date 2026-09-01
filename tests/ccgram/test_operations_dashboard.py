@@ -354,6 +354,26 @@ def test_completed_task_is_retained_briefly(tmp_path, monkeypatch) -> None:
     assert "✅" in rendered
 
 
+def test_render_distinguishes_total_runtime_from_last_progress(
+    tmp_path, monkeypatch
+) -> None:
+    _configure(monkeypatch)
+    dashboard = OperationsDashboard(FakeTelegramClient(), tmp_path / "state.json")
+    dashboard.observe_user(SimpleNamespace(id=42, username="alice", full_name="Alice"))
+    target = DashboardTarget(-1001, 17, False)
+
+    with patch(
+        "ccgram.operations_dashboard.task_scheduler.views",
+        return_value=[_view(age_seconds=45 * 60, idle_seconds=5 * 60, phase="slow")],
+    ):
+        rendered = dashboard._render(target, precise_time=False)
+
+    assert "🟠 possibly stalled" in rendered
+    assert "running 45m" in rendered
+    assert "last progress 5m ago" in rendered
+    assert "completion pending" in rendered
+
+
 def test_render_uses_configured_beijing_time(tmp_path, monkeypatch) -> None:
     _configure(monkeypatch)
     monkeypatch.setattr(config, "timezone_name", "Asia/Shanghai")

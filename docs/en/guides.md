@@ -474,6 +474,15 @@ errors, queues, refresh-all, and direct links to active topics. Definitive
 missing-topic errors isolate only that dashboard target after the configured
 threshold; they never unbind, stop, or delete the underlying CLI lane.
 
+Runtime and provider progress are separate clocks. A row such as
+`running 45m · last progress 5m ago` means the task has existed for 45 minutes,
+not that it was silent for all 45. After `CCGRAM_TASK_PROGRESS_WARN_SECONDS`, an
+accepted task becomes `🟠 possibly stalled`: this is an uncertainty state, not a
+claim that the task ended or the CLI is dead. The receipt offers **Check
+status**, **Keep waiting**, and **Cancel task**. Keep waiting extends the safety
+lease but never fabricates provider progress. A missing CLI window becomes
+`🔴 confirmed failure`; a recognized terminal event becomes `✅ completed`.
+
 `/selftest` performs a read-only routing/scheduler/outbox/dashboard wiring check
 without sending a prompt to any provider. Telegram media albums are coalesced by
 chat, topic, member, and `media_group_id`, so one album becomes one task while
@@ -515,6 +524,12 @@ restart from re-editing every unchanged dashboard.
   unconfirmed, that operator lane stays blocked so the next message cannot be
   merged into the same TUI input buffer. Use `/task_retry [T-id]` or the receipt
   controls to retry/cancel. Ambiguous state after restart also fails closed.
+- The same dispatch record stores the transcript byte offset of the accepted
+  user turn. If restart/session discovery would otherwise begin at EOF, ccgram
+  replays from that exact boundary. Legacy records fall back to a bounded
+  timestamp scan. Durable delivery IDs suppress duplicate output, while a
+  recovered provider terminal event atomically closes inbound state, receipts,
+  dashboard state, and the scheduler slot without waiting for another message.
 - Admins can use `/task_cancel T-id`, `/task_cancel_all`, or
   `/task_force_cancel T-id`. Force-cancel kills the lane's CLI window while
   retaining its topic binding, history, and workspace for normal recovery.

@@ -56,11 +56,100 @@ async def test_all_transcript_providers_acknowledge_real_user_turn(
     ):
         await tracker.mark_written("@9")
         tracker.observe_transcript_entries(
-            window_id="@9", provider=provider, entries=[entry]
+            window_id="@9", provider=provider, entries=[entry], start_offset=123
         )
         await asyncio.sleep(0)
         await asyncio.sleep(0)
     assert tracker.record_for_window("@9").status == "accepted"  # type: ignore[union-attr]
+    assert tracker.record_for_window("@9").transcript_offset == 123  # type: ignore[union-attr]
+    tracker.reset_for_testing()
+
+
+async def test_transcript_offset_survives_restart(tmp_path) -> None:
+    path = tmp_path / "dispatch.json"
+    tracker = DispatchConfirmation(path)
+    _begin(tracker)
+    entry = {
+        "type": "response_item",
+        "payload": {
+            "role": "user",
+            "content": [{"type": "input_text", "text": "hello"}],
+        },
+    }
+    tracker.observe_transcript_entries(
+        window_id="@9",
+        provider=CodexProvider(),
+        entries=[entry],
+        start_offset=456,
+    )
+
+    restored = DispatchConfirmation(path)
+
+    assert restored.record_for_window("@9").transcript_offset == 456  # type: ignore[union-attr]
+    tracker.reset_for_testing()
+    restored.reset_for_testing()
+
+
+async def test_continue_wait_extends_lease_without_touching_progress(tmp_path) -> None:
+    tracker = DispatchConfirmation(tmp_path / "dispatch.json")
+    tracker._update_receipt = AsyncMock()  # type: ignore[method-assign]
+    _begin(tracker)
+    record = tracker._records["@9"]
+    record.status = "slow"
+    record.last_progress_at = 100.0
+    with patch.object(task_scheduler, "extend_lease", new=AsyncMock()) as extend:
+        result = await tracker.continue_waiting("T0001", requester_user_id=7)
+
+    assert result == "waiting"
+    assert tracker.record_for_window("@9").last_progress_at == 100.0  # type: ignore[union-attr]
+    extend.assert_awaited_once_with("@9")
+    assert tracker._update_receipt.await_args.kwargs["controls"] == "slow"  # type: ignore[attr-defined]
+    tracker.reset_for_testing()
+
+
+async def test_check_status_confirms_missing_cli_window(tmp_path) -> None:
+    tracker = DispatchConfirmation(tmp_path / "dispatch.json")
+    tracker._mark_stuck = AsyncMock()  # type: ignore[method-assign]
+    _begin(tracker)
+    tracker._records["@9"].status = "slow"
+    with patch(
+        "ccgram.dispatch_confirmation.multiplexer",
+        new=SimpleNamespace(find_window_by_id=AsyncMock(return_value=None)),
+    ):
+        status, text = await tracker.check_status("T0001", requester_user_id=7)
+
+    assert status == "missing"
+    assert "CLI 窗口不存在" in text
+    tracker._mark_stuck.assert_awaited_once()  # type: ignore[attr-defined]
+    tracker.reset_for_testing()
+
+
+async def test_slow_warning_is_explicit_and_offers_three_controls(
+    tmp_path, monkeypatch
+) -> None:
+    tracker = DispatchConfirmation(tmp_path / "dispatch.json")
+    _begin(tracker)
+    record = tracker._records["@9"]
+    record.status = "accepted"
+    record.last_progress_at = 1.0
+    monkeypatch.setattr(config, "task_progress_warn_seconds", 0.01)
+    update = AsyncMock()
+    with (
+        patch.object(task_scheduler, "set_phase", new=AsyncMock()),
+        patch("ccgram.task_receipts.update_task_receipts", update),
+    ):
+        tracker._arm_progress_watchdog("@9")
+        await asyncio.sleep(0.03)
+
+    assert tracker.record_for_window("@9").status == "slow"  # type: ignore[union-attr]
+    assert update.await_args is not None
+    text = update.await_args.args[1]
+    markup = update.await_args.kwargs["reply_markup"]
+    callbacks = [
+        button.callback_data for row in markup.inline_keyboard for button in row
+    ]
+    assert "可能停滞" in text
+    assert callbacks == ["dc:s:T0001", "dc:w:T0001", "dc:c:T0001"]
     tracker.reset_for_testing()
 
 

@@ -83,6 +83,7 @@ class TaskView:
     task_id: str = ""
     estimated_wait_seconds: int | None = None
     phase: str = "analysis"
+    idle_seconds: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +103,8 @@ class _ActiveTask:
     touched_at: float
     started_wall: float
     touched_wall: float
+    progress_at: float
+    progress_wall: float
     supplements: int = 0
     state: Literal["active", "cancelling", "stuck"] = "active"
     cancel_requested_wall: float = 0.0
@@ -155,8 +158,8 @@ class TaskScheduler:
             now_mono = time.monotonic()
             now_wall = time.time()
             for row in raw.get("active", []):
-                # v1/v2 rows had no lane. They migrate losslessly to the
-                # member's default serial lane.
+                # v1/v2 rows had no lane; v3 rows had no separate progress
+                # clock. Both migrate losslessly from their touched timestamp.
                 key = (
                     int(row["chat_id"]),
                     int(row["thread_id"]),
@@ -181,6 +184,17 @@ class TaskScheduler:
                     touched_at=now_mono - remaining_age,
                     started_wall=float(row.get("started_at", now_wall)),
                     touched_wall=touched_wall,
+                    progress_at=now_mono
+                    - max(
+                        0.0,
+                        now_wall
+                        - float(
+                            row.get("progress_at", row.get("touched_at", now_wall))
+                        ),
+                    ),
+                    progress_wall=float(
+                        row.get("progress_at", row.get("touched_at", now_wall))
+                    ),
                     supplements=int(row.get("supplements", 0)),
                     state=state,
                     cancel_requested_wall=float(row.get("cancel_requested_at", 0.0)),
@@ -206,6 +220,7 @@ class TaskScheduler:
                 "task_id": task.task_id,
                 "started_at": task.started_wall,
                 "touched_at": task.touched_wall,
+                "progress_at": task.progress_wall,
                 "supplements": task.supplements,
                 "state": task.state,
                 "cancel_requested_at": task.cancel_requested_wall,
@@ -219,7 +234,7 @@ class TaskScheduler:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 json.dump(
                     {
-                        "version": 3,
+                        "version": 4,
                         "next_task_seq": self._next_task_seq,
                         "average_duration_seconds": self._average_duration_seconds,
                         "active": rows,
@@ -318,7 +333,16 @@ class TaskScheduler:
         self, key: OperatorKey, window_id: str, now: float, task_id: str
     ) -> None:
         wall = time.time()
-        self._active[key] = _ActiveTask(window_id, task_id, now, now, wall, wall)
+        self._active[key] = _ActiveTask(
+            window_id,
+            task_id,
+            now,
+            now,
+            wall,
+            wall,
+            now,
+            wall,
+        )
         self._window_to_key[window_id] = key
         self._arm_lease(key, window_id)
         self._save_state()
@@ -530,11 +554,34 @@ class TaskScheduler:
         async with self._lock:
             key = self._window_to_key.get(window_id)
             task = self._active.get(key) if key is not None else None
-            if task is None or task.phase == phase:
-                return task is not None
+            if key is None or task is None:
+                return False
             task.phase = phase
+            # ``slow`` and ``stuck`` are observations about missing progress,
+            # not progress themselves. Updating the progress clock here made
+            # dashboards claim a task had just advanced when its watchdog had
+            # actually fired.
+            if phase not in {"slow", "stuck"}:
+                now_mono = time.monotonic()
+                now_wall = time.time()
+                task.touched_at = now_mono
+                task.touched_wall = now_wall
+                task.progress_at = now_mono
+                task.progress_wall = now_wall
+                self._arm_lease(key, window_id)
+            self._save_state()
+            return True
+
+    async def extend_lease(self, window_id: str) -> bool:
+        """Extend operator patience without pretending the provider progressed."""
+        async with self._lock:
+            key = self._window_to_key.get(window_id)
+            task = self._active.get(key) if key is not None else None
+            if key is None or task is None or task.state != "active":
+                return False
             task.touched_at = time.monotonic()
             task.touched_wall = time.time()
+            self._arm_lease(key, window_id)
             self._save_state()
             return True
 
@@ -566,8 +613,12 @@ class TaskScheduler:
             if task.state == "stuck":
                 task.state = "active"
             task.phase = "submitting"
-            task.touched_at = time.monotonic()
-            task.touched_wall = time.time()
+            now_mono = time.monotonic()
+            now_wall = time.time()
+            task.touched_at = now_mono
+            task.touched_wall = now_wall
+            task.progress_at = now_mono
+            task.progress_wall = now_wall
             self._arm_lease(key, window_id)
             self._save_state()
             self._update_metrics()
@@ -771,6 +822,7 @@ class TaskScheduler:
                 supplements=task.supplements,
                 task_id=task.task_id,
                 phase=task.phase,
+                idle_seconds=max(0.0, now - task.progress_at),
             )
             for key, task in self._active.items()
             if (chat_id is None or key[0] == chat_id)
@@ -811,6 +863,7 @@ class TaskScheduler:
                         1, int(rounds * self._average_duration_seconds)
                     ),
                     phase="waiting",
+                    idle_seconds=max(0.0, now - waiter.queued_at),
                 )
             )
         return views

@@ -203,6 +203,7 @@ async def test_media_dispatch_uses_shared_scheduler_and_request_correlation(
 
     expected = "image at .ccgram-uploads/image.jpg\n\nUser note: 检查告警"
     admit.assert_awaited_once()
+    assert admit.await_args is not None
     assert admit.await_args.kwargs["dispatch_text"] == expected
     send.assert_awaited_once_with("@7", expected)
     assert inbound.set_state.call_args_list[-1].args == ("request-key", "forwarded")

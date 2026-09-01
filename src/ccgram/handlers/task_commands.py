@@ -73,12 +73,15 @@ async def tasks_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> 
             )
         elif view.state == "stuck":
             lines.append(
-                f"• `{view.task_id}` {owner}：CLI 未确认启动，通道已暂停，"
+                f"• `{view.task_id}` {owner}：已确认异常，通道已暂停，"
                 f"使用 `/task_retry {view.task_id}` 或取消"
             )
         else:
+            status = "可能停滞" if view.phase == "slow" else "正常执行"
+            idle = max(0, int(view.idle_seconds))
             lines.append(
-                f"• `{view.task_id}` {owner}：运行中 {age}s，"
+                f"• `{view.task_id}` {owner}：{status}，已运行 {age}s，"
+                f"最近进展 {idle}s 前，"
                 f"补充 {view.supplements} 条，窗口 `{view.window_id}`"
             )
     await safe_reply(update.message, "\n".join(lines))

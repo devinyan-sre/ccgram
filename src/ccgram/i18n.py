@@ -146,10 +146,16 @@ _ZH: dict[str, str] = {
     "🟣 waiting": "🟣 等待确认",
     "🟢 generating reply": "🟢 生成回复中",
     "📨 delivering": "📨 投递中",
+    "🟠 possibly stalled": "🟠 可能停滞",
+    "🔴 confirmed failure": "🔴 已确认异常",
     "🟡 queued #{position}": "🟡 排队第 {position} 位",
     "🟠 cancelling": "🟠 取消中",
     " · ETA ≤{seconds}s": " · 预计 ≤{seconds} 秒",
     " · +{count} supplements": " · +{count} 条补充",
+    " · running {duration}": " · 已运行 {duration}",
+    " · last progress {duration} ago": " · 最近进展 {duration}前",
+    " · start confirmed; completion pending": " · 已确认启动，完成状态待核验",
+    " · retry submission or cancel": " · 请重试提交或取消",
     "… and {count} more": "… 另有 {count} 项",
     "Updated {time} · one operator is serial, operators are parallel": (
         "更新于 {time} · 同一成员串行，不同成员并行"

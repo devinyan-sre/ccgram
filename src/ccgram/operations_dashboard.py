@@ -765,8 +765,8 @@ class OperationsDashboard:
             state = t("🟠 cancelling")
             suffix = ""
         elif view.state == "stuck":
-            state = "🔴 CLI 未确认启动"
-            suffix = " · 请重试提交或取消"
+            state = t("🔴 confirmed failure")
+            suffix = t(" · retry submission or cancel")
         else:
             phase_labels = {
                 "submitting": "⌨️ 正在提交",
@@ -775,19 +775,32 @@ class OperationsDashboard:
                 "waiting": t("🟣 waiting"),
                 "generating": t("🟢 generating reply"),
                 "delivery": t("📨 delivering"),
-                "slow": "⚠️ 长时间无新进展",
+                "slow": t("🟠 possibly stalled"),
             }
             state = phase_labels.get(view.phase, t("🟢 processing"))
-            suffix = ""
+            suffix = (
+                t(" · start confirmed; completion pending")
+                if view.phase == "slow"
+                else ""
+            )
         topic = f" · {self._topic_name_for_view(view)}" if include_topic else ""
         supplements = (
             t(" · +{count} supplements").format(count=view.supplements)
             if view.supplements
             else ""
         )
+        if view.state in ("active", "stuck"):
+            timing = t(" · running {duration}").format(
+                duration=self._duration(view.age_seconds)
+            )
+            timing += t(" · last progress {duration} ago").format(
+                duration=self._duration(view.idle_seconds)
+            )
+        else:
+            timing = f" · {self._duration(view.age_seconds)}"
         return (
             f"{state} · {view.task_id} · {self._operator(view.user_id)}"
-            f"{topic} · {self._duration(view.age_seconds)}{supplements}{suffix}"
+            f"{topic}{timing}{supplements}{suffix}"
         )
 
     def _render_completed(self, row: _CompletedTask, *, include_topic: bool) -> str:

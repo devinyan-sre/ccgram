@@ -61,6 +61,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Distinguish task runtime from provider-idle time in Telegram dashboards and
+  replace the ambiguous no-progress warning with normal/possibly-stalled/
+  confirmed-failure/completed semantics plus check, wait, and cancel controls.
+  Active dispatches now persist their transcript byte boundary so restart
+  discovery can replay a missed terminal event idempotently and release the
+  scheduler slot without requiring another user message.
+
 - Ignore untracked `.ccgram-uploads/` transport artifacts when checking whether
   a topic workspace is safe for a parallel task worktree. Real tracked,
   staged, modified, and other untracked files still block creation, and the
