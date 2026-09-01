@@ -52,12 +52,63 @@ class TestCheckWorktreeEligibility:
         result = check_worktree_eligibility(git_repo)
         assert result.eligible is True
         assert result.dirty is True
+        assert result.dirty_paths == ("file.txt",)
 
     def test_untracked_file_marks_dirty(self, git_repo: Path) -> None:
         (git_repo / "new.txt").write_text("x")
         result = check_worktree_eligibility(git_repo)
         assert result.eligible is True
         assert result.dirty is True
+        assert result.dirty_paths == ("new.txt",)
+
+    def test_untracked_ccgram_uploads_do_not_mark_dirty(self, git_repo: Path) -> None:
+        uploads = git_repo / ".ccgram-uploads"
+        uploads.mkdir()
+        (uploads / "question.jpg").write_bytes(b"image")
+
+        result = check_worktree_eligibility(git_repo)
+
+        assert result.eligible is True
+        assert result.dirty is False
+        assert result.dirty_paths == ()
+
+    def test_nested_untracked_ccgram_uploads_do_not_mark_dirty(
+        self, git_repo: Path
+    ) -> None:
+        uploads = git_repo / "docs" / ".ccgram-uploads"
+        uploads.mkdir(parents=True)
+        (uploads / "question.txt").write_text("question")
+
+        result = check_worktree_eligibility(git_repo)
+
+        assert result.dirty is False
+
+    def test_real_change_remains_dirty_alongside_ccgram_upload(
+        self, git_repo: Path
+    ) -> None:
+        uploads = git_repo / ".ccgram-uploads"
+        uploads.mkdir()
+        (uploads / "question.jpg").write_bytes(b"image")
+        (git_repo / "runbook.md").write_text("changed")
+
+        result = check_worktree_eligibility(git_repo)
+
+        assert result.dirty is True
+        assert result.dirty_paths == ("runbook.md",)
+
+    def test_tracked_file_under_upload_dir_remains_dirty(self, git_repo: Path) -> None:
+        uploads = git_repo / ".ccgram-uploads"
+        uploads.mkdir()
+        tracked = uploads / "tracked.txt"
+        tracked.write_text("initial")
+        _git(git_repo, "add", str(tracked))
+        _git(git_repo, "commit", "-m", "track upload fixture")
+        tracked.write_text("changed")
+
+        result = check_worktree_eligibility(git_repo)
+
+        assert result.dirty is True
+        assert result.dirty_paths == (".ccgram-uploads/tracked.txt",)
 
     def test_bare_repo_is_ineligible(self, tmp_path: Path) -> None:
         bare = tmp_path / "bare.git"

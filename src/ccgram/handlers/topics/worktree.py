@@ -33,6 +33,7 @@ _GIT_TIMEOUT = 5
 _WORKTREE_ADD_TIMEOUT = 30
 _BRANCH_PREFIX = "ccg/"
 _MAX_BRANCH_LEN = 200
+_INTERNAL_UNTRACKED_DIRS = frozenset({".ccgram-uploads"})
 
 
 class WorktreeError(RuntimeError):
@@ -53,6 +54,7 @@ class WorktreeEligibility:
     current_branch: str | None
     dirty: bool
     reason: str | None = None
+    dirty_paths: tuple[str, ...] = ()
 
 
 def _git(path: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -93,6 +95,30 @@ def _has_merge_or_rebase(git_dir: Path) -> bool:
     )
 
 
+def _is_internal_untracked_change(status_line: str) -> bool:
+    """Return whether a porcelain entry is an untracked ccgram cache file.
+
+    Uploads are transport artifacts written into the active CLI cwd. They must
+    not prevent an isolated worktree from being created. Only ``??`` entries
+    are exempt: a tracked file under the same directory remains a real change.
+    """
+    if not status_line.startswith("?? "):
+        return False
+    path = status_line[3:].strip('"').replace("\\", "/")
+    return any(part in _INTERNAL_UNTRACKED_DIRS for part in path.split("/"))
+
+
+def _blocking_changes(path: Path) -> tuple[str, ...]:
+    status = _git(path, "status", "--porcelain=v1", "--untracked-files=all")
+    if status.returncode != 0:
+        return ()
+    return tuple(
+        line[3:]
+        for line in status.stdout.splitlines()
+        if line and not _is_internal_untracked_change(line)
+    )
+
+
 def check_worktree_eligibility(path: Path) -> WorktreeEligibility:
     """Probe *path* for git-worktree eligibility.
 
@@ -122,13 +148,14 @@ def check_worktree_eligibility(path: Path) -> WorktreeEligibility:
 
         toplevel = _git(path, "rev-parse", "--show-toplevel")
         repo_path = Path(toplevel.stdout.strip()) if toplevel.returncode == 0 else path
-        dirty = bool(_git(path, "status", "--porcelain").stdout.strip())
+        dirty_paths = _blocking_changes(path)
         return WorktreeEligibility(
             eligible=True,
             repo_path=repo_path,
             current_branch=branch,
-            dirty=dirty,
+            dirty=bool(dirty_paths),
             reason=None,
+            dirty_paths=dirty_paths,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.debug(

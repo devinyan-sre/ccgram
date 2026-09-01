@@ -34,7 +34,13 @@ async def test_shared_non_git_workspace_requires_explicit_opt_in() -> None:
 
 
 async def test_dirty_git_workspace_is_never_cloned() -> None:
-    eligibility = WorktreeEligibility(True, Path("/repo"), "main", True)
+    eligibility = WorktreeEligibility(
+        True,
+        Path("/repo"),
+        "main",
+        True,
+        dirty_paths=("runbook.md",),
+    )
     with (
         patch(f"{_MOD}.config.member_lane_worktrees", True),
         patch(f"{_MOD}.config.allow_shared_member_cwd", True),
@@ -44,3 +50,4 @@ async def test_dirty_git_workspace_is_never_cloned() -> None:
 
     assert isinstance(result, LaneResult)
     assert "uncommitted" in result.error
+    assert "runbook.md" in result.error

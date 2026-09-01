@@ -61,6 +61,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Ignore untracked `.ccgram-uploads/` transport artifacts when checking whether
+  a topic workspace is safe for a parallel task worktree. Real tracked,
+  staged, modified, and other untracked files still block creation, and the
+  failure receipt now lists the blocking paths.
+
 - Route photos and documents through the same mention gate, per-operator task
   scheduler, inbound dedupe journal, and original-message correlation as text.
   Media tasks now appear in both topic and General dashboards, final answers

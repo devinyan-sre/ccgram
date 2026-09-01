@@ -60,6 +60,20 @@ def _creation_semaphore() -> asyncio.Semaphore:
     return _creation_slots
 
 
+def _dirty_paths_summary(paths: tuple[str, ...], *, limit: int = 5) -> str:
+    """Build a bounded, single-line-safe list for Telegram error receipts."""
+    if not paths:
+        return ""
+    visible = [
+        path.replace("\n", " ").replace("\r", " ")[:160] for path in paths[:limit]
+    ]
+    summary = "、".join(visible)
+    remaining = len(paths) - len(visible)
+    if remaining > 0:
+        summary += f"（另有 {remaining} 项）"
+    return summary
+
+
 async def _find_template(chat_id: int, thread_id: int) -> tuple[str, str, str] | None:
     """Return ``(window_id, cwd, provider)`` from a live topic lane."""
     bindings = thread_router.get_bindings_for_chat_thread(chat_id, thread_id)
@@ -107,11 +121,13 @@ async def _isolated_cwd(
             ),
         )
     if eligibility.dirty:
+        paths = _dirty_paths_summary(eligibility.dirty_paths)
+        detail = f" Changes: {paths}." if paths else ""
         return _lane_failure(
             "dirty_workspace",
             (
                 "The topic workspace has uncommitted changes. Commit or stash "
-                "them before another member starts a parallel lane."
+                f"them before another member starts a parallel lane.{detail}"
             ),
         )
 
@@ -319,9 +335,14 @@ async def create_parallel_task_lane(  # noqa: C901, PLR0911 - fail-closed stages
                     "当前目录不能安全创建 Git worktree；并行任务已阻止，避免文件互相覆盖。",
                 )
             if eligibility.dirty:
+                paths = _dirty_paths_summary(eligibility.dirty_paths)
+                detail = f"\n阻塞文件：{paths}" if paths else ""
                 return _lane_failure(
                     "task_workspace_dirty",
-                    "默认工作区存在未提交改动。请先提交或暂存，再创建并行任务。",
+                    (
+                        "默认工作区存在未提交改动。请先提交或暂存，再创建并行任务。"
+                        f"{detail}"
+                    ),
                 )
             source_repo = eligibility.repo_path
             relative = Path(cwd).resolve().relative_to(source_repo.resolve())
