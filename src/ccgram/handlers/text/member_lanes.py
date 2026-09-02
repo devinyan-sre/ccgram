@@ -111,7 +111,16 @@ async def _isolated_cwd(
 
     eligibility = await asyncio.to_thread(check_worktree_eligibility, Path(cwd))
     if not eligibility.eligible or eligibility.repo_path is None:
-        if config.allow_shared_member_cwd:
+        if (
+            config.allow_shared_member_cwd
+            and eligibility.reason == "not a git work tree"
+        ):
+            logger.info(
+                "Using explicitly enabled shared non-Git member workspace",
+                cwd=cwd,
+                user_id=user_id,
+                thread_id=thread_id,
+            )
             return cwd, "", ""
         return _lane_failure(
             "ineligible_worktree",
@@ -143,6 +152,91 @@ async def _isolated_cwd(
         await asyncio.to_thread(create_worktree, repo, branch, path)
     except WorktreeError as exc:
         return _lane_failure("worktree_create", str(exc))
+    target = path / relative
+    return str(target if target.is_dir() else path), str(path), branch
+
+
+async def _parallel_task_cwd(
+    cwd: str, *, user_id: int, thread_id: int, task_id: str
+) -> tuple[str, str, str] | LaneResult:
+    """Resolve an isolated task cwd, with an explicit non-Git fallback.
+
+    Git workspaces always retain the strict clean-worktree requirement. A
+    genuinely non-Git operations workspace may share its cwd only when the
+    operator has explicitly enabled ``CCGRAM_ALLOW_SHARED_MEMBER_CWD``. Other
+    Git failures (detached HEAD, merge/rebase, or an unavailable Git binary)
+    remain blocked because they cannot be classified as safe non-Git usage.
+    """
+    if not config.parallel_task_worktrees:
+        if config.allow_shared_member_cwd:
+            logger.info(
+                "Using explicitly enabled shared parallel task workspace",
+                cwd=cwd,
+                user_id=user_id,
+                thread_id=thread_id,
+                task_id=task_id,
+                reason="worktrees_disabled",
+            )
+            return cwd, "", ""
+        return _lane_failure(
+            "task_isolation_disabled",
+            "并行任务需要工作区隔离；请启用 CCGRAM_PARALLEL_TASK_WORKTREES。",
+        )
+
+    eligibility = await asyncio.to_thread(check_worktree_eligibility, Path(cwd))
+    if not eligibility.eligible or eligibility.repo_path is None:
+        if (
+            config.allow_shared_member_cwd
+            and eligibility.reason == "not a git work tree"
+        ):
+            logger.info(
+                "Using explicitly enabled shared non-Git parallel task workspace",
+                cwd=cwd,
+                user_id=user_id,
+                thread_id=thread_id,
+                task_id=task_id,
+            )
+            return cwd, "", ""
+        if eligibility.reason == "not a git work tree":
+            return _lane_failure(
+                "task_non_git_workspace",
+                (
+                    "当前目录不是 Git 仓库，无法创建隔离 worktree。"
+                    "这不是命令格式问题；运维/只读工作区可由管理员设置 "
+                    "CCGRAM_ALLOW_SHARED_MEMBER_CWD=true 后使用独立 CLI 共享目录。"
+                ),
+            )
+        reason = eligibility.reason or "未知原因"
+        return _lane_failure(
+            "task_worktree_ineligible",
+            (
+                "当前 Git 工作区状态不能安全创建 worktree；并行任务已阻止。"
+                f"原因：{reason}。"
+            ),
+        )
+    if eligibility.dirty:
+        paths = _dirty_paths_summary(eligibility.dirty_paths)
+        detail = f"\n阻塞文件：{paths}" if paths else ""
+        return _lane_failure(
+            "task_workspace_dirty",
+            (f"默认工作区存在未提交改动。请先提交或暂存，再创建并行任务。{detail}"),
+        )
+
+    source_repo = eligibility.repo_path
+    relative = Path(cwd).resolve().relative_to(source_repo.resolve())
+    primary_repo = await asyncio.to_thread(primary_worktree_path, source_repo)
+    branch = await asyncio.to_thread(
+        suggest_branch_name,
+        f"task-{thread_id}-{user_id}-{task_id.lower()}",
+        primary_repo,
+    )
+    path = worktree_path_for(primary_repo, slug_for_path(branch))
+    try:
+        # Run from the source worktree so HEAD matches the caller's actual
+        # branch, even when that default lane is itself derived.
+        await asyncio.to_thread(create_worktree, source_repo, branch, path)
+    except WorktreeError as exc:
+        return _lane_failure("task_worktree_create", str(exc))
     target = path / relative
     return str(target if target.is_dir() else path), str(path), branch
 
@@ -288,7 +382,7 @@ async def ensure_member_lane(  # noqa: C901, PLR0911 - fail-closed stages
         return LaneResult(handled=True, ready=True, window_id=created_id)
 
 
-async def create_parallel_task_lane(  # noqa: C901, PLR0911 - fail-closed stages
+async def create_parallel_task_lane(
     *, user_id: int, chat_id: int, thread_id: int, task_id: str
 ) -> LaneResult:
     """Provision one provider-neutral CLI/worktree for an explicit task.
@@ -324,49 +418,15 @@ async def create_parallel_task_lane(  # noqa: C901, PLR0911 - fail-closed stages
         if existing:
             return LaneResult(handled=True, ready=True, window_id=existing)
 
-        cwd = view.cwd
-        worktree_path = ""
-        worktree_branch = ""
-        if config.parallel_task_worktrees:
-            eligibility = await asyncio.to_thread(check_worktree_eligibility, Path(cwd))
-            if not eligibility.eligible or eligibility.repo_path is None:
-                return _lane_failure(
-                    "task_worktree_ineligible",
-                    "当前目录不能安全创建 Git worktree；并行任务已阻止，避免文件互相覆盖。",
-                )
-            if eligibility.dirty:
-                paths = _dirty_paths_summary(eligibility.dirty_paths)
-                detail = f"\n阻塞文件：{paths}" if paths else ""
-                return _lane_failure(
-                    "task_workspace_dirty",
-                    (
-                        "默认工作区存在未提交改动。请先提交或暂存，再创建并行任务。"
-                        f"{detail}"
-                    ),
-                )
-            source_repo = eligibility.repo_path
-            relative = Path(cwd).resolve().relative_to(source_repo.resolve())
-            primary_repo = await asyncio.to_thread(primary_worktree_path, source_repo)
-            branch = await asyncio.to_thread(
-                suggest_branch_name,
-                f"task-{thread_id}-{user_id}-{task_id.lower()}",
-                primary_repo,
-            )
-            path = worktree_path_for(primary_repo, slug_for_path(branch))
-            try:
-                # Run from the source worktree so HEAD matches the caller's
-                # actual branch, even when that default lane is itself derived.
-                await asyncio.to_thread(create_worktree, source_repo, branch, path)
-            except WorktreeError as exc:
-                return _lane_failure("task_worktree_create", str(exc))
-            target = path / relative
-            cwd = str(target if target.is_dir() else path)
-            worktree_path, worktree_branch = str(path), branch
-        elif not config.allow_shared_member_cwd:
-            return _lane_failure(
-                "task_isolation_disabled",
-                "并行任务需要 worktree 隔离；请启用 CCGRAM_PARALLEL_TASK_WORKTREES。",
-            )
+        isolated = await _parallel_task_cwd(
+            view.cwd,
+            user_id=user_id,
+            thread_id=thread_id,
+            task_id=task_id,
+        )
+        if isinstance(isolated, LaneResult):
+            return isolated
+        cwd, worktree_path, worktree_branch = isolated
 
         provider = get_provider_for_window(
             default_window, provider_name=view.provider_name

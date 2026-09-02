@@ -115,8 +115,11 @@ The routing identities are deliberately separate:
 4. The derived lane always starts in normal approval mode. YOLO/bypass flags
    are never inherited automatically across operators.
 5. A clean Git workspace gets a `ccg/member-<thread>-<user>` worktree branch.
-   Dirty, detached, merging/rebasing, or non-Git workspaces fail closed unless
-   `CCGRAM_ALLOW_SHARED_MEMBER_CWD=true` is explicitly configured.
+   Dirty, detached, or merging/rebasing Git workspaces always fail closed. A
+   genuinely non-Git operations workspace may use independent provider lanes
+   with a shared cwd only when `CCGRAM_ALLOW_SHARED_MEMBER_CWD=true` is
+   explicitly configured. The same rule applies to `/task_parallel`; task and
+   message routing remain isolated even though local filesystem writes do not.
 6. Text, photos, and documents enter the same inbound journal, scheduler, and
    request-correlation path. This makes media tasks visible in the topic and
    General dashboards and routes the final answer back to the exact source

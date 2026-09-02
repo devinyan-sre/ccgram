@@ -194,7 +194,7 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_MAX_PARALLEL_PER_OPERATOR`                   | `2`                            | 同一成员在同一话题可同时运行的任务数；只有 `/task_parallel` 会占用额外槽位                             |
 | `CCGRAM_MAX_TASK_LANES_PER_OPERATOR`                 | `4`                            | 同一成员在一个话题可持久存在的独立任务 CLI/工作树通道上限                                              |
 | `CCGRAM_TASK_SELECTION_TTL_SECONDS`                  | `300`                          | 任务选择交互的有效秒数；过期后必须重新明确任务，系统不会猜测                                           |
-| `CCGRAM_PARALLEL_TASK_WORKTREES`                     | `true`                         | 为显式并行任务创建独立 Git worktree；不满足安全条件时拒绝并行                                          |
+| `CCGRAM_PARALLEL_TASK_WORKTREES`                     | `true`                         | 为显式并行任务创建独立 Git worktree；非 Git 目录仅在显式允许共享 cwd 时回退                            |
 | `CCGRAM_TASK_LEASE_SECONDS`                          | `7200`                         | provider 未产生完成事件时的安全租约；到期标记异常并保留槽位，不会静默启动重叠任务                      |
 | `CCGRAM_DISPATCH_ACK_SECONDS`                        | `15`                           | 写入 tmux/herdr 后等待 CLI 会话出现真实用户轮次的秒数                                                  |
 | `CCGRAM_DISPATCH_RETRY_COUNT`                        | `1`                            | 未确认时自动补交回车的次数（0–3）；永不重复问题正文                                                    |
@@ -218,7 +218,7 @@ uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
 | `CCGRAM_DELIVERY_LAG_WARN_SECONDS`                   | `120`                          | 投递游标持续停滞达到该时长才告警；短暂且自动恢复的积压不产生 warning                                   |
 | `CCGRAM_DELIVERY_LAG_MIN_BYTES`                      | `4096`                         | 触发持续投递告警所需的最小积压字节数                                                                 |
 | `CCGRAM_MEMBER_LANE_WORKTREES`                       | `true`                         | 为派生成员通道自动创建独立 Git worktree/分支                                                         |
-| `CCGRAM_ALLOW_SHARED_MEMBER_CWD`                     | `false`                        | 允许非 Git 多人通道共享目录；仅适合可信只读任务，并发写入可能冲突                                    |
+| `CCGRAM_ALLOW_SHARED_MEMBER_CWD`                     | `false`                        | 允许非 Git 的成员通道和显式并行任务共享目录；适合运维/远程操作，多个任务并发修改本地同一文件时可能冲突 |
 | `CCGRAM_DIR` / `--config-dir`                        | `~/.ccgram`                    | 配置与状态目录                                                                                       |
 | `CLAUDE_CONFIG_DIR` / `--claude-config-dir`          | `~/.claude`                    | 覆盖 Claude 配置目录（用于 ce、cc-mirror 等封装工具）                                                |
 | `TMUX_SESSION_NAME` / `--tmux-session`               | `ccgram`                       | tmux 会话名                                                                                          |
@@ -576,8 +576,11 @@ CCGRAM_MEMBER_LANE_CLEANUP_DAYS=30
 - 派生通道不继承 YOLO/绕过审批模式，始终从普通权限启动。
 - 干净 Git 仓库自动创建 `ccg/member-<话题ID>-<用户ID>` 分支和 worktree。
   原工作区有未提交修改时会拒绝派生，防止新通道看到不完整快照。
-- 非 Git 目录默认拒绝共享可写并行。只有明确确认任务是只读时，才建议设置
-  `CCGRAM_ALLOW_SHARED_MEMBER_CWD=true`。
+- 非 Git 目录默认拒绝共享可写并行。运维巡检、远程 SSH 等主要操作外部系统的工作区，
+  可设置 `CCGRAM_ALLOW_SHARED_MEMBER_CWD=true`：每个成员及 `/task_parallel` 任务仍使用
+  独立 CLI、Provider 会话和消息路由，但共享本地 cwd。不要让这些任务并发修改本地同一
+  文件；Git 目录仍必须干净并使用独立 worktree，detached HEAD、merge/rebase 等异常状态
+  不会降级为共享目录。
 - 每个回答都会回复对应成员的原始 Telegram 消息；话题内其他成员的结果不会
   被投递到你的 CLI 会话。
 - 同一成员的第一条普通消息占用默认任务槽；普通补充仍串行。只有

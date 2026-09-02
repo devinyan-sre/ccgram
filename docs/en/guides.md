@@ -172,7 +172,7 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_MAX_PARALLEL_PER_OPERATOR`                   | `2`                            | Concurrent tasks for one operator in one topic; only `/task_parallel` consumes another slot           |
 | `CCGRAM_MAX_TASK_LANES_PER_OPERATOR`                 | `4`                            | Maximum persistent task CLI/worktree lanes for one operator in one topic                              |
 | `CCGRAM_TASK_SELECTION_TTL_SECONDS`                  | `300`                          | Lifetime of an explicit task-selection interaction; ambiguity is never guessed                        |
-| `CCGRAM_PARALLEL_TASK_WORKTREES`                     | `true`                         | Create an isolated Git worktree for each explicit parallel task; fail closed when unsafe              |
+| `CCGRAM_PARALLEL_TASK_WORKTREES`                     | `true`                         | Create an isolated Git worktree; non-Git cwd fallback requires explicit shared-cwd opt-in              |
 | `CCGRAM_TASK_LEASE_SECONDS`                          | `7200`                         | Safety lease; expiry marks the lane stuck and retains its slot instead of overlapping work            |
 | `CCGRAM_DISPATCH_ACK_SECONDS`                        | `15`                           | Seconds to observe a real provider user turn after writing through tmux/herdr                         |
 | `CCGRAM_DISPATCH_RETRY_COUNT`                        | `1`                            | Submit-key-only automatic retries (0–3); the prompt body is never repeated                            |
@@ -196,7 +196,7 @@ All settings accept both CLI flags and environment variables. CLI flags take pre
 | `CCGRAM_DELIVERY_LAG_WARN_SECONDS`                   | `120`                          | Sustained cursor-lag duration before warning                                                         |
 | `CCGRAM_DELIVERY_LAG_MIN_BYTES`                      | `4096`                         | Minimum pending transcript bytes required for a sustained-lag warning                                |
 | `CCGRAM_MEMBER_LANE_WORKTREES`                       | `true`                         | Create an isolated clean Git worktree/branch for every derived member lane                            |
-| `CCGRAM_ALLOW_SHARED_MEMBER_CWD`                     | `false`                        | Explicitly permit non-Git lanes to share a cwd; safe only for trusted read-only work                  |
+| `CCGRAM_ALLOW_SHARED_MEMBER_CWD`                     | `false`                        | Permit non-Git member and explicit task lanes to share a cwd; intended for operations/remote work     |
 | `CCGRAM_MEMBER_LANE_CLEANUP_DAYS`                    | `0`                            | Remove only parked, clean and merged member worktrees after N days; 0 disables                        |
 | `CCGRAM_DIR` / `--config-dir`                        | `~/.ccgram`                    | Config and state directory                                                                           |
 | `CLAUDE_CONFIG_DIR` / `--claude-config-dir`          | `~/.claude`                    | Override Claude config directory (for wrappers like ce, cc-mirror)                                   |
