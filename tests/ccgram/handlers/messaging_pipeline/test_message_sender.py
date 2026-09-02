@@ -12,6 +12,7 @@ from ccgram.handlers.messaging_pipeline.message_sender import (
     _send_with_fallback,
     edit_with_fallback,
     rate_limit_send,
+    reliable_send_message,
 )
 from ccgram.telegram_client import FakeTelegramClient
 
@@ -191,6 +192,19 @@ class TestSendWithFallback:
         entities = last.kwargs["entities"]
         assert len(entities) >= 1
         assert any(e.type == "bold" for e in entities)
+
+
+async def test_reliable_send_delegates_exactly_once() -> None:
+    client = AsyncMock()
+    sent = _fake_message()
+    with patch(
+        "ccgram.handlers.messaging_pipeline.message_sender.rate_limit_send_message",
+        new=AsyncMock(return_value=sent),
+    ) as send:
+        result = await reliable_send_message(client, -100, "hello", message_thread_id=42)
+
+    assert result is sent
+    send.assert_awaited_once_with(client, -100, "hello", message_thread_id=42)
 
 
 class TestEditWithFallback:

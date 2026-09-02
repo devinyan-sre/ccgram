@@ -31,8 +31,8 @@ from .config import config
 from .handlers.commands import setup_menu_refresh_job
 from .handlers.hook_events import dispatch_hook_event
 from .handlers.messaging_pipeline.message_queue import (
-    is_session_delivery_drained,
     restore_outbox,
+    session_delivery_commit_offset,
     shutdown_workers,
 )
 from .handlers.messaging_pipeline.message_routing import handle_new_message
@@ -286,9 +286,9 @@ async def start_session_monitor(application: Application) -> SessionMonitor:
 
     monitor.set_hook_event_callback(hook_event_callback)
 
-    # Crash-recovery commit barrier: monitor offsets are persisted as
-    # delivered only once the serving queues drain.
-    monitor.set_delivery_drained_callback(is_session_delivery_drained)
+    # Crash-recovery commit fence: continuously persist the prefix before the
+    # earliest pending durable delivery, even while newer output stays busy.
+    monitor.set_delivery_drained_callback(session_delivery_commit_offset)
 
     async def delivery_lag_callback(session_id: str, lag: int, duration: float) -> None:
         # Lazy: i18n is only needed when this uncommon alert actually fires.

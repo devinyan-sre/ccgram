@@ -1,6 +1,6 @@
 # ccgram Architecture
 
-Generated from code state 2026-08-27.
+Generated from code state 2026-09-02.
 
 ## System Overview
 
@@ -149,6 +149,20 @@ empty file after restart. Delivery-stall alerts require both a configurable
 duration and byte threshold, so short self-recovering cursor gaps remain normal
 telemetry instead of warning noise. `/selftest` probes these shared seams without
 invoking a provider.
+
+Each durable delivery ID contains its transcript batch start. While output is
+continuous, the monitor commits the delivered cursor up to the earliest pending
+Outbox batch instead of waiting for every serving queue to become empty. A
+malformed durable ID closes this optimization conservatively at the existing
+cursor. This preserves at-least-once restart recovery while preventing an old
+busy batch from making the whole session appear permanently stalled.
+
+Default-window ownership is globally unique across all operators and topics.
+Live binds evict stale reverse claims atomically; state loading performs the
+same deterministic repair and persists it. Explicit task-lane windows are kept
+outside the canonical binding and callback authorization checks their recorded
+operator, so an inline control can never cross users even when they share one
+physical topic.
 
 ### Provider compatibility
 

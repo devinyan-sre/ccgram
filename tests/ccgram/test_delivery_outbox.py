@@ -52,6 +52,49 @@ async def test_outbox_survives_reload(tmp_path: Path) -> None:
         delivery_outbox.reset_for_testing()
 
 
+async def test_outbox_reports_earliest_pending_transcript_offset(
+    tmp_path: Path,
+) -> None:
+    old = config.outbox_file
+    config.outbox_file = tmp_path / "outbox.json"
+    delivery_outbox.reset_for_testing()
+    try:
+        for start in (300, 100, 200):
+            task = ContentTask(
+                window_id="@2",
+                parts=(str(start),),
+                thread_id=33,
+                session_id="session:with:colons",
+                delivery_id=(f"session:with:colons:0:{start}:{start + 10}:0:8:33"),
+            )
+            await delivery_outbox.add(task, 8)
+
+        assert delivery_outbox.earliest_pending_offset("session:with:colons") == 100
+        assert delivery_outbox.earliest_pending_offset("other") is None
+    finally:
+        config.outbox_file = old
+        delivery_outbox.reset_for_testing()
+
+
+async def test_malformed_pending_id_blocks_cursor_progress(tmp_path: Path) -> None:
+    old = config.outbox_file
+    config.outbox_file = tmp_path / "outbox.json"
+    delivery_outbox.reset_for_testing()
+    try:
+        task = ContentTask(
+            window_id="@2",
+            parts=("pending",),
+            session_id="s2",
+            delivery_id="malformed",
+        )
+        await delivery_outbox.add(task, 8)
+
+        assert delivery_outbox.earliest_pending_offset("s2") == 0
+    finally:
+        config.outbox_file = old
+        delivery_outbox.reset_for_testing()
+
+
 def test_empty_outbox_load_reconciles_pending_gauge(tmp_path: Path) -> None:
     old = config.outbox_file
     config.outbox_file = tmp_path / "missing.json"

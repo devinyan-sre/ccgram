@@ -105,8 +105,8 @@ def test_dynamic_t_calls_are_allowlisted() -> None:
     allowlist = [
         "cc_commands.py:149",
         "destructive_audit.py:117",
-        "handlers/interactive/interactive_callbacks.py:137",
-        "handlers/interactive/interactive_ui.py:102",
+        "handlers/interactive/interactive_callbacks.py:231",
+        "handlers/interactive/interactive_ui.py:121",
         "handlers/live/pane_callbacks.py:188",
         "handlers/sync_command.py:87",
         "handlers/text/text_handler.py:306",

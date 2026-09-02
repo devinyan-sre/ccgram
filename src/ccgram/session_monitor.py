@@ -110,9 +110,9 @@ class SessionMonitor:
         from .providers.base import HookEvent
 
         self._hook_event_callback: Callable[[HookEvent], Awaitable[None]] | None = None
-        # Crash-recovery commit barrier: reports whether the outbound queues
-        # serving a session are drained. None → commit unconditionally.
-        self._delivery_drained_callback: Callable[[str], bool] | None = None
+        # Crash-recovery commit fence: returns the highest byte offset whose
+        # preceding outbound batches reached a terminal state.
+        self._delivery_drained_callback: Callable[[str, int, int], int] | None = None
         self._delivery_lag_callback: (
             Callable[[str, int, float], Awaitable[None]] | None
         ) = None
@@ -211,8 +211,10 @@ class SessionMonitor:
     def set_hook_event_callback(self, callback: Callable[..., Awaitable[None]]) -> None:
         self._hook_event_callback = callback
 
-    def set_delivery_drained_callback(self, callback: Callable[[str], bool]) -> None:
-        """Wire the queue-drained probe used to commit delivered offsets."""
+    def set_delivery_drained_callback(
+        self, callback: Callable[[str, int, int], int]
+    ) -> None:
+        """Wire the crash-safe cursor fence used to commit delivered offsets."""
         self._delivery_drained_callback = callback
 
     def set_delivery_lag_callback(

@@ -12,8 +12,8 @@ from .callback_data import CB_PANE_DELIMITER
 
 
 def user_owns_window(user_id: int, window_id: str) -> bool:
-    """Check if a user has any thread binding to the given window."""
-    return window_id in thread_router.get_all_thread_windows(user_id).values()
+    """Check default, member, and explicit task-lane ownership."""
+    return thread_router.user_owns_window(user_id, window_id)
 
 
 def parse_target(target: str) -> tuple[str, str | None]:

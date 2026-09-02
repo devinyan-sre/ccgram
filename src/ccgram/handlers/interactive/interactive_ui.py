@@ -16,6 +16,7 @@ State dicts are keyed by (user_id, thread_id_or_0) for Telegram topic support.
 
 import asyncio
 import contextlib
+import re
 import time
 
 import structlog
@@ -31,6 +32,7 @@ from ...thread_router import thread_router
 from ...multiplexer import multiplexer as tmux_manager
 from ...topic_state_registry import topic_state
 from ..callback_data import (
+    CB_ASK_CHOICE,
     CB_ASK_DOWN,
     CB_ASK_ENTER,
     CB_ASK_ESC,
@@ -65,6 +67,12 @@ _interactive_msgs: dict[tuple[int, int], int] = {}
 # Track interactive mode: (user_id, thread_id_or_0) -> window_id
 _interactive_mode: dict[tuple[int, int], str] = {}
 
+# Direct-choice callbacks must belong to the exact rendered Telegram prompt.
+# Sequences invalidate delayed or double-tapped buttons after one selection.
+_interactive_contexts: dict[tuple[int, int], tuple[int, int]] = {}
+_interactive_sequences: dict[tuple[int, int], int] = {}
+_interactive_contents: dict[tuple[int, int], str] = {}
+
 # Cooldown to prevent flood when interactive sends fail repeatedly
 _send_cooldowns: dict[tuple[int, int], float] = {}
 _SEND_RETRY_INTERVAL = 5.0  # seconds between retries for failed sends
@@ -81,6 +89,17 @@ INTERACTIVE_INSTRUCTION_LINE = (
 
 # Hard ceiling per Telegram message; leave headroom for entities.
 _TELEGRAM_MAX_TEXT = 4096
+_MAX_DIRECT_CHOICES = 8
+_MIN_NUMBERED_DIRECT_CHOICES = 2
+_YES_NO_CHOICE_COUNT = 2
+_CURSOR_MARKER_RE = re.compile(r"^\s*[←→❯>]")
+_DIRECT_CHOICE_ACTION_RE = re.compile(
+    r"(?i)^\s*(?:Esc to|Enter to|Press enter to|ctrl-g to edit)"
+)
+_NUMBERED_OPTION_RE = re.compile(r"^\s*(?:[←→❯>]\s*)?(\d+)\.\s+(.+?)\s*$")
+_MULTI_SELECT_RE = re.compile(
+    r"(?i)\b(?:select|choose|pick)\b[^\n]*(?:all|multiple|more than one)\b"
+)
 
 
 def format_interactive_message(
@@ -142,7 +161,11 @@ def set_interactive_mode(
 def clear_interactive_mode(user_id: int, thread_id: int | None = None) -> None:
     """Clear interactive mode for a user (without deleting message)."""
     logger.debug("Clear interactive mode: user=%d, thread=%s", user_id, thread_id)
-    _interactive_mode.pop((user_id, thread_id or 0), None)
+    ikey = (user_id, thread_id or 0)
+    _interactive_mode.pop(ikey, None)
+    _interactive_contexts.pop(ikey, None)
+    _interactive_sequences.pop(ikey, None)
+    _interactive_contents.pop(ikey, None)
 
 
 def get_interactive_msg_id(user_id: int, thread_id: int | None = None) -> int | None:
@@ -150,10 +173,121 @@ def get_interactive_msg_id(user_id: int, thread_id: int | None = None) -> int | 
     return _interactive_msgs.get((user_id, thread_id or 0))
 
 
+def _numbered_menu_blocks(
+    lines: list[str],
+) -> list[tuple[int, int, tuple[tuple[str, str], ...]]]:
+    """Find bounded, sequential numbered menus in terminal text."""
+    blocks: list[tuple[int, int, tuple[tuple[str, str], ...]]] = []
+    index = 0
+    while index < len(lines):
+        first = _NUMBERED_OPTION_RE.fullmatch(lines[index])
+        if first is None or first.group(1) != "1":
+            index += 1
+            continue
+        start = index
+        expected = 1
+        choices: list[tuple[str, str]] = []
+        while index < len(lines):
+            option = _NUMBERED_OPTION_RE.fullmatch(lines[index])
+            if option is None:
+                break
+            number, label = option.groups()
+            if int(number) != expected:
+                break
+            choices.append((number, f"{number}. {label}"))
+            expected += 1
+            index += 1
+        if len(choices) >= _MIN_NUMBERED_DIRECT_CHOICES:
+            blocks.append((start, index - 1, tuple(choices)))
+        if index == start:
+            index += 1
+    return blocks
+
+
+def parse_direct_choices(content: str) -> tuple[tuple[str, str], ...]:
+    """Extract safe one-tap choices from an active single-select prompt.
+
+    Ambiguous prose, multi-select prompts, non-sequential menus and menus with
+    more than eight entries deliberately keep the navigation-only keyboard.
+    """
+    if "☐" in content or "☑" in content or _MULTI_SELECT_RE.search(content):
+        return ()
+
+    lines = content.splitlines()
+    blocks = _numbered_menu_blocks(lines)
+    anchors = [
+        index
+        for index, line in enumerate(lines)
+        if _CURSOR_MARKER_RE.search(line) or _DIRECT_CHOICE_ACTION_RE.search(line)
+    ]
+    if anchors:
+        ranked = sorted(
+            (
+                min(min(abs(anchor - start), abs(anchor - end)) for anchor in anchors),
+                choices,
+            )
+            for start, end, choices in blocks
+        )
+        if ranked:
+            nearest_distance, nearest_choices = ranked[0]
+            if (
+                len(nearest_choices) <= _MAX_DIRECT_CHOICES
+                and sum(distance == nearest_distance for distance, _ in ranked) == 1
+            ):
+                return nearest_choices
+
+    words = re.findall(r"(?m)^\s*(?:[←→❯>]\s*)?(Yes|No)\s*$", content, re.I)
+    if {word.lower() for word in words} == {"yes", "no"} and len(
+        words
+    ) == _YES_NO_CHOICE_COUNT:
+        return (("y", t("Yes")), ("n", t("No")))
+    inline_yes_no = re.search(
+        r"(?mi)^\s*(?:[←→❯>]\s*)?Yes\s+(?:[←→❯>]\s*)?No\s*$", content
+    )
+    return (("y", t("Yes")), ("n", t("No"))) if inline_yes_no else ()
+
+
+def _next_interactive_sequence(ikey: tuple[int, int], content: str) -> int:
+    """Advance the prompt generation only when rendered content changes."""
+    if _interactive_contents.get(ikey) != content:
+        _interactive_contents[ikey] = content
+        _interactive_sequences[ikey] = _interactive_sequences.get(ikey, 0) + 1
+    return _interactive_sequences.setdefault(ikey, 1)
+
+
+def is_current_interactive_prompt(
+    user_id: int,
+    thread_id: int | None,
+    window_id: str,
+    chat_id: int | None,
+    message_id: int | None,
+    sequence: int,
+) -> bool:
+    """Return whether a direct-choice callback is current and unconsumed."""
+    if chat_id is None or message_id is None:
+        return False
+    ikey = (user_id, thread_id or 0)
+    return (
+        _interactive_mode.get(ikey) == window_id
+        and _interactive_msgs.get(ikey) == message_id
+        and _interactive_contexts.get(ikey) == (chat_id, message_id)
+        and _interactive_sequences.get(ikey) == sequence
+    )
+
+
+def advance_interactive_sequence(user_id: int, thread_id: int | None = None) -> None:
+    """Invalidate direct choices after one successful delivery."""
+    ikey = (user_id, thread_id or 0)
+    if ikey in _interactive_sequences:
+        _interactive_sequences[ikey] += 1
+
+
 def _build_interactive_keyboard(
     window_id: str,
     ui_name: str = "",
     pane_id: str | None = None,
+    direct_choices: tuple[tuple[str, str], ...] = (),
+    sequence: int = 0,
 ) -> InlineKeyboardMarkup:
     """Build keyboard for interactive UI navigation.
 
@@ -171,6 +305,16 @@ def _build_interactive_keyboard(
     target = f"{window_id}{CB_PANE_DELIMITER}{pane_id}" if pane_id else window_id
 
     rows: list[list[InlineKeyboardButton]] = []
+    for start in range(0, len(direct_choices), 2):
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    label,
+                    callback_data=f"{CB_ASK_CHOICE}{key}:{sequence}:{target}"[:64],
+                )
+                for key, label in direct_choices[start : start + 2]
+            ]
+        )
     # Row 1: directional keys
     rows.append(
         [
@@ -374,22 +518,29 @@ async def handle_interactive_ui(
     if not captured:
         return False
 
-    ui_name, text = captured
+    ui_name, content = captured
     pane_name = _lookup_pane_name(window_id, pane_id) if pane_id else None
-    text = format_interactive_message(text, pane_id=pane_id, pane_name=pane_name)
+    text = format_interactive_message(content, pane_id=pane_id, pane_name=pane_name)
     ikey = (user_id, thread_id or 0)
     chat_id = thread_router.resolve_chat_id(user_id, thread_id)
-    keyboard = _build_interactive_keyboard(window_id, ui_name=ui_name, pane_id=pane_id)
+    sequence = _next_interactive_sequence(ikey, text)
+    keyboard = _build_interactive_keyboard(
+        window_id,
+        ui_name=ui_name,
+        pane_id=pane_id,
+        direct_choices=parse_direct_choices(content),
+        sequence=sequence,
+    )
 
     # Try editing existing interactive message first
     existing_msg_id = _interactive_msgs.get(ikey)
     if existing_msg_id:
-        return (
-            await _edit_interactive_msg(
-                client, chat_id, existing_msg_id, text, keyboard, ikey, window_id
-            )
-            or False
+        edited = await _edit_interactive_msg(
+            client, chat_id, existing_msg_id, text, keyboard, ikey, window_id
         )
+        if edited:
+            _interactive_contexts[ikey] = (chat_id, existing_msg_id)
+        return edited or False
 
     # Cooldown: prevent rapid retries when sends fail
     now = time.monotonic()
@@ -421,6 +572,7 @@ async def handle_interactive_ui(
     )
     if sent:
         _interactive_msgs[ikey] = sent.message_id
+        _interactive_contexts[ikey] = (chat_id, sent.message_id)
         _interactive_mode[ikey] = window_id
         _send_cooldowns.pop(ikey, None)
     return sent is not None
@@ -435,6 +587,9 @@ async def clear_interactive_msg(
     ikey = (user_id, thread_id or 0)
     msg_id = _interactive_msgs.pop(ikey, None)
     _interactive_mode.pop(ikey, None)
+    _interactive_contexts.pop(ikey, None)
+    _interactive_sequences.pop(ikey, None)
+    _interactive_contents.pop(ikey, None)
     _send_cooldowns.pop(ikey, None)
     logger.debug(
         "Clear interactive msg: user=%d, thread=%s, msg_id=%s",

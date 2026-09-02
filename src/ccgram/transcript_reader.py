@@ -407,24 +407,41 @@ class TranscriptReader:
         token_watch.clear_session(session_id)
         log_throttle_reset(f"partial-jsonl:{session_id}")
 
-    def commit_delivered(self, drained: Callable[[str], bool] | None = None) -> None:
-        """Promote delivered cursors for batches at a delivery terminal state.
+    def commit_delivered(
+        self,
+        commit_offset: Callable[[str, int, int], int] | None = None,
+    ) -> None:
+        """Promote delivered cursors up to each session's safe delivery fence.
 
-        ``drained(session_id)`` reports whether the outbound queues serving a
-        session are fully drained — its messages were sent, consciously
-        dropped (no binding, thinking too short), or failed after retries.
-        ``None`` commits unconditionally (no delivery pipeline wired; keeps
-        the pre-crash-recovery behaviour for bare monitors in tests).
+        ``commit_offset(session_id, delivered, pending)`` may return a partial
+        cursor while newer Outbox records are still pending. This lets a busy
+        session make durable forward progress without weakening at-least-once
+        crash recovery. ``None`` commits unconditionally for bare monitors.
         """
         for session_id, offset in list(self._pending_commits.items()):
-            if drained is not None and not drained(session_id):
-                continue
             tracked = self._state.get_session(session_id)
             if tracked is not None:
+                safe_offset = (
+                    offset
+                    if commit_offset is None
+                    else commit_offset(
+                        session_id,
+                        tracked.delivered_byte_offset,
+                        offset,
+                    )
+                )
                 # Never advance past the read cursor (truncation resets it).
-                tracked.delivered_byte_offset = min(offset, tracked.last_byte_offset)
-                self._state.update_session(tracked)
-            del self._pending_commits[session_id]
+                safe_offset = max(
+                    tracked.delivered_byte_offset,
+                    min(safe_offset, offset, tracked.last_byte_offset),
+                )
+                if safe_offset > tracked.delivered_byte_offset:
+                    tracked.delivered_byte_offset = safe_offset
+                    self._state.update_session(tracked)
+                if safe_offset >= offset:
+                    del self._pending_commits[session_id]
+            else:
+                del self._pending_commits[session_id]
 
     def _adopt_tracking_for_file(
         self, session_id: str, file_path: Path

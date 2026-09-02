@@ -176,7 +176,12 @@ class SessionManager:
         user_preferences.from_dict(state)
 
         # Load routing data into ThreadRouter (handles dedup + reverse index)
-        thread_router.from_dict(state)
+        routing_repaired = thread_router.from_dict(state)
+        if routing_repaired:
+            logger.warning(
+                "Persisted routing contained duplicate window claims; repaired"
+            )
+            self._save_state()
 
         # Detect old format: keys that don't look like window IDs
         needs_migration = False

@@ -22,6 +22,7 @@ from .utils import atomic_write_json
 
 logger = structlog.get_logger()
 _DELIVERED_LIMIT = 2000
+_MIN_DELIVERY_ID_FIELDS = 4
 
 if TYPE_CHECKING:
     from .handlers.messaging_pipeline.message_task import ContentTask
@@ -114,6 +115,31 @@ class DeliveryOutbox:
     def has_pending_session(self, session_id: str) -> bool:
         self._load()
         return any(r.get("session_id") == session_id for r in self._pending.values())
+
+    def earliest_pending_offset(self, session_id: str) -> int | None:
+        """Return the first transcript byte still awaiting delivery.
+
+        Delivery IDs encode ``session:generation:batch_start:batch_end:index``
+        before their routing suffix. A malformed matching record returns zero
+        deliberately: committing nothing is safer than skipping an unknown
+        outbound message during crash recovery.
+        """
+        self._load()
+        starts: list[int] = []
+        prefix = f"{session_id}:"
+        for delivery_id, record in self._pending.items():
+            if record.get("session_id") != session_id:
+                continue
+            if not delivery_id.startswith(prefix):
+                return 0
+            fields = delivery_id[len(prefix) :].split(":")
+            if len(fields) < _MIN_DELIVERY_ID_FIELDS:
+                return 0
+            try:
+                starts.append(int(fields[1]))
+            except TypeError, ValueError:
+                return 0
+        return min(starts) if starts else None
 
     def snapshot(self) -> tuple[int, int]:
         self._load()

@@ -15,13 +15,16 @@ Key functions:
   - clear_topic_emoji_state: Clean up tracking for a topic
 """
 
+import asyncio
 import time
+from weakref import WeakValueDictionary
 
 import structlog
-from telegram.error import BadRequest, TelegramError
+from telegram.error import BadRequest, RetryAfter, TelegramError
 
 from ...config import config
 from ...telegram_client import TelegramClient
+from ...telegram_rate_limiter import retry_after_seconds
 from ...thread_router import thread_router
 from ...topic_state_registry import topic_state
 from ...window_query import get_approval_mode
@@ -100,6 +103,37 @@ _topic_names: dict[tuple[int, int], str] = {}
 
 # Chats where editForumTopic is disabled due to permission errors
 _disabled_chats: set[int] = set()
+
+# Chat-scoped protection for Telegram's editForumTopic bucket. Poll-driven
+# renames defer; explicit /sync renames sleep under a per-chat lock. A
+# RetryAfter pauses only further renames for that chat, not normal messages.
+FLOOD_COOLDOWN_SECONDS = 300.0
+CHAT_EDIT_MIN_INTERVAL = 1.5
+_flood_cooldown_until: dict[int, float] = {}
+_last_chat_edit: dict[int, tuple[float, tuple[int, int]]] = {}
+_sync_rename_locks: WeakValueDictionary[int, asyncio.Lock] = WeakValueDictionary()
+
+
+def _flood_paused(chat_id: int, now: float) -> bool:
+    until = _flood_cooldown_until.get(chat_id)
+    if until is None:
+        return False
+    if now >= until:
+        _flood_cooldown_until.pop(chat_id, None)
+        return False
+    return True
+
+
+def _pause_renames_for_flood(chat_id: int) -> None:
+    _flood_cooldown_until[chat_id] = time.monotonic() + FLOOD_COOLDOWN_SECONDS
+
+
+def _paced_out(chat_id: int, key: tuple[int, int], now: float) -> bool:
+    last = _last_chat_edit.get(chat_id)
+    if last is None:
+        return False
+    last_ts, last_key = last
+    return last_key != key and now - last_ts < CHAT_EDIT_MIN_INTERVAL
 
 
 def _resolve_topic_name(key: tuple[int, int], display_name: str) -> tuple[str, bool]:
@@ -192,6 +226,15 @@ async def _edit_topic_name(
             state or "sync",
             new_name,
         )
+    except RetryAfter as exc:
+        _pause_renames_for_flood(chat_id)
+        logger.warning(
+            "Flood control on topic rename for chat %d (retry_after %ss): "
+            "pausing this chat's renames for %.0fs",
+            chat_id,
+            retry_after_seconds(exc),
+            FLOOD_COOLDOWN_SECONDS,
+        )
     except BadRequest as e:
         if "Not enough rights" in e.message:
             _disabled_chats.add(chat_id)
@@ -262,15 +305,35 @@ async def sync_topic_name(
         approval_mode=approval_mode,
         rc_active=rc_active,
     )
-    await _edit_topic_name(
-        client,
-        chat_id,
-        thread_id,
-        key,
-        new_name,
-        state_token=state_token,
-        state=state,
-    )
+    lock = _sync_rename_locks.setdefault(chat_id, asyncio.Lock())
+    async with lock:
+        now = time.monotonic()
+        if _flood_paused(chat_id, now):
+            return
+        # Poll updates can move the pacing stamp while /sync sleeps. Re-check
+        # it a bounded number of times before sending.
+        for _ in range(3):
+            last = _last_chat_edit.get(chat_id)
+            if (
+                last is None
+                or last[1] == key
+                or now - last[0] >= CHAT_EDIT_MIN_INTERVAL
+            ):
+                break
+            await asyncio.sleep(CHAT_EDIT_MIN_INTERVAL - (now - last[0]))
+            now = time.monotonic()
+            if _flood_paused(chat_id, now):
+                return
+        _last_chat_edit[chat_id] = (now, key)
+        await _edit_topic_name(
+            client,
+            chat_id,
+            thread_id,
+            key,
+            new_name,
+            state_token=state_token,
+            state=state,
+        )
 
 
 async def update_topic_emoji(
@@ -297,6 +360,7 @@ async def update_topic_emoji(
         return
 
     key = (chat_id, thread_id)
+    prev_name = _topic_names.get(key)
     clean_name, name_changed = _resolve_topic_name(key, display_name)
 
     approval_mode = _resolve_approval_mode(chat_id, thread_id)
@@ -308,6 +372,8 @@ async def update_topic_emoji(
         return
 
     now = time.monotonic()
+    if _flood_paused(chat_id, now):
+        return
     if not _should_apply_update(
         key,
         state,
@@ -316,6 +382,20 @@ async def update_topic_emoji(
         now=now,
     ):
         return
+    if _paced_out(chat_id, key, now):
+        # Preserve both state and name changes for the next poll cycle without
+        # forcing them through the full debounce interval again.
+        _pending_transitions[key] = (
+            state,
+            now - _DEBOUNCE_BY_STATE.get(state, DEBOUNCE_TO_IDLE_SECONDS),
+        )
+        if name_changed:
+            if prev_name is None:
+                _topic_names.pop(key, None)
+            else:
+                _topic_names[key] = prev_name
+        return
+    _last_chat_edit[chat_id] = (now, key)
 
     new_name = _compose_topic_name(
         clean_name,
@@ -385,3 +465,6 @@ def reset_all_state() -> None:
     _pending_transitions.clear()
     _disabled_chats.clear()
     _topic_names.clear()
+    _flood_cooldown_until.clear()
+    _last_chat_edit.clear()
+    _sync_rename_locks.clear()

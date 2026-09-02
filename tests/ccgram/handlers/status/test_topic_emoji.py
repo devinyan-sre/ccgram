@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from telegram.error import BadRequest, TelegramError
+from telegram.error import BadRequest, RetryAfter, TelegramError
 
 from _helpers import make_mock_provider
 
@@ -430,6 +430,46 @@ class TestSyncTopicName:
             message_thread_id=42,
             name=f"{EMOJI_IDLE} ccgram-codex",
         )
+
+
+class TestTopicRenameFloodControl:
+    async def test_retry_after_pauses_only_further_renames_for_chat(self) -> None:
+        bot = AsyncMock()
+        bot.edit_forum_topic.side_effect = RetryAfter(5)
+
+        with patch(_PATCH_MONOTONIC) as monotonic:
+            monotonic.return_value = 0.0
+            await update_topic_emoji(bot, -100, 42, "active", "one")
+            monotonic.return_value = DEBOUNCE_TO_ACTIVE_SECONDS + 0.1
+            await update_topic_emoji(bot, -100, 42, "active", "one")
+
+            bot.edit_forum_topic.reset_mock()
+            monotonic.return_value += 1.0
+            await update_topic_emoji(bot, -100, 43, "active", "two")
+
+        bot.edit_forum_topic.assert_not_called()
+
+    async def test_poll_renames_in_same_chat_are_spaced(self) -> None:
+        from ccgram.handlers.status.topic_emoji import _topic_names, _topic_states
+
+        bot = AsyncMock()
+        token = ("active", "normal", False)
+        _topic_states[(-100, 42)] = token
+        _topic_states[(-100, 43)] = token
+        _topic_names[(-100, 42)] = "old-one"
+        _topic_names[(-100, 43)] = "old-two"
+
+        with patch(_PATCH_MONOTONIC) as monotonic:
+            monotonic.return_value = 100.0
+            await update_topic_emoji(bot, -100, 42, "active", "new-one")
+            monotonic.return_value = 100.1
+            await update_topic_emoji(bot, -100, 43, "active", "new-two")
+            assert bot.edit_forum_topic.call_count == 1
+
+            monotonic.return_value = 101.6
+            await update_topic_emoji(bot, -100, 43, "active", "new-two")
+
+        assert bot.edit_forum_topic.call_count == 2
 
     async def test_clear_resets_pending_transition(self) -> None:
         bot = AsyncMock()

@@ -223,6 +223,10 @@ _ZH: dict[str, str] = {
     "Not authorized.": "未授权。",
     # Shared toasts / buttons
     "Not your session": "不是你的会话",
+    "This prompt has expired": "这个交互问题已失效，请使用最新按钮。",
+    "Unable to send choice. Try again.": "选项发送失败，请重试。",
+    "Yes": "是",
+    "No": "否",
     "Not your window": "不是你的窗口",
     "Use in a topic": "请在话题内使用",
     "Invalid data": "无效数据",

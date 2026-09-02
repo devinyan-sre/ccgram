@@ -18,6 +18,7 @@ from ...i18n import t
 from ...telegram_client import PTBTelegramClient
 from ...multiplexer import multiplexer as tmux_manager
 from ..callback_data import (
+    CB_ASK_CHOICE,
     CB_ASK_DOWN,
     CB_ASK_ENTER,
     CB_ASK_ESC,
@@ -27,9 +28,15 @@ from ..callback_data import (
     CB_ASK_SPACE,
     CB_ASK_TAB,
     CB_ASK_UP,
+    CB_PANE_DELIMITER,
 )
 from ..callback_registry import register
-from .interactive_ui import clear_interactive_msg, handle_interactive_ui
+from .interactive_ui import (
+    advance_interactive_sequence,
+    clear_interactive_msg,
+    handle_interactive_ui,
+    is_current_interactive_prompt,
+)
 
 if TYPE_CHECKING:
     from telegram.ext import ContextTypes
@@ -60,7 +67,31 @@ INTERACTIVE_KEY_LABELS: dict[str, str] = {
 INTERACTIVE_PREFIXES: tuple[str, ...] = (
     *INTERACTIVE_KEY_MAP,
     CB_ASK_REFRESH,
+    CB_ASK_CHOICE,
 )
+
+
+def parse_direct_choice_callback(
+    data: str,
+) -> tuple[str, int, str, str | None] | None:
+    """Parse a choice callback while treating provider targets as opaque."""
+    if not data.startswith(CB_ASK_CHOICE):
+        return None
+    remainder = data.removeprefix(CB_ASK_CHOICE)
+    key, separator, remainder = remainder.partition(":")
+    sequence_text, separator2, target = remainder.partition(":")
+    if (
+        not separator
+        or not separator2
+        or key not in {"y", "n", "1", "2", "3", "4", "5", "6", "7", "8"}
+        or not sequence_text.isdecimal()
+        or not target
+    ):
+        return None
+    if CB_PANE_DELIMITER in target:
+        window_id, pane_id = target.split(CB_PANE_DELIMITER, 1)
+        return key, int(sequence_text), window_id, pane_id
+    return key, int(sequence_text), target, None
 
 
 def match_interactive_prefix(data: str) -> tuple[str, str, str | None] | None:
@@ -73,9 +104,10 @@ def match_interactive_prefix(data: str) -> tuple[str, str, str | None] | None:
       - ``"aq:enter:@12|%5"``      → tmux: window @12, pane %5
       - ``"aq:enter:w2:t1|w2:p1"`` → herdr: tab w2:t1, pane w2:p1
     """
-    # Lazy: avoid a module-level import that ruff flags as unused before the
-    # function body is reached; CB_PANE_DELIMITER is a plain string constant.
-    from ..callback_data import CB_PANE_DELIMITER
+    direct_choice = parse_direct_choice_callback(data)
+    if direct_choice is not None:
+        _key, _sequence, window_id, pane_id = direct_choice
+        return CB_ASK_CHOICE, window_id, pane_id
 
     for prefix in INTERACTIVE_PREFIXES:
         if data.startswith(prefix):
@@ -85,6 +117,53 @@ def match_interactive_prefix(data: str) -> tuple[str, str, str | None] | None:
                 return prefix, window_id, pane_id
             return prefix, remainder, None
     return None
+
+
+async def _handle_direct_choice(
+    query: CallbackQuery,
+    user_id: int,
+    thread_id: int | None,
+    chat_id: int | None,
+    message_id: int | None,
+    window_id: str,
+    pane_id: str | None,
+    choice: tuple[str, int, str, str | None] | None,
+) -> None:
+    """Validate, deliver and consume one direct interactive selection."""
+    if choice is None:
+        await query.answer(t("This prompt has expired"), show_alert=True)
+        return
+    key, sequence, _choice_window, _choice_pane = choice
+    if not is_current_interactive_prompt(
+        user_id, thread_id, window_id, chat_id, message_id, sequence
+    ):
+        await query.answer(t("This prompt has expired"), show_alert=True)
+        return
+    try:
+        if pane_id:
+            sent = await tmux_manager.send_keys_to_pane(
+                pane_id,
+                key,
+                enter=key in {"y", "n"},
+                literal=True,
+                window_id=window_id,
+            )
+        else:
+            window = await tmux_manager.find_window_by_id(window_id)
+            sent = bool(window) and await tmux_manager.send_keys(
+                window.window_id,
+                key,
+                enter=key in {"y", "n"},
+                literal=True,
+            )
+    except Exception:  # noqa: BLE001 - backend failures become a user alert
+        logger.warning("Failed to send direct interactive choice", exc_info=True)
+        sent = False
+    if not sent:
+        await query.answer(t("Unable to send choice. Try again."), show_alert=True)
+        return
+    advance_interactive_sequence(user_id, thread_id)
+    await query.answer()
 
 
 async def handle_interactive_callback(
@@ -109,6 +188,21 @@ async def handle_interactive_callback(
         return
 
     thread_id = get_thread_id(update)
+    message = query.message
+    chat_id = message.chat.id if message is not None else None
+    if cb_prefix == CB_ASK_CHOICE:
+        await _handle_direct_choice(
+            query,
+            user_id,
+            thread_id,
+            chat_id,
+            message.message_id if message is not None else None,
+            window_id,
+            pane_id,
+            parse_direct_choice_callback(data),
+        )
+        return
+
     client = PTBTelegramClient(context.bot)
 
     if cb_prefix == CB_ASK_REFRESH:

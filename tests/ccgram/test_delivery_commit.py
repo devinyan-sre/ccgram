@@ -99,7 +99,7 @@ class TestReaderCommitFlow:
         assert tracked.delivered_byte_offset == tracked.last_byte_offset
         assert reader._pending_commits == {}
 
-    async def test_commit_waits_for_drained_queues(self, tmp_path) -> None:
+    async def test_commit_waits_for_safe_cursor(self, tmp_path) -> None:
         session_file = tmp_path / "t.jsonl"
         session_file.write_text(_MSG % "hello", newline="\n")
         reader, state = _reader(tmp_path)
@@ -108,16 +108,37 @@ class TestReaderCommitFlow:
         await reader._process_session_file("s1", session_file, messages)
         size = session_file.stat().st_size
 
-        reader.commit_delivered(lambda _sid: False)  # queues busy
+        reader.commit_delivered(lambda _sid, delivered, _pending: delivered)
         tracked = state.get_session("s1")
         assert tracked is not None
         assert tracked.delivered_byte_offset == 0
         assert reader._pending_commits == {"s1": size}
 
-        reader.commit_delivered(lambda _sid: True)  # queues drained
+        reader.commit_delivered(lambda _sid, _delivered, pending: pending)
         assert tracked.delivered_byte_offset == size
         assert reader._pending_commits == {}
         assert tracked.to_dict()["last_byte_offset"] == size
+
+    async def test_commit_can_advance_prefix_while_newer_output_is_pending(
+        self, tmp_path
+    ) -> None:
+        session_file = tmp_path / "t.jsonl"
+        session_file.write_text(_MSG % "hello", newline="\n")
+        reader, state = _reader(tmp_path)
+        await _track_from_zero(state, "s1", session_file)
+        await reader._process_session_file("s1", session_file, [])
+        size = session_file.stat().st_size
+
+        reader.commit_delivered(lambda _sid, _delivered, _pending: 10)
+
+        tracked = state.get_session("s1")
+        assert tracked is not None
+        assert tracked.delivered_byte_offset == 10
+        assert reader._pending_commits == {"s1": size}
+
+        reader.commit_delivered(lambda _sid, _delivered, pending: pending)
+        assert tracked.delivered_byte_offset == size
+        assert reader._pending_commits == {}
 
     async def test_commit_without_callback_is_unconditional(self, tmp_path) -> None:
         session_file = tmp_path / "t.jsonl"
@@ -197,7 +218,7 @@ class TestReaderCommitFlow:
         reader, state = _reader(tmp_path)
         await _track_from_zero(state, "s1", session_file)
         await reader._process_session_file("s1", session_file, [])
-        reader.commit_delivered(lambda _sid: True)
+        reader.commit_delivered(lambda _sid, _delivered, pending: pending)
         tracked = state.get_session("s1")
         assert tracked is not None
         persisted = tracked.to_dict()
@@ -266,3 +287,34 @@ class TestIsSessionDeliveryDrained:
             ),
         ):
             assert message_queue.is_session_delivery_drained("s1") is True
+
+
+class TestSessionDeliveryCommitOffset:
+    def test_pending_outbox_fences_at_earliest_batch_start(self) -> None:
+        with patch.object(
+            message_queue.delivery_outbox,
+            "earliest_pending_offset",
+            return_value=120,
+        ):
+            assert message_queue.session_delivery_commit_offset("s1", 40, 300) == 120
+
+    def test_malformed_or_old_fence_never_moves_cursor_backwards(self) -> None:
+        with patch.object(
+            message_queue.delivery_outbox,
+            "earliest_pending_offset",
+            return_value=0,
+        ):
+            assert message_queue.session_delivery_commit_offset("s1", 40, 300) == 40
+
+    def test_drained_session_commits_full_pending_cursor(self) -> None:
+        with (
+            patch.object(
+                message_queue.delivery_outbox,
+                "earliest_pending_offset",
+                return_value=None,
+            ),
+            patch.object(
+                message_queue, "is_session_delivery_drained", return_value=True
+            ),
+        ):
+            assert message_queue.session_delivery_commit_offset("s1", 40, 300) == 300

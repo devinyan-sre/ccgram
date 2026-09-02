@@ -30,6 +30,20 @@ class TestBindThread:
         assert router.get_window_for_thread(100, 1) is None
         assert router.get_window_for_thread(100, 2) == "@1"
 
+    def test_bind_evicts_same_window_owned_by_another_member(
+        self, router: ThreadRouter
+    ) -> None:
+        router.bind_thread(100, 1, "@1")
+        router.set_group_chat_id(100, 1, -999)
+
+        router.bind_thread(200, 2, "@1")
+
+        assert router.get_window_for_thread(100, 1) is None
+        assert router.resolve_chat_id(100, 1) == 100
+        assert router.get_window_for_thread(200, 2) == "@1"
+        assert router.get_thread_for_window(100, "@1") is None
+        assert router.get_thread_for_window(200, "@1") == 2
+
     def test_rebind_same_thread(self, router: ThreadRouter) -> None:
         router.bind_thread(100, 1, "@1")
         router.bind_thread(100, 1, "@2")
@@ -111,6 +125,16 @@ class TestIterThreadBindings:
             == "@2"
         )
         assert restored.has_window("@2") is True
+
+    def test_task_lane_is_owned_only_by_its_operator(
+        self, router: ThreadRouter
+    ) -> None:
+        router.register_task_lane(
+            "@2", user_id=100, chat_id=-999, thread_id=1, task_id="T0042"
+        )
+
+        assert router.user_owns_window(100, "@2") is True
+        assert router.user_owns_window(200, "@2") is False
 
 
 class TestGetAllThreadWindows:
@@ -243,6 +267,24 @@ class TestToDictRoundtrip:
         router.from_dict(data)
         assert router.get_window_for_thread(100, 2) == "@1"
         assert router.get_window_for_thread(100, 1) is None
+
+    def test_from_dict_repairs_cross_operator_duplicate_and_reports_it(
+        self, router: ThreadRouter
+    ) -> None:
+        repaired = router.from_dict(
+            {
+                "thread_bindings": {
+                    "100": {"1": "@1"},
+                    "200": {"2": "@1"},
+                },
+                "group_chat_ids": {"100:1": -999, "200:2": -999},
+            }
+        )
+
+        assert repaired is True
+        assert router.get_window_for_thread(100, 1) is None
+        assert router.resolve_chat_id(100, 1) == 100
+        assert router.get_window_for_thread(200, 2) == "@1"
 
 
 class TestReset:

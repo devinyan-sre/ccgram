@@ -89,25 +89,52 @@ class ThreadRouter:
             for tid, wid in bindings.items():
                 self._window_to_thread[(uid, wid)] = tid
 
-    def _dedup_thread_bindings(self) -> None:
-        """Enforce 1 window = 1 thread.  Keep highest thread_id per window."""
-        for _uid, bindings in self.thread_bindings.items():
-            window_threads: dict[str, list[int]] = {}
-            for tid, wid in bindings.items():
-                window_threads.setdefault(wid, []).append(tid)
-            for wid, tids in window_threads.items():
-                if len(tids) > 1:
-                    keep = max(tids)
-                    for tid in tids:
-                        if tid != keep:
-                            del bindings[tid]
-                            logger.warning(
-                                "Startup: removed duplicate binding "
-                                "thread %d -> window %s (keeping %d)",
-                                tid,
-                                wid,
-                                keep,
-                            )
+    def _remove_binding(self, user_id: int, thread_id: int) -> str | None:
+        """Remove one routing claim and its reverse/chat metadata."""
+        bindings = self.thread_bindings.get(user_id)
+        if not bindings:
+            return None
+        window_id = bindings.pop(thread_id, None)
+        if window_id is None:
+            return None
+        self._window_to_thread.pop((user_id, window_id), None)
+        self.group_chat_ids.pop(f"{user_id}:{thread_id}", None)
+        if not bindings:
+            self.thread_bindings.pop(user_id, None)
+        return window_id
+
+    def _dedup_thread_bindings(self) -> bool:
+        """Enforce one default topic owner for every provider window.
+
+        The older check deduplicated only inside one user's bindings. A stale
+        restore could therefore bind the same CLI window to two operators and
+        route one answer into both lanes. Keep one deterministic claim across
+        all users and remove the others together with their chat metadata.
+        """
+        claims: dict[str, list[tuple[int, int]]] = {}
+        for user_id, bindings in self.thread_bindings.items():
+            for thread_id, window_id in bindings.items():
+                claims.setdefault(window_id, []).append((user_id, thread_id))
+
+        changed = False
+        for window_id, owners in claims.items():
+            if len(owners) <= 1:
+                continue
+            keep = max(owners, key=lambda owner: (owner[1], owner[0]))
+            for user_id, thread_id in owners:
+                if (user_id, thread_id) == keep:
+                    continue
+                self._remove_binding(user_id, thread_id)
+                changed = True
+                logger.warning(
+                    "Startup: removed cross-operator duplicate binding",
+                    removed_user_id=user_id,
+                    removed_thread_id=thread_id,
+                    window_id=window_id,
+                    kept_user_id=keep[0],
+                    kept_thread_id=keep[1],
+                )
+        return changed
 
     # ------------------------------------------------------------------
     # Serialization
@@ -126,8 +153,8 @@ class ThreadRouter:
             "task_lane_windows": self.task_lane_windows,
         }
 
-    def from_dict(self, data: dict[str, Any]) -> None:
-        """Restore routing state from persisted data.
+    def from_dict(self, data: dict[str, Any]) -> bool:
+        """Restore routing state and report whether invalid claims were repaired.
 
         Does NOT call ``_schedule_save`` — loading from disk must not
         trigger a write.
@@ -155,8 +182,9 @@ class ThreadRouter:
                 key in meta for key in ("user_id", "chat_id", "thread_id", "task_id")
             )
         }
-        self._dedup_thread_bindings()
+        repaired = self._dedup_thread_bindings()
         self._rebuild_reverse_index()
+        return repaired
 
     # ------------------------------------------------------------------
     # Thread binding operations
@@ -170,24 +198,28 @@ class ThreadRouter:
         Enforces 1 topic = 1 window: if another thread is already bound to
         the same window_id, that stale binding is removed first.
         """
+        # Enforce 1:1 globally. A provider window can serve exactly one default
+        # member lane; explicit task lanes have their own separate registry.
+        stale = [
+            (owner_id, owner_thread)
+            for owner_id, bindings in self.thread_bindings.items()
+            for owner_thread, candidate in bindings.items()
+            if candidate == window_id
+            and (owner_id, owner_thread) != (user_id, thread_id)
+        ]
+        for owner_id, owner_thread in stale:
+            self._remove_binding(owner_id, owner_thread)
+            logger.info(
+                "Evicted stale cross-operator window binding",
+                removed_user_id=owner_id,
+                removed_thread_id=owner_thread,
+                window_id=window_id,
+                replacement_user_id=user_id,
+                replacement_thread_id=thread_id,
+            )
+
         if user_id not in self.thread_bindings:
             self.thread_bindings[user_id] = {}
-
-        # Enforce 1:1 — unbind any OTHER thread pointing to this window
-        stale = [
-            tid
-            for tid, wid in self.thread_bindings[user_id].items()
-            if wid == window_id and tid != thread_id
-        ]
-        for tid in stale:
-            del self.thread_bindings[user_id][tid]
-            logger.info(
-                "Evicted stale binding: thread %d -> window_id %s "
-                "(replaced by thread %d)",
-                tid,
-                window_id,
-                thread_id,
-            )
 
         # Clean up stale reverse index if this thread was previously bound elsewhere
         old_window = self.thread_bindings[user_id].get(thread_id)
@@ -278,6 +310,13 @@ class ThreadRouter:
         return window_id in self.task_lane_windows or any(
             wid == window_id for (_, wid) in self._window_to_thread
         )
+
+    def user_owns_window(self, user_id: int, window_id: str) -> bool:
+        """Return whether *window_id* belongs to this operator's lane."""
+        if window_id in self.thread_bindings.get(user_id, {}).values():
+            return True
+        task = self.task_lane_windows.get(window_id)
+        return task is not None and int(task["user_id"]) == user_id
 
     def iter_thread_bindings(self) -> Iterator[tuple[int, int, str]]:
         """Iterate all thread bindings as (user_id, thread_id, window_id)."""

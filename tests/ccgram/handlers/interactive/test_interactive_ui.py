@@ -4,6 +4,7 @@ import pytest
 from telegram import InlineKeyboardMarkup
 
 from ccgram.handlers.callback_data import (
+    CB_ASK_CHOICE,
     CB_ASK_DOWN,
     CB_ASK_ENTER,
     CB_ASK_ESC,
@@ -18,6 +19,7 @@ from ccgram.handlers.interactive.interactive_ui import (
     INTERACTIVE_INSTRUCTION_LINE,
     _build_interactive_keyboard,
     format_interactive_message,
+    parse_direct_choices,
 )
 
 
@@ -79,6 +81,57 @@ class TestBuildInteractiveKeyboard:
             _build_interactive_keyboard("@" + "9" * 60, pane_id="%" + "1" * 60)
         )
         assert all(len(d) <= 64 for d in data)
+
+    def test_direct_choices_precede_navigation(self) -> None:
+        kb = _build_interactive_keyboard(
+            "@12",
+            direct_choices=(("1", "1. Alpha"), ("2", "2. Beta")),
+            sequence=7,
+        )
+
+        assert _cb_data(kb, row=0) == [
+            f"{CB_ASK_CHOICE}1:7:@12",
+            f"{CB_ASK_CHOICE}2:7:@12",
+        ]
+        assert len(kb.inline_keyboard) == 4
+
+
+class TestParseDirectChoices:
+    def test_bounded_numbered_menu(self) -> None:
+        content = """Choose one:
+  1. Keep local changes
+❯ 2. Use upstream version
+  3. Cancel
+Enter to select"""
+
+        assert parse_direct_choices(content) == (
+            ("1", "1. Keep local changes"),
+            ("2", "2. Use upstream version"),
+            ("3", "3. Cancel"),
+        )
+
+    def test_yes_no_prompt(self) -> None:
+        choices = parse_direct_choices("Continue?\n❯ Yes\n  No")
+
+        assert tuple(key for key, _label in choices) == ("y", "n")
+
+    def test_multi_select_keeps_navigation_only(self) -> None:
+        content = """Select multiple options:
+☐ 1. Alpha
+☐ 2. Beta"""
+
+        assert parse_direct_choices(content) == ()
+
+    def test_ambiguous_equal_distance_menus_are_rejected(self) -> None:
+        content = """1. Alpha
+2. Beta
+
+❯ cursor
+
+1. Gamma
+2. Delta"""
+
+        assert parse_direct_choices(content) == ()
 
 
 class TestFormatInteractiveMessage:

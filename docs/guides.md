@@ -876,7 +876,9 @@ ccgram-codex-2
 
 `/replay [数量]` 从 transcript 重新发送最近 1–10 条助手文本，不会回退监控游标，因此不会影响正常增量投递。默认重放 3 条，长内容自动作为 `.txt` 文件发送。
 
-`/ops` 汇总所有话题的队列数量、未完成任务、持久化 outbox、重试数和 transcript 投递积压。助手文本在进入内存队列前会写入 `~/.ccgram/outbox.json`，Telegram 明确确认后才删除；服务重启会自动恢复未确认项，并在加载时把 Outbox Gauge 与磁盘状态重新对齐。队列按 `用户 + 话题` 隔离，一个话题遭遇 Telegram 超时不会阻塞同一用户的其他话题。积压同时超过 `CCGRAM_DELIVERY_LAG_WARN_SECONDS`（默认 120 秒）和 `CCGRAM_DELIVERY_LAG_MIN_BYTES`（默认 4096 字节）才向运营者告警，恢复后记录恢复指标。
+`/ops` 汇总所有话题的队列数量、未完成任务、持久化 outbox、重试数和 transcript 投递积压。助手文本在进入内存队列前会写入 `~/.ccgram/outbox.json`，Telegram 明确确认后才删除；服务重启会自动恢复未确认项，并在加载时把 Outbox Gauge 与磁盘状态重新对齐。队列按 `用户 + 话题` 隔离，一个话题遭遇 Telegram 超时不会阻塞同一用户的其他话题。持续输出时，投递游标会安全推进到“最早待投递 Outbox 批次”的起点，而不是等待整个队列完全清空；因此长时间活跃的会话也能持续收敛，重启时仍会从未确认批次开始恢复，不会跳过消息。积压同时超过 `CCGRAM_DELIVERY_LAG_WARN_SECONDS`（默认 120 秒）和 `CCGRAM_DELIVERY_LAG_MIN_BYTES`（默认 4096 字节）才向运营者告警，恢复后记录恢复指标。
+
+Telegram 的 `RetryAfter` 在单个请求内独立等待和重试，不会因一个话题改名受限而暂停其他话题的普通消息。状态 Emoji 政名按群节流；遇到 flood control 后仅暂停该群的改名 5 分钟，任务执行、回执和最终回复不受影响。
 
 助手产生未完成的流式文本时，ccgram 会先使用 Telegram 原生草稿显示实时预览；最终回复仍进入持久化 Outbox，只有 Telegram 确认后才完成投递。草稿停滞 25 秒会自动清理，且草稿 API 不可用时自动降级，不影响最终回复。
 

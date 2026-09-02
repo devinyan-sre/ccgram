@@ -195,6 +195,27 @@ def is_session_delivery_drained(session_id: str) -> bool:
     return not delivery_outbox.has_pending_session(session_id)
 
 
+def session_delivery_commit_offset(
+    session_id: str,
+    delivered_offset: int,
+    pending_offset: int,
+) -> int:
+    """Return the largest crash-safe transcript cursor for one session.
+
+    Under sustained output the queue may never become completely empty. The
+    earliest durable Outbox record is nevertheless a safe fence: everything
+    before its batch start reached a terminal delivery state. Unknown
+    in-memory work without an Outbox record remains conservative and keeps the
+    current delivered cursor.
+    """
+    pending_start = delivery_outbox.earliest_pending_offset(session_id)
+    if pending_start is not None:
+        return max(delivered_offset, min(pending_offset, pending_start))
+    if not is_session_delivery_drained(session_id):
+        return delivered_offset
+    return pending_offset
+
+
 def get_or_create_queue(
     client: TelegramClient, user_id: int, thread_id: int | None = None
 ) -> asyncio.Queue[MessageTask]:
