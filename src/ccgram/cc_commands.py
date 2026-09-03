@@ -91,6 +91,7 @@ _BOT_COMMANDS: list[tuple[str, str]] = [
     ("verbose", "Toggle tool call batching"),
     ("upgrade", "Upgrade ccgram and restart"),
     ("handoff", "Replace provider while keeping this topic"),
+    ("approval", "View or switch this topic's approval mode"),
     ("autoname", "Apply directory-provider-number topic name"),
     ("park", "Stop session but keep topic history"),
     ("wake", "Restart a parked topic"),

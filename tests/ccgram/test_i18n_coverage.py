@@ -103,7 +103,7 @@ def test_dynamic_t_calls_are_allowlisted() -> None:
     # Each allowlisted site passes a module-level constant / dict value into
     # t(); test_dynamic_site_values_are_translated verifies those values.
     allowlist = [
-        "cc_commands.py:149",
+        "cc_commands.py:150",
         "destructive_audit.py:117",
         "handlers/interactive/interactive_callbacks.py:231",
         "handlers/interactive/interactive_ui.py:121",

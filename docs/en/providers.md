@@ -37,6 +37,18 @@ CCGram stores mode per window and reuses it for recover/continue/resume flows.
 
 YOLO sessions are indicated in Telegram topic titles with a `🚀` badge and in `/sessions` with a `[YOLO]` tag. When Remote Control is active, a `📡` badge also appears in the topic title.
 
+### Switching an existing topic
+
+Use the bot-native command inside a bound Telegram topic:
+
+```text
+/approval          # show the current mode and provider
+/approval yolo     # switch to YOLO
+/approval normal   # switch back to standard approvals
+```
+
+Only administrators can enable YOLO/bypass. The switch starts and verifies a replacement CLI before committing the new binding. A failure keeps the original window and mode. Switching is rejected while the window has active or queued work. The old transcript is retained and recent context is handed to the replacement session. The selected mode is persisted, so restarts, automatic relaunch, restore, and continue flows keep using it. Pi and Shell do not expose a permissive launch mode and are rejected without changing state.
+
 ## Custom Launch Commands
 
 Override the CLI command used to launch each provider via `CCGRAM_<NAME>_COMMAND` env vars:

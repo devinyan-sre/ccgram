@@ -82,6 +82,73 @@ async def test_handoff_binds_only_after_replacement_is_ready(old_view) -> None:
     mux.kill_window.assert_awaited_once_with("@old")
 
 
+async def test_handoff_uses_explicit_approval_mode_override(old_view) -> None:
+    target = MagicMock()
+    target.capabilities.name = "codex"
+    target.capabilities.has_yolo_confirmation = False
+    target.capabilities.chat_first_command_path = False
+    with (
+        patch(
+            "ccgram.provider_handoff.window_query.view_window", return_value=old_view
+        ),
+        patch("ccgram.provider_handoff.get_provider_for_window", return_value=target),
+        patch("ccgram.provider_handoff.reserve_topic_name", _reserved_name),
+        patch(
+            "ccgram.provider_handoff.resolve_launch_command",
+            return_value="codex --yolo",
+        ) as resolve_launch,
+        patch("ccgram.provider_handoff.tmux_manager") as mux,
+        patch("ccgram.provider_handoff.topic_orchestration"),
+        patch("ccgram.provider_handoff.session_manager") as sessions,
+        patch("ccgram.provider_handoff.thread_router"),
+        patch(
+            "ccgram.provider_handoff._wait_until_ready",
+            new=AsyncMock(return_value=True),
+        ),
+    ):
+        mux.create_window = AsyncMock(
+            return_value=(True, "created", "project-2", "@new")
+        )
+        mux.stamp_pane_title = AsyncMock()
+        mux.find_window_by_id = AsyncMock(return_value=MagicMock())
+        mux.kill_window = AsyncMock(return_value=True)
+
+        result = await handoff_provider(
+            user_id=7,
+            thread_id=11,
+            old_window_id="@old",
+            target_provider="codex",
+            target_approval_mode="normal",
+        )
+
+    assert result.success is True
+    resolve_launch.assert_called_once_with("codex", approval_mode="normal")
+    sessions.set_window_approval_mode.assert_called_once_with("@new", "normal")
+
+
+async def test_handoff_rejects_yolo_for_unsupported_provider(old_view) -> None:
+    target = MagicMock()
+    target.capabilities.name = "pi"
+    with (
+        patch(
+            "ccgram.provider_handoff.window_query.view_window", return_value=old_view
+        ),
+        patch("ccgram.provider_handoff.get_provider_for_window", return_value=target),
+        patch("ccgram.provider_handoff.tmux_manager") as mux,
+    ):
+        result = await handoff_provider(
+            user_id=7,
+            thread_id=11,
+            old_window_id="@old",
+            target_provider="pi",
+            target_approval_mode="yolo",
+        )
+
+    assert result.success is False
+    assert "does not support yolo" in result.message.lower()
+    mux.create_window.assert_not_called()
+
+
 async def test_codex_handoff_accepts_ready_tui_before_lazy_transcript() -> None:
     with (
         patch("ccgram.provider_handoff.tmux_manager") as mux,

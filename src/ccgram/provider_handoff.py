@@ -97,6 +97,7 @@ async def handoff_provider(  # noqa: C901,PLR0911,PLR0912,PLR0915 - transaction
     old_window_id: str,
     target_provider: str,
     context_prompt: str = "",
+    target_approval_mode: str | None = None,
 ) -> HandoffResult:
     """Replace a topic's provider, retaining the old binding until ready.
 
@@ -128,8 +129,28 @@ async def handoff_provider(  # noqa: C901,PLR0911,PLR0912,PLR0915 - transaction
         )
 
     approval_mode = (
-        old_view.approval_mode if has_yolo_mode(target_provider) else "normal"
+        target_approval_mode
+        if target_approval_mode is not None
+        else (old_view.approval_mode if has_yolo_mode(target_provider) else "normal")
     )
+    if approval_mode not in {"normal", "yolo"}:
+        _record_handoff(source_provider, target_provider, "invalid_approval_mode")
+        return HandoffResult(
+            False,
+            old_window_id,
+            provider_name=target_provider,
+            message=t("Unknown approval mode: {mode}").format(mode=approval_mode),
+        )
+    if approval_mode == "yolo" and not has_yolo_mode(target_provider):
+        _record_handoff(source_provider, target_provider, "unsupported_approval_mode")
+        return HandoffResult(
+            False,
+            old_window_id,
+            provider_name=target_provider,
+            message=t("{provider} does not support YOLO mode.").format(
+                provider=target_provider
+            ),
+        )
     launch_command = resolve_launch_command(
         target_provider, approval_mode=approval_mode
     )

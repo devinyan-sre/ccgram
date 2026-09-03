@@ -850,6 +850,16 @@ claude     # or: codex, gemini, pi
 /wake codex                # 用指定 Provider 恢复
 ```
 
+现有话题的 Standard/YOLO 模式可用 `/approval` 查询和持久切换：
+
+```text
+/approval                  # 查看当前模式
+/approval yolo             # 切换到 YOLO
+/approval normal           # 切换回标准模式
+```
+
+切换通过同一事务替换流程完成，有活动或排队任务时会拒绝执行。YOLO/bypass 只能由管理员启用。旧转录不会删除，最近上下文会自动交接；成功后模式写入窗口状态并同步话题徽标。也可使用 `/approval 开启`、`/approval 关闭`。
+
 迁移是事务式的：旧窗口会一直保留到新 Provider 的前台进程和 session transcript 都确认就绪。创建、登录或绑定失败时，新窗口会被清理，原话题仍指向旧窗口。认证失败通知也会提供 **Codex**、**Codex + context** 和 **Park topic** 按钮；相同认证错误在 10 分钟内只提示一次。
 
 `/park` 不删除 Telegram 话题或历史记录，只停止对应窗口并持久化恢复所需状态。即使 ccgram 重启，也不会把主动休眠误报为崩溃。`/sessions` 中已停止的话题会显示 **Wake** 按钮。

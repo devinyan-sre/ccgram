@@ -6,11 +6,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from ccgram.handlers.lifecycle_commands import (
     _diagnostic_problems,
     _park,
+    approval_command,
     autoname_command,
     build_auth_failure_keyboard,
     ops_command,
 )
 from ccgram.i18n import _reset_language_for_testing
+from ccgram.provider_handoff import HandoffResult
 from ccgram.task_scheduler import TaskStats
 from ccgram.topic_naming import ReservedTopicName
 
@@ -90,6 +92,154 @@ async def test_autoname_updates_parked_topic_without_live_window() -> None:
     sessions.set_display_name.assert_called_once_with("@3", "ccgram-codex-1")
     sessions.set_window_auto_named.assert_called_once_with("@3", value=True)
     sync_name.assert_awaited_once()
+
+
+def _approval_update(text: str) -> MagicMock:
+    update = MagicMock()
+    update.message = MagicMock()
+    update.message.text = text
+    update.message.chat.id = -100
+    return update
+
+
+async def test_approval_without_argument_reports_current_mode() -> None:
+    update = _approval_update("/approval")
+    view = MagicMock(provider_name="codex", approval_mode="normal")
+    reply = AsyncMock()
+    with (
+        patch(
+            "ccgram.handlers.lifecycle_commands._resolve_bound",
+            return_value=(7, 11, "@3"),
+        ),
+        patch(
+            "ccgram.handlers.lifecycle_commands.window_query.view_window",
+            return_value=view,
+        ),
+        patch("ccgram.handlers.lifecycle_commands.safe_reply", reply),
+    ):
+        await approval_command(update, MagicMock())
+
+    call_args = reply.await_args
+    assert call_args is not None
+    text = call_args.args[1]
+    assert "codex" in text
+    assert "/approval yolo" in text
+
+
+async def test_approval_switches_transactionally_and_transfers_context() -> None:
+    update = _approval_update("/approval yolo")
+    context = MagicMock()
+    view = MagicMock(provider_name="codex", approval_mode="normal")
+    result = HandoffResult(
+        True,
+        "@3",
+        new_window_id="@4",
+        provider_name="codex",
+        context_sent=True,
+        window_name="project-codex-1",
+    )
+    reply = AsyncMock()
+    with (
+        patch(
+            "ccgram.handlers.lifecycle_commands._resolve_bound",
+            return_value=(7, 11, "@3"),
+        ),
+        patch(
+            "ccgram.handlers.lifecycle_commands.window_query.view_window",
+            return_value=view,
+        ),
+        patch(
+            "ccgram.handlers.lifecycle_commands.task_scheduler.views",
+            return_value=[],
+        ),
+        patch("ccgram.handlers.lifecycle_commands.has_role", return_value=True),
+        patch(
+            "ccgram.handlers.lifecycle_commands.generate_handoff_context",
+            new=AsyncMock(return_value="recent context"),
+        ),
+        patch(
+            "ccgram.handlers.lifecycle_commands.handoff_provider",
+            new=AsyncMock(return_value=result),
+        ) as handoff,
+        patch(
+            "ccgram.handlers.lifecycle_commands._sync_topic_name",
+            new=AsyncMock(),
+        ) as sync_name,
+        patch("ccgram.handlers.lifecycle_commands.safe_reply", reply),
+    ):
+        await approval_command(update, context)
+
+    handoff.assert_awaited_once_with(
+        user_id=7,
+        thread_id=11,
+        old_window_id="@3",
+        target_provider="codex",
+        context_prompt="recent context",
+        target_approval_mode="yolo",
+    )
+    sync_name.assert_awaited_once()
+    assert "YOLO" in reply.await_args_list[-1].args[1]
+
+
+async def test_approval_refuses_to_interrupt_active_task() -> None:
+    update = _approval_update("/approval 开启")
+    view = MagicMock(provider_name="codex", approval_mode="normal")
+    task = MagicMock(window_id="@3", task_id="T0042", state="active")
+    reply = AsyncMock()
+    with (
+        patch(
+            "ccgram.handlers.lifecycle_commands._resolve_bound",
+            return_value=(7, 11, "@3"),
+        ),
+        patch(
+            "ccgram.handlers.lifecycle_commands.window_query.view_window",
+            return_value=view,
+        ),
+        patch(
+            "ccgram.handlers.lifecycle_commands.task_scheduler.views",
+            return_value=[task],
+        ),
+        patch("ccgram.handlers.lifecycle_commands.has_role", return_value=True),
+        patch(
+            "ccgram.handlers.lifecycle_commands.handoff_provider",
+            new_callable=AsyncMock,
+        ) as handoff,
+        patch("ccgram.handlers.lifecycle_commands.safe_reply", reply),
+    ):
+        await approval_command(update, MagicMock())
+
+    handoff.assert_not_awaited()
+    call_args = reply.await_args
+    assert call_args is not None
+    assert "T0042" in call_args.args[1]
+
+
+async def test_approval_yolo_requires_admin_role() -> None:
+    update = _approval_update("/approval yolo")
+    view = MagicMock(provider_name="codex", approval_mode="normal")
+    reply = AsyncMock()
+    with (
+        patch(
+            "ccgram.handlers.lifecycle_commands._resolve_bound",
+            return_value=(7, 11, "@3"),
+        ),
+        patch(
+            "ccgram.handlers.lifecycle_commands.window_query.view_window",
+            return_value=view,
+        ),
+        patch("ccgram.handlers.lifecycle_commands.has_role", return_value=False),
+        patch(
+            "ccgram.handlers.lifecycle_commands.handoff_provider",
+            new_callable=AsyncMock,
+        ) as handoff,
+        patch("ccgram.handlers.lifecycle_commands.safe_reply", reply),
+    ):
+        await approval_command(update, MagicMock())
+
+    handoff.assert_not_awaited()
+    call_args = reply.await_args
+    assert call_args is not None
+    assert "YOLO" in call_args.args[1]
 
 
 async def test_ops_reports_scheduler_timing_and_cancel_outcomes_in_chinese(

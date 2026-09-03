@@ -94,6 +94,7 @@ _ZH: dict[str, str] = {
     "Toggle tool call batching": "切换工具调用合并模式",
     "Upgrade ccgram and restart": "升级并重启 ccgram",
     "Replace provider while keeping this topic": "保留话题并切换 Provider",
+    "View or switch this topic's approval mode": "查看或切换当前话题的审批模式",
     "Apply directory-provider-number topic name": "按目录-Provider-序号命名话题",
     "Stop session but keep topic history": "停止会话并保留话题历史",
     "Restart a parked topic": "重新启动已挂起话题",
@@ -836,6 +837,47 @@ _ZH: dict[str, str] = {
     "Switched to {provider}.": "已切换到 {provider}。",
     "Provider handoff failed. The old session was kept.": (
         "Provider 迁移失败，旧会话已保留。"
+    ),
+    "Unknown approval mode: {mode}": "未知审批模式：{mode}",
+    "{provider} does not support YOLO mode.": "{provider} 不支持 YOLO 模式。",
+    "Standard": "标准",
+    (
+        "Current approval mode: **{mode}**\nProvider: `{provider}`\n\n"
+        "Switch with `/approval yolo` or `/approval normal`."
+    ): (
+        "当前审批模式：**{mode}**\n提供方：`{provider}`\n\n"
+        "使用 `/approval yolo` 或 `/approval normal` 切换。"
+    ),
+    "❌ Use /approval inside a bound topic.": ("❌ 请在已绑定的话题内使用 /approval。"),
+    (
+        "❌ Unknown approval mode. Use `/approval yolo` or `/approval normal`."
+    ): "❌ 未知审批模式。请使用 `/approval yolo` 或 `/approval normal`。",
+    "❌ YOLO/bypass mode requires the admin role.": (
+        "❌ YOLO/bypass 模式仅管理员可以启用。"
+    ),
+    "❌ {provider} does not support approval-mode switching.": (
+        "❌ {provider} 不支持审批模式切换。"
+    ),
+    "✅ This topic is already in **{mode}** mode.": (
+        "✅ 当前话题已经是 **{mode}** 模式。"
+    ),
+    (
+        "⏳ Task {task_id} is still {state}. Wait for it to finish or "
+        "cancel it before switching approval mode."
+    ): (
+        "⏳ 任务 {task_id} 仍处于 {state} 状态。"
+        "请等待任务完成，或取消任务后再切换审批模式。"
+    ),
+    "⏳ Switching this topic to **{mode}** and verifying the CLI…": (
+        "⏳ 正在将当前话题切换为 **{mode}** 并验证 CLI…"
+    ),
+    "❌ Approval mode was not changed. {reason}": ("❌ 审批模式未改变。{reason}"),
+    " Recent context was transferred.": " 最近的上下文已转移。",
+    (
+        "✅ Approval mode is now **{mode}** and has been saved. "
+        "The old transcript is retained.{context_note}"
+    ): (
+        "✅ 审批模式已切换为 **{mode}** 并持久保存。旧会话记录仍然保留。{context_note}"
     ),
     (
         "The replacement started, but context could not be sent. "

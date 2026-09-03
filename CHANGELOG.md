@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Persistent `/approval [normal|yolo]` mode inspection and switching for
+  existing Claude, Codex, and Gemini topics. Changes use the transactional
+  provider replacement path, refuse to interrupt active work, retain the old
+  transcript, transfer recent context, update the topic badge, and survive
+  service or CLI restarts. Chinese mode arguments are accepted as aliases.
+
 - Durable provider dispatch confirmation for every prompt and supplement.
   Claude, Codex, Gemini and Pi acknowledge through real transcript user turns;
   Shell acknowledges at its controlled execution pipeline. Missed TUI submits

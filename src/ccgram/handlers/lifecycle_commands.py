@@ -6,10 +6,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.error import TelegramError
 
 from .. import session_query, topic_routing, window_query
+from ..access_control import has_role
 from ..config import config
 from ..delivery_outbox import delivery_outbox
 from ..handoff_context import generate_handoff_context, transcript_tail_offset
@@ -18,6 +19,7 @@ from ..multiplexer import multiplexer as tmux_manager
 from ..providers import (
     detect_provider_from_pane,
     detect_provider_from_transcript_path,
+    has_yolo_mode,
 )
 from ..provider_handoff import HandoffResult, handoff_provider
 from ..session import session_manager
@@ -28,6 +30,7 @@ from ..task_audit import cancellation_summary
 from ..task_scheduler import task_scheduler
 from ..topic_naming import reserve_topic_name
 from ..window_state_ports import identity_state, lifecycle_state
+from ..window_view import WindowView
 from .callback_data import CB_HANDOFF, CB_PARK, CB_WAKE
 from .callback_helpers import get_thread_id, user_owns_window
 from .callback_registry import register
@@ -193,6 +196,155 @@ async def handoff_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
     await _sync_topic_name(PTBTelegramClient(context.bot), user_id, thread_id, result)
     await safe_reply(update.message, _result_text(result))
+
+
+_APPROVAL_MODE_ALIASES = {
+    "normal": "normal",
+    "standard": "normal",
+    "off": "normal",
+    "普通": "normal",
+    "标准": "normal",
+    "关闭": "normal",
+    "yolo": "yolo",
+    "on": "yolo",
+    "开启": "yolo",
+    "启用": "yolo",
+}
+
+
+def _approval_status_text(provider_name: str, mode: str) -> str:
+    label = "YOLO" if mode == "yolo" else t("Standard")
+    return t(
+        "Current approval mode: **{mode}**\nProvider: `{provider}`\n\n"
+        "Switch with `/approval yolo` or `/approval normal`."
+    ).format(mode=label, provider=provider_name)
+
+
+async def _resolve_approval_request(
+    message: Message, user_id: int, view: WindowView
+) -> tuple[str, str] | None:
+    """Validate one mode request, replying for status/no-op/error cases."""
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) == 1 or not parts[1].strip():
+        await safe_reply(
+            message,
+            _approval_status_text(view.provider_name or "shell", view.approval_mode),
+        )
+        return None
+
+    raw_mode = parts[1].strip().lower()
+    target_mode = _APPROVAL_MODE_ALIASES.get(raw_mode)
+    if target_mode is None:
+        await safe_reply(
+            message,
+            t("❌ Unknown approval mode. Use `/approval yolo` or `/approval normal`."),
+        )
+        return None
+    if target_mode == "yolo" and not has_role(user_id, "admin"):
+        await safe_reply(
+            message,
+            t("❌ YOLO/bypass mode requires the admin role."),
+        )
+        return None
+
+    provider_name = view.provider_name or "shell"
+    if not has_yolo_mode(provider_name):
+        await safe_reply(
+            message,
+            t("❌ {provider} does not support approval-mode switching.").format(
+                provider=provider_name
+            ),
+        )
+        return None
+    if target_mode == view.approval_mode:
+        await safe_reply(
+            message,
+            t("✅ This topic is already in **{mode}** mode.").format(
+                mode="YOLO" if target_mode == "yolo" else t("Standard")
+            ),
+        )
+        return None
+    return provider_name, target_mode
+
+
+async def approval_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """``/approval [normal|yolo]`` — persistently switch this topic's mode.
+
+    A mode change uses the transactional handoff path: the replacement CLI
+    must become ready before the binding moves and the old window is stopped.
+    Recent context is transferred and the old transcript remains on disk.
+    """
+    resolved = _resolve_bound(update)
+    if resolved is None or not update.message:
+        if update.message:
+            await safe_reply(
+                update.message, t("❌ Use /approval inside a bound topic.")
+            )
+        return
+    user_id, thread_id, window_id = resolved
+    view = window_query.view_window(window_id)
+    if view is None:
+        await safe_reply(update.message, t("❌ No state exists for this window."))
+        return
+
+    request = await _resolve_approval_request(update.message, user_id, view)
+    if request is None:
+        return
+    provider_name, target_mode = request
+
+    chat_id = update.message.chat.id
+    busy = next(
+        (
+            task
+            for task in task_scheduler.views(chat_id=chat_id, thread_id=thread_id)
+            if task.window_id == window_id
+        ),
+        None,
+    )
+    if busy is not None:
+        await safe_reply(
+            update.message,
+            t(
+                "⏳ Task {task_id} is still {state}. Wait for it to finish or "
+                "cancel it before switching approval mode."
+            ).format(task_id=busy.task_id, state=busy.state),
+        )
+        return
+
+    label = "YOLO" if target_mode == "yolo" else t("Standard")
+    await safe_reply(
+        update.message,
+        t("⏳ Switching this topic to **{mode}** and verifying the CLI…").format(
+            mode=label
+        ),
+    )
+    context_prompt = await generate_handoff_context(window_id)
+    result = await handoff_provider(
+        user_id=user_id,
+        thread_id=thread_id,
+        old_window_id=window_id,
+        target_provider=provider_name,
+        context_prompt=context_prompt,
+        target_approval_mode=target_mode,
+    )
+    if not result.success:
+        await safe_reply(
+            update.message,
+            t("❌ Approval mode was not changed. {reason}").format(
+                reason=result.message
+            ),
+        )
+        return
+
+    await _sync_topic_name(PTBTelegramClient(context.bot), user_id, thread_id, result)
+    context_note = t(" Recent context was transferred.") if result.context_sent else ""
+    await safe_reply(
+        update.message,
+        t(
+            "✅ Approval mode is now **{mode}** and has been saved. "
+            "The old transcript is retained.{context_note}"
+        ).format(mode=label, context_note=context_note),
+    )
 
 
 async def autoname_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

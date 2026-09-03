@@ -679,6 +679,20 @@ Manual overrides set `WindowState.provider_manual_override=True`. The periodic a
 /wake codex                # restart with a selected provider
 ```
 
+Inspect or persistently switch Standard/YOLO mode on an existing topic with
+`/approval`:
+
+```text
+/approval                  # show the current mode
+/approval yolo             # switch to YOLO
+/approval normal           # switch back to standard mode
+```
+
+Only administrators can enable YOLO/bypass. The command uses the same transactional replacement flow and refuses to run
+while the window has active or queued work. It retains the old transcript,
+hands recent context to the replacement, persists the selected mode, and
+updates the topic badge after success.
+
 Handoff is transactional: the old window remains bound until the replacement process and session transcript are ready. A create, login, or binding failure removes the replacement and preserves the old session. Authentication-failure notices offer **Codex**, **Codex + context**, and **Park topic** actions, with duplicate authentication notices suppressed for ten minutes.
 
 `/park` never deletes the Telegram topic or its history, and persists the intentional stop so a ccgram restart does not report it as a crash. The sessions dashboard shows a **Wake** action for stopped topics.
