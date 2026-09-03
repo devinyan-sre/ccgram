@@ -9,6 +9,7 @@ import pytest
 from ccgram.provider_handoff import _provider_ready, handoff_provider
 from ccgram.provider_readiness import ProviderReadiness
 from ccgram.topic_naming import ReservedTopicName
+from ccgram.window_lifecycle_guard import _retired_windows
 
 
 @asynccontextmanager
@@ -23,6 +24,13 @@ def old_view(tmp_path: Path) -> MagicMock:
         cwd=str(tmp_path),
         approval_mode="yolo",
     )
+
+
+@pytest.fixture(autouse=True)
+def _clear_retirement_guards():
+    _retired_windows.clear()
+    yield
+    _retired_windows.clear()
 
 
 async def test_handoff_binds_only_after_replacement_is_ready(old_view) -> None:
@@ -44,6 +52,8 @@ async def test_handoff_binds_only_after_replacement_is_ready(old_view) -> None:
         patch("ccgram.provider_handoff.topic_orchestration") as orchestration,
         patch("ccgram.provider_handoff.session_manager") as sessions,
         patch("ccgram.provider_handoff.thread_router") as router,
+        patch("ccgram.provider_handoff.register_retired_window") as retire,
+        patch("ccgram.provider_handoff.clear_retired_window") as clear_retired,
         patch(
             "ccgram.provider_handoff._wait_until_ready",
             new=AsyncMock(return_value=True),
@@ -80,6 +90,8 @@ async def test_handoff_binds_only_after_replacement_is_ready(old_view) -> None:
     send.assert_awaited_once_with("@new", "continue here")
     mux.rename_window.assert_awaited_once_with("@new", "project-2")
     mux.kill_window.assert_awaited_once_with("@old")
+    retire.assert_called_once_with("@old")
+    clear_retired.assert_not_called()
 
 
 async def test_handoff_uses_explicit_approval_mode_override(old_view) -> None:
@@ -190,6 +202,8 @@ async def test_handoff_startup_failure_rolls_back_and_keeps_binding(old_view) ->
         patch("ccgram.provider_handoff.topic_orchestration") as orchestration,
         patch("ccgram.provider_handoff.session_manager"),
         patch("ccgram.provider_handoff.thread_router") as router,
+        patch("ccgram.provider_handoff.register_retired_window") as retire,
+        patch("ccgram.provider_handoff.clear_retired_window") as clear_retired,
         patch(
             "ccgram.provider_handoff._wait_until_ready",
             new=AsyncMock(return_value=False),
@@ -213,6 +227,8 @@ async def test_handoff_startup_failure_rolls_back_and_keeps_binding(old_view) ->
     router.bind_thread.assert_not_called()
     mux.kill_window.assert_awaited_once_with("@new")
     orchestration.clear_pending_creation.assert_called_once_with("@new")
+    retire.assert_called_once_with("@old")
+    clear_retired.assert_called_once_with("@old")
 
 
 async def test_handoff_rejects_missing_project() -> None:
