@@ -27,6 +27,10 @@ from .session_map import read_session_map_raw, session_map_prefix
 from .thread_router import thread_router
 from .topic_naming import reserve_topic_name
 from .window_state_store import CCGRAM_CREATED_WINDOW_ORIGIN
+from .window_lifecycle_guard import (
+    clear_retired_window,
+    register_retired_window,
+)
 from . import window_query
 
 logger = structlog.get_logger()
@@ -186,6 +190,12 @@ async def handoff_provider(  # noqa: C901,PLR0911,PLR0912,PLR0915 - transaction
         )
 
     binding_committed = False
+    handoff_succeeded = False
+    # A queued SessionStart/NewWindow event for the source can arrive after the
+    # binding moves. Keep it from auto-creating a duplicate topic while the old
+    # window is being retired. The successful path deliberately leaves a short
+    # TTL tombstone; rollback removes it immediately.
+    register_retired_window(old_window_id)
     try:
         await tmux_manager.stamp_pane_title(new_window_id, target_provider)
 
@@ -273,6 +283,7 @@ async def handoff_provider(  # noqa: C901,PLR0911,PLR0912,PLR0915 - transaction
             )
 
         _record_handoff(source_provider, target_provider, "ok")
+        handoff_succeeded = True
         logger.info(
             "Provider handoff complete: thread=%s %s(%s) -> %s(%s)",
             thread_id,
@@ -313,3 +324,5 @@ async def handoff_provider(  # noqa: C901,PLR0911,PLR0912,PLR0915 - transaction
         )
     finally:
         topic_orchestration.clear_pending_creation(new_window_id)
+        if not handoff_succeeded:
+            clear_retired_window(old_window_id)

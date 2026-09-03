@@ -16,20 +16,28 @@ import pytest
 
 from ccgram.handlers.topics.topic_orchestration import (
     _is_pending_user_creation,
-    _pending_user_creations,
     clear_pending_creation,
     handle_new_window,
     register_pending_creation,
 )
 from ccgram.handlers.topics import topic_orchestration  # type: ignore[attr-defined]
 from ccgram.session_monitor import NewWindowEvent
+from ccgram import window_lifecycle_guard
+from ccgram.window_lifecycle_guard import (
+    _pending_window_creations,
+    _retired_windows,
+    clear_retired_window,
+    register_retired_window,
+)
 
 
 @pytest.fixture(autouse=True)
 def _clear_pending_state():
-    _pending_user_creations.clear()
+    _pending_window_creations.clear()
+    _retired_windows.clear()
     yield
-    _pending_user_creations.clear()
+    _pending_window_creations.clear()
+    _retired_windows.clear()
 
 
 def _make_event(window_id: str = "@42") -> NewWindowEvent:
@@ -57,16 +65,16 @@ def test_register_pending_creation_is_idempotent():
 
 def test_pending_creation_expires_after_ttl(monkeypatch):
     base = time.monotonic()
-    monkeypatch.setattr(topic_orchestration.time, "monotonic", lambda: base)
+    monkeypatch.setattr(window_lifecycle_guard.time, "monotonic", lambda: base)
     register_pending_creation("@42")
     assert _is_pending_user_creation("@42")
     monkeypatch.setattr(
-        topic_orchestration.time,
+        window_lifecycle_guard.time,
         "monotonic",
-        lambda: base + topic_orchestration._PENDING_CREATION_TTL_S + 1,
+        lambda: base + window_lifecycle_guard._PENDING_CREATION_TTL_S + 1,
     )
     assert not _is_pending_user_creation("@42")
-    assert "@42" not in _pending_user_creations
+    assert "@42" not in _pending_window_creations
 
 
 def test_clear_pending_creation_is_idempotent():
@@ -97,6 +105,28 @@ async def test_handle_new_window_skips_when_pending(monkeypatch):
 
     create_topic_mock.assert_not_awaited()
     rebind_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_new_window_skips_recently_retired_window(monkeypatch):
+    register_retired_window("@42")
+
+    create_topic_mock = AsyncMock()
+    rebind_mock = AsyncMock(return_value=False)
+    monkeypatch.setattr(
+        topic_orchestration, "_is_window_already_bound", lambda _wid: False
+    )
+    monkeypatch.setattr(topic_orchestration, "create_topic_in_chat", create_topic_mock)
+    monkeypatch.setattr(
+        topic_orchestration, "_rebind_existing_topic_by_name", rebind_mock
+    )
+    monkeypatch.setattr(topic_orchestration, "_auto_detect_provider", AsyncMock())
+
+    await handle_new_window(_make_event(), MagicMock())
+
+    create_topic_mock.assert_not_awaited()
+    rebind_mock.assert_not_awaited()
+    clear_retired_window("@42")
 
 
 @pytest.mark.asyncio

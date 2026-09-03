@@ -356,6 +356,9 @@ class SessionMapSync:
         # Lazy: window_state_store / thread_router proxies wired by SessionManager constructor
         from .window_state_store import window_store
 
+        # Lazy: avoid session_map ↔ lifecycle observer import cycles at startup.
+        from .window_lifecycle_guard import is_pending_creation
+
         bound_wids = {
             wid
             for user_bindings in thread_router.thread_bindings.values()
@@ -369,6 +372,7 @@ class SessionMapSync:
                 w
                 and w not in valid_wids
                 and w not in bound_wids
+                and not is_pending_creation(w)
                 and window_store.get_session_id_for_window(w) not in old_format_sids
             )
         ]

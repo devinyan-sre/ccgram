@@ -37,6 +37,7 @@ from ...session import session_manager
 from ...session_monitor import NewWindowEvent
 from ...telegram_client import TelegramClient
 from ...thread_router import thread_router
+from ... import window_lifecycle_guard
 from ...multiplexer import multiplexer as tmux_manager
 from ..messaging_pipeline.message_sender import is_thread_gone
 from ..status.topic_emoji import strip_emoji_prefix
@@ -124,40 +125,19 @@ def _is_window_already_bound(window_id: str) -> bool:
 # directory flow that's about to bind, do not create a duplicate topic." A
 # 30s TTL is the safety net in case directory_callbacks crashes before
 # clearing the entry — handle_new_window will eventually reclaim the window.
-_pending_user_creations: dict[str, float] = {}
-_PENDING_CREATION_TTL_S = 30.0
-
-
 def register_pending_creation(window_id: str) -> None:
-    """Mark a tmux window as owned by an in-flight directory-flow bind.
-
-    Call BEFORE any `await` between tmux window creation and
-    `thread_router.bind_thread`. Pair with `clear_pending_creation` (or rely on
-    the TTL) once the bind is complete.
-    """
-    if not window_id:
-        return
-    _pending_user_creations[window_id] = time.monotonic() + _PENDING_CREATION_TTL_S
+    """Protect a new window until its topic binding is committed."""
+    window_lifecycle_guard.register_pending_creation(window_id)
 
 
 def clear_pending_creation(window_id: str) -> None:
-    """Remove a window's pending-creation marker (idempotent)."""
-    _pending_user_creations.pop(window_id, None)
+    """Release a pending window-creation guard."""
+    window_lifecycle_guard.clear_pending_creation(window_id)
 
 
 def _is_pending_user_creation(window_id: str) -> bool:
-    """Return True iff a directory flow is mid-creation for this window.
-
-    Expired entries are evicted lazily on read so a crashed directory flow
-    can't permanently shadow a window from auto-topic-creation.
-    """
-    expires_at = _pending_user_creations.get(window_id)
-    if expires_at is None:
-        return False
-    if time.monotonic() >= expires_at:
-        _pending_user_creations.pop(window_id, None)
-        return False
-    return True
+    """Backward-compatible alias for pending-creation callers."""
+    return window_lifecycle_guard.is_pending_creation(window_id)
 
 
 async def _auto_detect_provider(window_id: str) -> None:
@@ -421,10 +401,9 @@ async def handle_new_window(event: NewWindowEvent, client: TelegramClient) -> No
         )
         return
 
-    if _is_pending_user_creation(event.window_id):
+    if window_lifecycle_guard.is_auto_topic_suppressed(event.window_id):
         logger.debug(
-            "New window %s creation pending in directory flow — "
-            "skipping auto topic creation",
+            "New window %s lifecycle change pending — skipping auto topic creation",
             event.window_id,
         )
         return

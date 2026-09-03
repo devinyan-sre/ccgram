@@ -7,6 +7,10 @@ from pathlib import Path
 
 from ccgram.session_map import parse_session_map, session_map_sync
 from ccgram.window_state_store import WindowState, window_store
+from ccgram.window_lifecycle_guard import (
+    clear_pending_creation,
+    register_pending_creation,
+)
 
 
 def _write_transcript(path: Path, age_seconds: float) -> None:
@@ -154,6 +158,31 @@ async def test_load_session_map_malformed_entry_does_not_delete_window_state(
     )
     # @5 (valid entry) state is updated normally
     assert "@5" in window_store.window_states
+
+
+async def test_load_session_map_preserves_pending_window_state(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    session_map_file = tmp_path / "session_map.json"
+    session_map_file.write_text("{}")
+    monkeypatch.setattr("ccgram.session_map.config.session_map_file", session_map_file)
+    monkeypatch.setattr("ccgram.session_map.config.tmux_session_name", "ccgram")
+    monkeypatch.setattr(session_map_sync, "_schedule_save", lambda: None)
+    window_store.window_states["@new"] = WindowState(
+        cwd="/repo",
+        provider_name="codex",
+        approval_mode="yolo",
+    )
+    register_pending_creation("@new")
+    try:
+        await session_map_sync.load_session_map()
+    finally:
+        clear_pending_creation("@new")
+
+    state = window_store.window_states["@new"]
+    assert state.provider_name == "codex"
+    assert state.approval_mode == "yolo"
 
 
 def test_grace_env_allows_adopting_candidate(tmp_path: Path, monkeypatch) -> None:

@@ -420,8 +420,10 @@ Creating sessions from the terminal on herdr is covered in [Creating Sessions fr
 
 CCGram automatically closes Telegram topics when sessions end, reducing clutter:
 
-- **Done topics** (`--autoclose-done`, default: 30 min) — When Claude finishes a task and the session completes normally, the topic auto-closes after 30 minutes.
-- **Dead sessions** (`--autoclose-dead`, default: 10 min) — When a Claude process crashes or the tmux window is killed externally, the topic auto-closes after 10 minutes.
+- **Done topics** (`--autoclose-done`, default: 30 min) — When a CLI provider explicitly reports a completed task state, the topic auto-closes after 30 minutes.
+- **Dead sessions** (`--autoclose-dead`, default: 10 min) — When a CLI process crashes or its tmux/herdr window is terminated externally, the topic auto-closes after 10 minutes.
+
+Ordinary idle time is not a finished session: while the CLI window is alive and no explicit done/dead terminal state exists, the topic remains open. Auto-close uses Telegram's non-destructive close operation, so reopening the topic preserves its history and allows it to be used again.
 
 Set to `0` to disable:
 
