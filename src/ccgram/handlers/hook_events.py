@@ -351,7 +351,12 @@ async def _handle_session_end(event: HookEvent, client: TelegramClient) -> None:
         reset_window_polling_state(window_id)
         chat_id = thread_router.resolve_chat_id(user_id, thread_id)
         display = thread_router.get_display_name(window_id)
-        await update_topic_emoji(client, chat_id, thread_id, "done", display)
+        if thread_router.controls_physical_topic(
+            user_id=user_id,
+            thread_id=thread_id,
+            window_id=window_id,
+        ):
+            await update_topic_emoji(client, chat_id, thread_id, "done", display)
         await enqueue_status_update(
             client, user_id, window_id, None, thread_id=thread_id
         )

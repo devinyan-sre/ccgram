@@ -388,6 +388,24 @@ class ThreadRouter:
                 return window_id
         return bindings[0][1] if bindings else None
 
+    def controls_physical_topic(
+        self,
+        *,
+        user_id: int,
+        thread_id: int,
+        window_id: str,
+    ) -> bool:
+        """Return whether a window owns shared Telegram topic lifecycle UI.
+
+        A physical topic can contain a canonical workspace window, member
+        lanes and explicit parallel task lanes. Only the canonical workspace
+        may rename/archive the physical topic; derived lanes report progress
+        through task messages and dashboards instead.
+        """
+        chat_id = self.resolve_chat_id(user_id, thread_id)
+        controller = self.get_workspace_window_for_chat_thread(chat_id, thread_id)
+        return controller == window_id
+
     def get_bindings_for_chat_thread(
         self, chat_id: int, thread_id: int
     ) -> list[tuple[int, str]]:

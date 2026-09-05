@@ -100,12 +100,21 @@ async def _sync_live_topic_names(
         all_windows = await tmux_manager.list_windows()
         live_ids = {w.window_id for w in all_windows}
 
+    seen_topics: set[tuple[int, int]] = set()
     for user_id, thread_id, window_id in thread_router.iter_thread_bindings():
         if window_id not in live_ids:
             continue
         chat_id = thread_router.resolve_chat_id(user_id, thread_id)
         if chat_id == user_id:
             continue
+        topic_key = (chat_id, thread_id)
+        if topic_key in seen_topics or not thread_router.controls_physical_topic(
+            user_id=user_id,
+            thread_id=thread_id,
+            window_id=window_id,
+        ):
+            continue
+        seen_topics.add(topic_key)
         await sync_topic_name(
             client,
             chat_id,

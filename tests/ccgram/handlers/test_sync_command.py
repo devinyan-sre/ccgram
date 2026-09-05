@@ -9,6 +9,7 @@ from ccgram.handlers.sync_command import (
     _format_report,
     _probe_dead_topics,
     _recreate_dead_topics,
+    _sync_live_topic_names,
     handle_sync_dismiss,
     handle_sync_fix,
     sync_command,
@@ -243,6 +244,36 @@ class TestSyncCommand:
 
             assert isinstance(args[0], PTBTelegramClient)
             assert args[0].bot is bot
+
+    async def test_topic_name_sync_uses_only_physical_topic_controller(
+        self, _patch_deps
+    ) -> None:
+        _, _, _, mock_tr, _, _ = _patch_deps
+        mock_tr.iter_thread_bindings.return_value = [
+            (100, 42, "@main"),
+            (200, 42, "@member"),
+        ]
+        mock_tr.resolve_chat_id.return_value = -999
+        mock_tr.controls_physical_topic.side_effect = lambda **kwargs: (
+            kwargs["window_id"] == "@main"
+        )
+        mock_tr.get_display_name.side_effect = lambda window_id: {
+            "@main": "ops-codex-1",
+            "@member": "ops-codex-3",
+        }[window_id]
+
+        with patch(
+            "ccgram.handlers.sync_command.sync_topic_name",
+            new_callable=AsyncMock,
+        ) as mock_sync_topic_name:
+            await _sync_live_topic_names(MagicMock(), live_ids={"@main", "@member"})
+
+        mock_sync_topic_name.assert_awaited_once()
+        assert mock_sync_topic_name.call_args.args[1:] == (
+            -999,
+            42,
+            "ops-codex-1",
+        )
 
 
 class TestSyncFix:

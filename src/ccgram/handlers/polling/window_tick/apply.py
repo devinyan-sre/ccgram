@@ -78,6 +78,15 @@ def _get_provider(window_id: str) -> "AgentProvider":
     )
 
 
+def _controls_physical_topic(user_id: int, thread_id: int, window_id: str) -> bool:
+    """Keep derived member/task lanes from renaming or archiving their parent."""
+    return thread_router.controls_physical_topic(
+        user_id=user_id,
+        thread_id=thread_id,
+        window_id=window_id,
+    )
+
+
 # ── Typing throttle ─────────────────────────────────────────────────────
 
 
@@ -119,8 +128,9 @@ async def _transition_to_idle(
     lc = runtime.lifecycle if runtime is not None else lifecycle_strategy
     ps.cancel_startup_timer(window_id)
     client = PTBTelegramClient(bot)
-    await update_topic_emoji(client, chat_id, thread_id, "idle", display)
-    lc.clear_autoclose_timer(user_id, thread_id)
+    if _controls_physical_topic(user_id, thread_id, window_id):
+        await update_topic_emoji(client, chat_id, thread_id, "idle", display)
+        lc.clear_autoclose_timer(user_id, thread_id)
     lc.clear_typing_state(user_id, thread_id)
     await enqueue_status_update(
         client, user_id, window_id, IDLE_STATUS_TEXT, thread_id=thread_id
@@ -337,10 +347,11 @@ async def _handle_dead_window_notification(
     clear_tool_msg_ids_for_topic(user_id, thread_id)
     chat_id = thread_router.resolve_chat_id(user_id, thread_id)
     display = thread_router.get_display_name(wid)
-    await update_topic_emoji(
-        PTBTelegramClient(bot), chat_id, thread_id, "dead", display
-    )
-    lc.start_autoclose_timer(user_id, thread_id, "dead", time.monotonic())
+    if _controls_physical_topic(user_id, thread_id, wid):
+        await update_topic_emoji(
+            PTBTelegramClient(bot), chat_id, thread_id, "dead", display
+        )
+        lc.start_autoclose_timer(user_id, thread_id, "dead", time.monotonic())
 
     view = window_query.view_window(wid)
     cwd = view.cwd if view else ""
@@ -436,7 +447,9 @@ async def _apply_active_transition(
         claude_task_state.clear_wait_header(window_id)
         if decision.send_typing:
             await _send_typing_throttled(bot, user_id, thread_id, runtime=runtime)
-    if thread_id is not None:
+    if thread_id is not None and _controls_physical_topic(
+        user_id, thread_id, window_id
+    ):
         chat_id = thread_router.resolve_chat_id(user_id, thread_id)
         display = thread_router.get_display_name(window_id)
         await update_topic_emoji(
@@ -460,8 +473,9 @@ async def _apply_done_transition(
     display = thread_router.get_display_name(window_id)
     ps.cancel_startup_timer(window_id)
     client = PTBTelegramClient(bot)
-    await update_topic_emoji(client, chat_id, thread_id, "done", display)
-    lc.start_autoclose_timer(user_id, thread_id, "done", time.monotonic())
+    if _controls_physical_topic(user_id, thread_id, window_id):
+        await update_topic_emoji(client, chat_id, thread_id, "done", display)
+        lc.start_autoclose_timer(user_id, thread_id, "done", time.monotonic())
     lc.clear_typing_state(user_id, thread_id)
     await enqueue_status_update(client, user_id, window_id, None, thread_id=thread_id)
     if not _get_provider(window_id).capabilities.supports_hook:
@@ -483,7 +497,9 @@ async def _apply_starting_transition(
         ps.begin_startup_timer(window_id, time.monotonic())
     if decision.send_typing:
         await _send_typing_throttled(bot, user_id, thread_id, runtime=runtime)
-    if thread_id is not None:
+    if thread_id is not None and _controls_physical_topic(
+        user_id, thread_id, window_id
+    ):
         chat_id = thread_router.resolve_chat_id(user_id, thread_id)
         display = thread_router.get_display_name(window_id)
         await update_topic_emoji(

@@ -196,6 +196,32 @@ class TestGetWindowForChatThread:
             (200, "@2"),
         ]
 
+    def test_only_canonical_window_controls_physical_topic(
+        self, router: ThreadRouter
+    ) -> None:
+        router.bind_thread(100, 7, "@main")
+        router.set_group_chat_id(100, 7, -999)
+        router.bind_thread(200, 7, "@member")
+        router.set_group_chat_id(200, 7, -999)
+        router.mark_member_lane("@member", 200)
+        router.register_task_lane(
+            "@task",
+            user_id=100,
+            chat_id=-999,
+            thread_id=7,
+            task_id="T0042",
+        )
+
+        assert router.controls_physical_topic(
+            user_id=100, thread_id=7, window_id="@main"
+        )
+        assert not router.controls_physical_topic(
+            user_id=200, thread_id=7, window_id="@member"
+        )
+        assert not router.controls_physical_topic(
+            user_id=100, thread_id=7, window_id="@task"
+        )
+
 
 class TestDisplayNames:
     def test_get_fallback(self, router: ThreadRouter) -> None:

@@ -14,6 +14,7 @@ from ccgram.handlers.polling.polling_state import (
 )
 from ccgram.handlers.polling.polling_types import TickContext
 from ccgram.handlers.polling.window_tick import (
+    _apply_done_transition,
     _check_interactive_only,
     _handle_dead_window_notification,
     _maybe_check_passive_shell,
@@ -175,6 +176,37 @@ class TestTickWindowEmptyQueue:
         ):
             await tick_window(bot, 1, 100, "@0", w)
             mock_status.assert_called_once()
+
+
+class TestDerivedLaneTopicOwnership:
+    async def test_done_task_lane_does_not_rename_or_close_parent_topic(self):
+        bot = AsyncMock(spec=Bot)
+        provider = MagicMock()
+        provider.capabilities.supports_hook = True
+
+        with (
+            patch(
+                "ccgram.handlers.polling.window_tick.apply._controls_physical_topic",
+                return_value=False,
+            ),
+            patch(
+                "ccgram.handlers.polling.window_tick.apply.update_topic_emoji",
+                new_callable=AsyncMock,
+            ) as mock_emoji,
+            patch(
+                "ccgram.handlers.polling.window_tick.apply.enqueue_status_update",
+                new_callable=AsyncMock,
+            ) as mock_enqueue,
+            patch(
+                "ccgram.handlers.polling.window_tick.apply._get_provider",
+                return_value=provider,
+            ),
+        ):
+            await _apply_done_transition(bot, 100, "@task", 7)
+
+        mock_emoji.assert_not_awaited()
+        mock_enqueue.assert_awaited_once()
+        assert lifecycle_strategy.get_state(100, 7).autoclose is None
 
 
 class TestUpdateStatusInteractive:

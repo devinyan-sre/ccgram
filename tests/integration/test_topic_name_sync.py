@@ -110,6 +110,10 @@ async def test_sync_dispatches_live_topic_name_reconciliation(app) -> None:
             return_value="ccgram-codex",
         ),
         patch(
+            "ccgram.handlers.sync_command.thread_router.controls_physical_topic",
+            return_value=True,
+        ),
+        patch(
             "ccgram.handlers.sync_command._run_audit",
             new_callable=AsyncMock,
             return_value=AuditResult(

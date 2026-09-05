@@ -757,6 +757,10 @@ class TestHandleSessionEnd:
                 return_value="project",
             ),
             patch(
+                "ccgram.handlers.hook_events.thread_router.controls_physical_topic",
+                return_value=True,
+            ),
+            patch(
                 "ccgram.session_lifecycle.window_store.clear_window_session",
             ) as mock_clear_session,
             patch("ccgram.handlers.hook_events.update_topic_emoji") as mock_emoji,
