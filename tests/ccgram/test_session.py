@@ -933,6 +933,28 @@ class TestAuditState:
         assert len(stale) == 1
         assert stale[0].fixable
 
+    def test_parallel_task_lane_is_not_reported_as_orphan(
+        self, mgr: SessionManager
+    ) -> None:
+        mgr.window_states["@parallel"] = WindowState(cwd="/tmp")
+        thread_router.register_task_lane(
+            "@parallel",
+            user_id=100,
+            chat_id=-999,
+            thread_id=42,
+            task_id="T0085",
+        )
+        result = mgr.audit_state(
+            live_window_ids={"@parallel"},
+            live_windows=[("@parallel", "project-codex-2")],
+        )
+
+        assert not [
+            issue
+            for issue in result.issues
+            if issue.category in {"orphaned_window", "stale_window_state"}
+        ]
+
 
 class TestPruneStaleOffsets:
     def test_removes_unknown_windows(self, mgr: SessionManager) -> None:
@@ -974,6 +996,20 @@ class TestPruneStaleWindowStates:
         changed = mgr.prune_stale_window_states(live_window_ids=set())
         assert not changed
         assert "@1" in mgr.window_states
+
+    def test_keeps_parallel_task_lane_states(self, mgr: SessionManager) -> None:
+        mgr.window_states["@parallel"] = WindowState(session_id="", cwd="/tmp")
+        thread_router.register_task_lane(
+            "@parallel",
+            user_id=100,
+            chat_id=-999,
+            thread_id=42,
+            task_id="T0085",
+        )
+        changed = mgr.prune_stale_window_states(live_window_ids=set())
+
+        assert not changed
+        assert "@parallel" in mgr.window_states
 
     def test_keeps_live_states(self, mgr: SessionManager) -> None:
         mgr.window_states["@1"] = WindowState(session_id="s1", cwd="/tmp")

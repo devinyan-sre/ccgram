@@ -307,8 +307,9 @@ class SessionManager:
         """
         # Collect window_ids that are "in use" (bound or have window_states)
         in_use = set(self.window_states.keys())
-        for bindings in thread_router.thread_bindings.values():
-            in_use.update(bindings.values())
+        in_use.update(
+            wid for _user_id, _thread_id, wid in thread_router.iter_execution_bindings()
+        )
 
         # Prune window_display_names for dead windows not in use and not live
         stale_display = [
@@ -389,15 +390,16 @@ class SessionManager:
         issues: list[AuditIssue] = []
 
         # Collect all bound window IDs
-        bound_window_ids: set[str] = set()
         total_bindings = 0
         live_binding_count = 0
         for _uid, bindings in thread_router.thread_bindings.items():
             for _tid, wid in bindings.items():
                 total_bindings += 1
-                bound_window_ids.add(wid)
                 if wid in live_window_ids:
                     live_binding_count += 1
+        execution_window_ids = {
+            wid for _uid, _tid, wid in thread_router.iter_execution_bindings()
+        }
 
         session_map_wids = self._get_session_map_window_ids()
 
@@ -415,7 +417,7 @@ class SessionManager:
                     )
 
         # 2. Orphaned display names
-        in_use = set(self.window_states.keys()) | bound_window_ids
+        in_use = set(self.window_states.keys()) | execution_window_ids
         for wid in thread_router.window_display_names:
             if wid not in live_window_ids and wid not in in_use:
                 name = thread_router.get_display_name(wid)
@@ -446,7 +448,7 @@ class SessionManager:
         for wid in self.window_states:
             if (
                 wid not in session_map_wids
-                and wid not in bound_window_ids
+                and wid not in execution_window_ids
                 and wid not in live_window_ids
             ):
                 display = self.window_states[wid].window_name or wid
@@ -459,7 +461,9 @@ class SessionManager:
                 )
 
         # 5. Stale user_window_offsets
-        known_wids = live_window_ids | bound_window_ids | set(self.window_states.keys())
+        known_wids = (
+            live_window_ids | execution_window_ids | set(self.window_states.keys())
+        )
         for uid, offsets in user_preferences.user_window_offsets.items():
             for wid in offsets:
                 if wid not in known_wids:
@@ -486,7 +490,7 @@ class SessionManager:
         # 7. Orphaned tmux windows (live, known to ccgram, but not bound to any topic)
         known_wids = session_map_wids | set(self.window_states.keys())
         for wid in live_window_ids:
-            if wid not in bound_window_ids and wid in known_wids:
+            if wid not in execution_window_ids and wid in known_wids:
                 name = dict(live_windows).get(wid, wid)
                 issues.append(
                     AuditIssue(
@@ -508,9 +512,9 @@ class SessionManager:
         Returns True if any changes were made.
         """
         session_map_wids = self._get_session_map_window_ids()
-        bound_window_ids: set[str] = set()
-        for bindings in thread_router.thread_bindings.values():
-            bound_window_ids.update(bindings.values())
+        bound_window_ids = {
+            wid for _uid, _tid, wid in thread_router.iter_execution_bindings()
+        }
 
         stale = [
             wid

@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from ccgram.session_map import parse_session_map, session_map_sync
+from ccgram.thread_router import thread_router
 from ccgram.window_state_store import WindowState, window_store
 from ccgram.window_lifecycle_guard import (
     clear_pending_creation,
@@ -183,6 +184,38 @@ async def test_load_session_map_preserves_pending_window_state(
     state = window_store.window_states["@new"]
     assert state.provider_name == "codex"
     assert state.approval_mode == "yolo"
+
+
+async def test_load_session_map_preserves_parallel_task_lane_before_first_prompt(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A hookless Codex lane has no session-map entry until its first prompt."""
+    session_map_file = tmp_path / "session_map.json"
+    session_map_file.write_text("{}")
+    monkeypatch.setattr("ccgram.session_map.config.session_map_file", session_map_file)
+    monkeypatch.setattr("ccgram.session_map.config.tmux_session_name", "ccgram")
+    monkeypatch.setattr(session_map_sync, "_schedule_save", lambda: None)
+    window_store.window_states["@parallel"] = WindowState(
+        cwd="/repo",
+        provider_name="codex",
+        approval_mode="normal",
+    )
+    thread_router.register_task_lane(
+        "@parallel",
+        user_id=7,
+        chat_id=-1007,
+        thread_id=42,
+        task_id="T0085",
+    )
+    try:
+        await session_map_sync.load_session_map()
+    finally:
+        thread_router.clear_task_lane("@parallel")
+
+    state = window_store.window_states["@parallel"]
+    assert state.provider_name == "codex"
+    assert state.approval_mode == "normal"
 
 
 def test_grace_env_allows_adopting_candidate(tmp_path: Path, monkeypatch) -> None:

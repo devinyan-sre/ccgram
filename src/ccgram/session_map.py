@@ -359,11 +359,12 @@ class SessionMapSync:
         # Lazy: avoid session_map ↔ lifecycle observer import cycles at startup.
         from .window_lifecycle_guard import is_pending_creation
 
+        # Parallel task lanes are execution bindings even though they do not
+        # own a second Telegram topic. Treat them as bound so a hookless CLI
+        # (notably Codex before its first prompt creates a transcript) cannot
+        # lose its provider/approval state during session-map reconciliation.
         bound_wids = {
-            wid
-            for user_bindings in thread_router.thread_bindings.values()
-            for wid in user_bindings.values()
-            if wid
+            wid for _user_id, _thread_id, wid in thread_router.iter_execution_bindings()
         }
         stale_wids = [
             w
